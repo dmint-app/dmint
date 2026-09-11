@@ -1,3 +1,4 @@
+# Environments & Credentials
 .env
 .env.*
 !.env.example
@@ -11,18 +12,45 @@ credentials.*
 *.key
 *.crt
 *.p12
+
+# Database & Epoch Files
 *.sqlite
 *.db
 *.db.epoch
+
+# Python Cache & Bytecode
 __pycache__/
+*.py[cod]
+*$py.class
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+
+# Coverage & Audit Output
 .coverage
 coverage.xml
 htmlcov/
+
+# Virtual Environments
 .venv/
 venv/
+env/
+ENV/
+
+# Build & Package Artifacts
 dist/
 build/
 *.egg-info/
+
+# Logs & Temporary Files
+*.log
+*.tmp
+*.temp
+
+# OS & Editor Junk
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
