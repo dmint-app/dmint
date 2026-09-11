@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dmint"
+version = "0.1.0"
+description = "Deterministic authorization for AI-agent tool execution"
+requires-python = ">=3.10"
+readme = "README.md"
+dependencies = [
+    "cryptography>=42,<51",
+    "rfc8785>=0.1.2,<0.2",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]

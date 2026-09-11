@@ -1,0 +1,119 @@
+{
+  "version": 1,
+  "skills": {
+    "clean-code-c-cpp": {
+      "source": "rafa57600/clean-code-agent-skills",
+      "sourceType": "github",
+      "skillPath": "clean-code-c-cpp/SKILL.md",
+      "computedHash": "84ae172d25141eefca8d4685dbbf4184971430da8f91b3e599472d1e0b0c3a90"
+    },
+    "clean-code-csharp": {
+      "source": "rafa57600/clean-code-agent-skills",
+      "sourceType": "github",
+      "skillPath": "clean-code-csharp/SKILL.md",
+      "computedHash": "88610bcc993f2250481cf57a326d1cd202f5aee237833668e0759bf29e1b26a3"
+    },
+    "clean-code-go": {
+      "source": "rafa57600/clean-code-agent-skills",
+      "sourceType": "github",
+      "skillPath": "clean-code-go/SKILL.md",
+      "computedHash": "568cf9e8e8e31d03d9c21adc31349a530c98e2f6fe95e7420b4b81fb6e1aa23d"
+    },
+    "clean-code-java": {
+      "source": "rafa57600/clean-code-agent-skills",
+      "sourceType": "github",
+      "skillPath": "clean-code-java/SKILL.md",
+      "computedHash": "73562567cf71bc0eaefefb7e2db655a0f5d5687ae0b3c8305eb425bf7dedf5f0"
+    },
+    "clean-code-javascript-typescript": {
+      "source": "rafa57600/clean-code-agent-skills",
+      "sourceType": "github",
+      "skillPath": "clean-code-javascript-typescript/SKILL.md",
+      "computedHash": "bc124ef5f2b1e5e8b41a6d8017871b4d983f83172c8cb1e393b4e13948efe29d"
+    },
+    "clean-code-orchestrator": {
+      "source": "rafa57600/clean-code-agent-skills",
+      "sourceType": "github",
+      "skillPath": "clean-code-orchestrator/SKILL.md",
+      "computedHash": "30c77ee864032cf15979a75e30d19dbe42f2c3fb766174823a04ba73565afa47"
+    },
+    "clean-code-php": {
+      "source": "rafa57600/clean-code-agent-skills",
+      "sourceType": "github",
+      "skillPath": "clean-code-php/SKILL.md",
+      "computedHash": "ab3fdcc303e0f993064261ff5a78b9d8da3a3dbce61b124a6dcd8c2f4a84763f"
+    },
+    "clean-code-python": {
+      "source": "rafa57600/clean-code-agent-skills",
+      "sourceType": "github",
+      "skillPath": "clean-code-python/SKILL.md",
+      "computedHash": "a7afba75277f7d942984c041cc9d549fe315c1bf2b3464488c47603d75b6e707"
+    },
+    "clean-code-ruby": {
+      "source": "rafa57600/clean-code-agent-skills",
+      "sourceType": "github",
+      "skillPath": "clean-code-ruby/SKILL.md",
+      "computedHash": "6e33d8768052fddb58c2a9a3ebdecdc84ce0ff7956378415e9e2f97b92f7b531"
+    },
+    "clean-code-rust": {
+      "source": "rafa57600/clean-code-agent-skills",
+      "sourceType": "github",
+      "skillPath": "clean-code-rust/SKILL.md",
+      "computedHash": "95281010ac9eaef7ffa3522db27893a1a7ebac6554f6df075f31a76c41f55574"
+    },
+    "deploy-to-vercel": {
+      "source": "vercel-labs/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/deploy-to-vercel/SKILL.md",
+      "computedHash": "03e0eaaa9bf13ba1e7ffa387f5893de6f324c0868c627001f179395a8feaa7c9"
+    },
+    "vercel-cli-with-tokens": {
+      "source": "vercel-labs/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/vercel-cli-with-tokens/SKILL.md",
+      "computedHash": "eb16b20dcbe6ce51e0372083d624e0847af1b09487ec99249227d5a8eddebfc0"
+    },
+    "vercel-composition-patterns": {
+      "source": "vercel-labs/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/composition-patterns/SKILL.md",
+      "computedHash": "575757e3e25761c8c562d6e395d29f0b76c98b1273c0bd72d88e6ab1bc9c7d42"
+    },
+    "vercel-optimize": {
+      "source": "vercel-labs/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/vercel-optimize/SKILL.md",
+      "computedHash": "ad0ef9c5c980f824e2ec19cba5c45426aba923a17e71fbaf6d1830574b62cc44"
+    },
+    "vercel-react-best-practices": {
+      "source": "vercel-labs/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/react-best-practices/SKILL.md",
+      "computedHash": "ca7b0c0c6e5f2750043f7f0cd72d16ac4e2abc48f9b5500d047a4b77a2506212"
+    },
+    "vercel-react-native-skills": {
+      "source": "vercel-labs/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/react-native-skills/SKILL.md",
+      "computedHash": "41d24eafa7c3d82e270439808f7cfbc4d51aeb2d14f2809a2267c16275784d06"
+    },
+    "vercel-react-view-transitions": {
+      "source": "vercel-labs/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/react-view-transitions/SKILL.md",
+      "computedHash": "2033ef20681c90d4f93deee719e55e019c254e496d9bf80381c27cc539292001"
+    },
+    "web-design-guidelines": {
+      "source": "vercel-labs/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/web-design-guidelines/SKILL.md",
+      "computedHash": "f3bc47f890f42a44db1007ab390709ec368e4b8c089baee6b0007182236ac474"
+    },
+    "writing-guidelines": {
+      "source": "vercel-labs/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/writing-guidelines/SKILL.md",
+      "computedHash": "25aa3a33a97bddbcb1847ce4a6169106ec25e5b19b15b99c66e75ab383866ef2"
+    }
+  }
+}
