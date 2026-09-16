@@ -1,5 +1,8 @@
 """Dmint's hardened Phase 1 deterministic authorization core."""
 
+__version__ = "1.0.0"
+
+
 from .approvals import (
     APPROVAL_RECORD_SCHEMA_VERSION,
     CANONICALIZATION_PROFILE,
@@ -70,6 +73,7 @@ from .storage import SQLiteApprovalStore
 from .versions import APPROVAL_CREDENTIAL_VERSION, APPROVAL_SIGNATURE_ALGORITHM
 
 __all__ = [
+    "__version__",
     "AuthorizationError",
     "AuthorizedRequest",
     "ANY_RESOURCE",

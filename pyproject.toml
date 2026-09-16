@@ -4,11 +4,21 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dmint"
-version = "0.1.0"
+version = "1.0.0"
 description = "Deterministic authorization for AI-agent tool execution"
 license = "Apache-2.0"
 requires-python = ">=3.10"
 readme = "README.md"
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Security",
+]
 dependencies = [
     "cryptography>=42,<51",
     "rfc8785>=0.1.2,<0.2",
