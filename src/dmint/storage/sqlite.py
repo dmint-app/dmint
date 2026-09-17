@@ -25,7 +25,7 @@ from ..approvals import (
     PolicyProvenance,
     parse_approval_state,
 )
-from ..authority import ApprovalAssertion, ApprovalVerifier
+from ..authority import ApprovalAssertion, ApprovalVerifier, LocalApprovalAuthority
 from ..errors import (
     ApprovalConcurrentConsumeError,
     ApprovalConsumedError,
@@ -652,6 +652,215 @@ class SQLiteApprovalStore:
         except sqlite3.Error as exc:
             self._rollback_safely()
             raise ApprovalStoreError("approval consumption storage failure") from exc
+        except Exception:
+            self._rollback_safely()
+            raise
+
+    # ------------------------------------------------------------------
+    # Dashboard-facing public query and decision APIs
+    # ------------------------------------------------------------------
+
+    _MAX_QUERY_LIMIT: int = 1000
+
+    def list_pending(self, *, limit: int = 100) -> list[ApprovalRecord]:
+        """Return unexpired PENDING records, newest first.
+
+        Expired pending rows that have not yet been cleaned up are excluded.
+        Corrupt rows raise CorruptApprovalRecordError and stop the listing.
+        Use limit to bound the result set; maximum is 1000.
+        """
+        if type(limit) is not int or limit < 1:
+            raise MalformedApprovalError("list_pending limit must be a positive integer")
+        limit = min(limit, self._MAX_QUERY_LIMIT)
+        now_str = _timestamp(self._clock())
+        try:
+            rows = self._connection.execute(
+                """
+                SELECT * FROM approval_records
+                WHERE state = 'PENDING'
+                AND expires_at > ?
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (now_str, limit),
+            ).fetchall()
+        except sqlite3.Error as exc:
+            raise ApprovalStoreError("could not list pending approval records") from exc
+        return [self._deserialize(row) for row in rows]
+
+    def list_records(
+        self,
+        *,
+        states: set[ApprovalState] | None = None,
+        limit: int = 100,
+    ) -> list[ApprovalRecord]:
+        """Return approval records filtered by state, newest first.
+
+        When states is None all states are returned.  Use limit to bound the
+        result set; maximum is 1000.  Corrupt rows raise
+        CorruptApprovalRecordError and stop the listing.
+        """
+        if type(limit) is not int or limit < 1:
+            raise MalformedApprovalError("list_records limit must be a positive integer")
+        limit = min(limit, self._MAX_QUERY_LIMIT)
+        if states is not None:
+            if not isinstance(states, set) or not states:
+                raise MalformedApprovalError("states must be a non-empty set of ApprovalState")
+            for s in states:
+                if type(s) is not ApprovalState:
+                    raise MalformedApprovalError("states must contain only ApprovalState values")
+            placeholders = ", ".join("?" * len(states))
+            state_values = tuple(s.value for s in states)
+            try:
+                rows = self._connection.execute(
+                    f"""
+                    SELECT * FROM approval_records
+                    WHERE state IN ({placeholders})
+                    ORDER BY created_at DESC
+                    LIMIT ?
+                    """,
+                    state_values + (limit,),
+                ).fetchall()
+            except sqlite3.Error as exc:
+                raise ApprovalStoreError("could not list approval records") from exc
+        else:
+            try:
+                rows = self._connection.execute(
+                    """
+                    SELECT * FROM approval_records
+                    ORDER BY created_at DESC
+                    LIMIT ?
+                    """,
+                    (limit,),
+                ).fetchall()
+            except sqlite3.Error as exc:
+                raise ApprovalStoreError("could not list approval records") from exc
+        return [self._deserialize(row) for row in rows]
+
+    def approve_pending(
+        self,
+        approval_id: str,
+        *,
+        authority: LocalApprovalAuthority,
+        approved_by: str,
+        now: datetime | None = None,
+    ) -> ApprovalRecord:
+        """Atomically approve a PENDING record via a trusted human authority.
+
+        Core owns the full PENDING → APPROVED state transition.  Callers
+        supply only the approval_id, a LocalApprovalAuthority (the signing
+        key), and the human subject identity.  Core loads the record, issues
+        a signed Ed25519 assertion bound to the exact stored request, creates
+        the APPROVED record, persists it, and returns the resulting record.
+
+        The caller cannot substitute the request fingerprint, policy
+        provenance, arguments, or any other security-critical field — all of
+        those are taken from the stored PENDING record.
+
+        Raises ApprovalNotFoundError if the record does not exist.
+        Raises ApprovalExpiredError if the record has expired.
+        Raises IllegalApprovalTransitionError if the record is not PENDING.
+        Raises ApprovalConcurrentConsumeError if a concurrent approval won.
+        """
+        if not isinstance(authority, LocalApprovalAuthority):
+            raise MalformedApprovalError("approve_pending requires a LocalApprovalAuthority")
+        if type(approved_by) is not str or not approved_by or approved_by != approved_by.strip():
+            raise MalformedApprovalError("approved_by must be a non-empty string")
+        if type(approval_id) is not str or not _ID_PATTERN.fullmatch(approval_id) or not approval_id.startswith("apr_"):
+            raise CorruptApprovalRecordError("invalid approval_id lookup")
+        now_dt = _load_timestamp(_timestamp(now or self._clock()), "approve time")
+        try:
+            self._connection.execute("BEGIN IMMEDIATE")
+            row = self._fetch_row(approval_id)
+            if row is None:
+                raise ApprovalNotFoundError("approval record was not found")
+            record = self._deserialize(row)
+            # record.approve() enforces PENDING state and expiration
+            approver = ApprovalAuthority._from_trusted_boundary(
+                authority.issuer_id,
+                approved_by,
+                ApprovalAuthorityKind.HUMAN,
+            )
+            approved = record.approve(approver, now=now_dt)
+            # Issue signed assertion bound to the exact stored request
+            authority.issue(record, approver, now=now_dt)
+            serialized = self._serialize(approved)
+            assignments = ", ".join(f"{column} = ?" for column in (*_STORED_COLUMNS, "record_checksum"))
+            cursor = self._connection.execute(
+                f"UPDATE approval_records SET {assignments} "
+                "WHERE approval_id = ? AND state = 'PENDING'",
+                serialized + (approval_id,),
+            )
+            if cursor.rowcount != 1:
+                raise ApprovalConcurrentConsumeError("approval state changed during approve operation")
+            self._connection.commit()
+            return approved
+        except (ApprovalStoreError, MalformedApprovalError):
+            self._rollback_safely()
+            raise
+        except Exception:
+            self._rollback_safely()
+            raise
+
+    def reject_pending(
+        self,
+        approval_id: str,
+        *,
+        authority: LocalApprovalAuthority,
+        rejected_by: str,
+        reason: str | None = None,
+        now: datetime | None = None,
+    ) -> ApprovalRecord:
+        """Atomically reject a PENDING record via a trusted human authority.
+
+        Core owns the full PENDING → REJECTED state transition.  Callers
+        supply only the approval_id, a LocalApprovalAuthority (the signing
+        key), the human subject identity, and an optional reason.
+
+        Raises ApprovalNotFoundError if the record does not exist.
+        Raises ApprovalExpiredError if the record has expired.
+        Raises IllegalApprovalTransitionError if the record is not PENDING.
+        Raises ApprovalConcurrentConsumeError if a concurrent decision won.
+        """
+        if not isinstance(authority, LocalApprovalAuthority):
+            raise MalformedApprovalError("reject_pending requires a LocalApprovalAuthority")
+        if type(rejected_by) is not str or not rejected_by or rejected_by != rejected_by.strip():
+            raise MalformedApprovalError("rejected_by must be a non-empty string")
+        if reason is not None:
+            if type(reason) is not str or not reason or reason != reason.strip():
+                raise MalformedApprovalError("reason must be a non-empty string if provided")
+            if len(reason) > 1000:
+                raise MalformedApprovalError("rejection reason must not exceed 1000 characters")
+        if type(approval_id) is not str or not _ID_PATTERN.fullmatch(approval_id) or not approval_id.startswith("apr_"):
+            raise CorruptApprovalRecordError("invalid approval_id lookup")
+        now_dt = _load_timestamp(_timestamp(now or self._clock()), "reject time")
+        try:
+            self._connection.execute("BEGIN IMMEDIATE")
+            row = self._fetch_row(approval_id)
+            if row is None:
+                raise ApprovalNotFoundError("approval record was not found")
+            record = self._deserialize(row)
+            rejecter = ApprovalAuthority._from_trusted_boundary(
+                authority.issuer_id,
+                rejected_by,
+                ApprovalAuthorityKind.HUMAN,
+            )
+            # record.reject() enforces PENDING state and expiration
+            rejected = record.reject(rejecter, now=now_dt, reason=reason)
+            serialized = self._serialize(rejected)
+            assignments = ", ".join(f"{column} = ?" for column in (*_STORED_COLUMNS, "record_checksum"))
+            cursor = self._connection.execute(
+                f"UPDATE approval_records SET {assignments} "
+                "WHERE approval_id = ? AND state = 'PENDING'",
+                serialized + (approval_id,),
+            )
+            if cursor.rowcount != 1:
+                raise ApprovalConcurrentConsumeError("approval state changed during reject operation")
+            self._connection.commit()
+            return rejected
+        except (ApprovalStoreError, MalformedApprovalError):
+            self._rollback_safely()
+            raise
         except Exception:
             self._rollback_safely()
             raise

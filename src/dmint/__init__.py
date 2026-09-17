@@ -1,6 +1,6 @@
 """Dmint's hardened Phase 1 deterministic authorization core."""
 
-__version__ = "1.0.0"
+__version__ = "1.0.1"
 
 
 from .approvals import (
