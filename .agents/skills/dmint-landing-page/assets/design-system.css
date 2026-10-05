@@ -1,0 +1,456 @@
+/* ==========================================================================
+   Dmint Landing Page — Design System v2
+   Plain CSS. No framework. True rectangles (zero border-radius), zero
+   box-shadow. Motion is purposeful: a single flowing-signal animation
+   reused across the request-flow diagrams, nothing decorative, and it
+   respects prefers-reduced-motion. See SKILL.md for the reasoning.
+   ========================================================================== */
+
+:root {
+  /* ---- Semantic decision colors ----
+     These are not decoration — they are the same three outcomes Dmint's
+     policy engine actually returns (ALLOW / DENY / APPROVAL_REQUIRED),
+     reused consistently everywhere that outcome appears: diagrams, the
+     primary CTA (an "allow" action), code samples. Same values in both
+     themes. */
+  --allow: #3ECFA0;     /* mint — allow / success / primary action */
+  --deny: #E5484D;      /* muted red — deny / blocked */
+  --approval: #E8B339;  /* amber — approval required / human-in-the-loop */
+  --on-allow: #06201A;  /* dark text for use on a mint-filled surface */
+
+  /* ---- Spacing scale (generous — v1's mistake was cramped boxes) ---- */
+  --space-1: 0.5rem;    /* 8px  */
+  --space-2: 1rem;      /* 16px */
+  --space-3: 1.75rem;   /* 28px */
+  --space-4: 3rem;      /* 48px */
+  --space-5: 5rem;      /* 80px */
+  --space-6: 8rem;      /* 128px */
+  --space-7: 11rem;     /* 176px — section vertical padding */
+
+  /* ---- Layout ---- */
+  --content-max: 1140px;
+  --side-gutter: var(--space-3);
+
+  /* ---- Type ---- */
+  --font-mono: 'Roboto Mono', 'Google Sans Code', 'Inconsolata', 'Fira Mono',
+               ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+}
+
+:root,
+:root[data-theme='dark'] {
+  --bg: #0A0A0A;
+  --bg-alt: #141414;
+  --text: #EDEDED;
+  --text-dim: #8F8F8F;
+  --line: #262626; /* diagram stroke color on dark */
+}
+
+:root[data-theme='light'] {
+  --bg: #FAFAFA;
+  --bg-alt: #F0EFEC;
+  --text: #141414;
+  --text-dim: #63615C;
+  --line: #D8D6D1; /* diagram stroke color on light */
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 16px;
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Headings use plain text color, not the accent — the mint/amber/red
+   palette is reserved for decision semantics (diagrams, CTA, code),
+   so it still means something when it appears, instead of being
+   sprinkled on every heading as decoration. */
+h1, h2, h3, h4 {
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+  margin: 0 0 var(--space-2) 0;
+}
+
+h1 { font-size: clamp(2.25rem, 4.5vw, 3.25rem); }
+h2 { font-size: clamp(1.5rem, 3vw, 2.1rem); max-width: 34ch; }
+h3 { font-size: 1.05rem; font-weight: 600; }
+
+p {
+  margin: 0 0 var(--space-2) 0;
+  color: var(--text-dim);
+  max-width: 62ch;
+}
+
+a { color: var(--text); text-decoration: none; }
+a:hover, a:focus-visible { color: var(--allow); }
+
+code, pre { font-family: var(--font-mono); }
+
+pre {
+  background: var(--bg-alt);
+  padding: var(--space-3);
+  overflow-x: auto;
+  color: var(--text);
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+
+*:not(:focus-visible) { border: none; }
+
+::selection {
+  background: var(--allow);
+  color: var(--on-allow);
+}
+
+/* ---- Layout primitives ---- */
+.container {
+  max-width: var(--content-max);
+  margin-inline: auto;
+  padding-inline: var(--side-gutter);
+}
+
+.eyebrow {
+  /* A plain, lowercase section label — not tracked-out ALL CAPS, not a
+     decorative accent color. Just orientation, quietly. */
+  color: var(--text-dim);
+  font-size: 0.85rem;
+  margin-bottom: var(--space-1);
+}
+
+/* ---- Navbar + hero: one standard-height unit, not forced 100vh ----
+   The navbar deliberately holds nothing but the logo and the theme
+   toggle — no link list. Anchors to the page's own sections live in the
+   content itself (the hero's CTA, cross-references in prose); the
+   navbar's job is just orientation + the one real control on the page. */
+.site-header { background: var(--bg); }
+
+.navbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-block: var(--space-3);
+  gap: var(--space-3);
+}
+
+.navbar__logo { color: var(--allow); font-weight: 600; font-size: 1.1rem; }
+.navbar__logo img, .navbar__logo svg { display: block; height: 26px; width: auto; }
+
+/* Icon-only theme toggle. No background box, no border, no radius —
+   it's a glyph, not a button-shaped surface. The sun/moon pair uses
+   stroke="currentColor" so it inherits --text automatically in both
+   themes; only one of the two is ever visible, swapped by [data-theme]. */
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  view-transition-name: theme-toggle;
+}
+
+.theme-toggle svg {
+  width: 20px;
+  height: 20px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 1.6;
+}
+
+.theme-toggle:hover { color: var(--allow); }
+
+.theme-toggle .icon-sun { display: none; }
+.theme-toggle .icon-moon { display: block; }
+:root[data-theme="light"] .theme-toggle .icon-sun { display: block; }
+:root[data-theme="light"] .theme-toggle .icon-moon { display: none; }
+
+.hero {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding-block: var(--space-6) var(--space-5);
+  max-width: 640px;
+}
+
+.hero p { font-size: 1.1rem; }
+
+.hero__diagram {
+  max-width: 760px;
+  margin-top: var(--space-2);
+}
+
+.hero__actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+
+.btn {
+  font-family: var(--font-mono);
+  font-size: 0.95rem;
+  padding: var(--space-2) var(--space-3);
+  cursor: pointer;
+  display: inline-block;
+}
+
+.btn--primary { background: var(--allow); color: var(--on-allow); }
+.btn--secondary { background: var(--bg-alt); color: var(--text); }
+.btn:hover { opacity: 0.85; }
+
+/* ---- Content sections ---- */
+.section {
+  padding-block: var(--space-7);
+}
+
+.section:nth-of-type(even) { background: var(--bg-alt); }
+
+.section__head {
+  max-width: 640px;
+  margin-bottom: var(--space-5);
+}
+
+/* Two-column: text left, diagram right on wide viewports; stacks on
+   narrow ones. Used by sections that pair a short claim with a figure. */
+.split {
+  display: grid;
+  grid-template-columns: minmax(260px, 420px) 1fr;
+  gap: var(--space-5);
+  align-items: center;
+}
+
+@media (max-width: 860px) {
+  .split { grid-template-columns: 1fr; }
+}
+
+/* Numbered sequence — only used where content is a genuine sequence
+   (the request's actual path through the system), not decoration. */
+.steps {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-4);
+  margin-top: var(--space-5);
+}
+
+.step__index {
+  color: var(--text-dim);
+  font-size: 0.85rem;
+  margin-bottom: var(--space-1);
+}
+
+.step h3 { margin-bottom: var(--space-1); }
+.step p { margin-bottom: 0; }
+
+/* ---- Figures ---- */
+figure {
+  margin: 0;
+}
+
+figure svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+figcaption {
+  color: var(--text-dim);
+  font-size: 0.85rem;
+  margin-top: var(--space-2);
+}
+
+/* ---- Diagram theming ----
+   Inline SVGs use these classes so they inherit page theme + motion
+   rules, rather than hardcoded colors baked into the markup. */
+.d-line {
+  stroke: var(--line);
+  stroke-width: 1.5;
+  fill: none;
+}
+
+.d-node {
+  fill: var(--bg-alt);
+  stroke: var(--line);
+  stroke-width: 1.5;
+}
+
+.d-label { fill: var(--text); font-size: 12px; }
+.d-label--dim { fill: var(--text-dim); font-size: 11px; }
+
+.d-allow { stroke: var(--allow); }
+.d-deny { stroke: var(--deny); }
+.d-approval { stroke: var(--approval); }
+
+.d-allow-fill { fill: var(--allow); }
+.d-deny-fill { fill: var(--deny); }
+.d-approval-fill { fill: var(--approval); }
+
+/* The one motion idea on the page, reused: a signal flowing along a
+   connector. Applied to any path/line with class d-flow. Loops slowly
+   and quietly rather than drawing attention away from the labels. */
+.d-flow {
+  stroke-dasharray: 5 7;
+  animation: dmint-flow 1.6s linear infinite;
+}
+
+.d-flow--deny { animation-duration: 1.6s; }
+
+@keyframes dmint-flow {
+  to { stroke-dashoffset: -24; }
+}
+
+/* A quiet pulse on the node where the actual decision happens —
+   the one moment on the page motion is used to draw the eye to. */
+.d-pulse {
+  animation: dmint-pulse 2.4s ease-in-out infinite;
+}
+
+@keyframes dmint-pulse {
+  0%, 100% { opacity: 0.7; }
+  50% { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .d-flow, .d-pulse {
+    animation: none;
+  }
+}
+
+/* A best-effort side-channel, visually distinct from the solid, animated
+   critical path (.d-flow). Static and dashed, never animated — the whole
+   point is that it reads as "can drop silently," unlike the path it
+   branches from. Used for things like webhook notifications that don't
+   gate anything. */
+.d-aux {
+  stroke: var(--line);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 5;
+  fill: none;
+  opacity: 0.65;
+}
+
+/* ---- CLI / command reference grid ----
+   Not a sequence, so no numbering (see .steps) — just short cards, one
+   command each. Separation is background contrast, same rule as
+   everywhere else on the page. */
+.cmd-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: var(--space-3);
+  margin-top: var(--space-5);
+}
+
+.cmd { background: var(--bg-alt); padding: var(--space-3); }
+.cmd code { display: block; color: var(--allow); font-size: 0.95rem; margin-bottom: var(--space-2); }
+.cmd p { margin: 0; font-size: 0.9rem; }
+
+/* A section with the alternate background would make .cmd cards
+   invisible against it — force the card's own contrast rather than
+   relying on section alternation alone. */
+.section:nth-of-type(even) .cmd { background: var(--bg); }
+
+/* ---- Demo placeholder frame ----
+   Corner brackets only, like a viewfinder — not a fake video player, not
+   a border around a box. Signals "something will go here" without
+   pretending a recording is embedded. The pulsing dot reuses d-pulse
+   rather than inventing a new "recording" animation. */
+.demo-frame {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  max-width: 720px;
+  margin-top: var(--space-4);
+}
+
+.demo-frame svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.demo-frame__corner { stroke: var(--line); stroke-width: 1.5; fill: none; }
+
+.demo-frame__content {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+}
+
+.demo-frame__rec {
+  display: inline-flex; align-items: center; gap: var(--space-1);
+  color: var(--text-dim); font-size: 0.85rem;
+}
+
+.demo-frame__dot {
+  width: 8px; height: 8px; background: var(--deny); display: inline-block;
+}
+
+/* ---- Footer ----
+   The one place on this page a link list belongs — unlike the navbar
+   (see SKILL.md), the footer is read after the page has already made
+   its case, so wayfinding here doesn't compete with the diagrams for
+   attention. Separation from the page above is spacing + the same
+   --bg-alt contrast rule as every other section boundary, never a
+   border. */
+.site-footer {
+  background: var(--bg-alt);
+  padding-block: var(--space-6) var(--space-4);
+}
+
+.footer__top {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--space-5);
+  margin-bottom: var(--space-5);
+}
+
+.footer__brand { max-width: 360px; }
+.footer__brand .navbar__logo { display: block; margin-bottom: var(--space-2); }
+.footer__brand p { margin: 0; font-size: 0.9rem; }
+
+.footer__cols {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: var(--space-4);
+  flex: 1 1 auto;
+  max-width: 560px;
+}
+
+.footer__col h3 { font-size: 0.85rem; color: var(--text-dim); font-weight: 600; margin: 0 0 var(--space-2) 0; }
+.footer__col ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-1); }
+.footer__col a { color: var(--text); font-size: 0.9rem; }
+.footer__col a:hover, .footer__col a:focus-visible { color: var(--allow); }
+
+.footer__bottom {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding-top: var(--space-4);
+  color: var(--text-dim);
+  font-size: 0.8rem;
+}
+
+/* ---- Theme-change transition ----
+   Toggling the icon expands the new theme outward from the icon itself,
+   via the View Transitions API (theme.js computes the circle and runs
+   the animation from the click point — see that file). These rules only
+   turn off the browser's own default crossfade so the clip-path
+   animation is the only thing visible; the circle math lives in JS
+   because it depends on the click coordinates and viewport size.
+   Browsers without View Transitions support just swap instantly —
+   theme.js handles that fallback, nothing extra needed here. */
+@media (prefers-reduced-motion: no-preference) {
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation: none;
+    mix-blend-mode: normal;
+  }
+}
+
+/* prefers-reduced-motion: reduce skips the whole startViewTransition
+   call in JS, so no view-transition-specific CSS is needed for it. */
+
+/* ---- Responsive ---- */
+@media (max-width: 640px) {
+  .hero { padding-block: var(--space-5) var(--space-4); }
+  .section { padding-block: var(--space-5); }
+}

@@ -1,0 +1,14 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "docs-dmint-app",
+  "main": "./dist/.holocron/rsc/index.js",
+  "compatibility_date": "2026-09-21",
+  "workers_dev": true,
+  "build": {
+    "command": "npm run build"
+  },
+  "assets": {
+    "directory": "./dist/.holocron/client",
+    "not_found_handling": "single-page-application"
+  }
+}

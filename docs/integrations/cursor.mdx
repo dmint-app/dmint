@@ -1,0 +1,95 @@
+---
+title: "Cursor Integration"
+description: "How to protect MCP tools and enforce deterministic guardrails in Cursor using dmint-mcp."
+icon: "laptop-code"
+---
+
+# Cursor Integration
+
+[Cursor](https://cursor.com) supports the Model Context Protocol (MCP) natively. By default, Cursor executes any MCP tool call immediately.
+
+By wrapping your MCP servers with `dmint-mcp`, every tool call proposed by Cursor's AI model is intercepted and evaluated against your `policy.json`.
+
+---
+
+## 1. Generate Protection Configuration
+
+First, generate your `policy.json` and `mcp_protection.json` using the `dmint` CLI:
+
+```bash
+dmint create-mcp-policy \
+  --command npx \
+  --args "-y @modelcontextprotocol/server-postgres postgresql://localhost/mydb" \
+  --integration-id postgres \
+  -f access.md \
+  -o policy.json \
+  --config-output mcp_protection.json \
+  -y
+```
+
+---
+
+## 2. Configure `.cursor/mcp.json`
+
+In your project root, create or edit `.cursor/mcp.json`. Replace the raw tool command with the `dmint-mcp` gateway runner:
+
+```json title=".cursor/mcp.json"
+{
+  "mcpServers": {
+    "dmint-protected-gateway": {
+      "command": "python",
+      "args": [
+        "-m",
+        "dmint.mcp",
+        "run",
+        "--config",
+        "/absolute/path/to/mcp_protection.json"
+      ]
+    }
+  }
+}
+```
+
+<Tip>
+Always use absolute paths in `.cursor/mcp.json` so Cursor can locate the configuration regardless of which subfolder is currently open. The policy file (`policy_file`), approval database (`approval_db`), and TTL (`approval_ttl`) are defined inside `mcp_protection.json`.
+</Tip>
+
+---
+
+## 3. Install the Policy Authoring Skill
+
+To let Cursor help you author or update rules directly in the Cursor chat:
+
+```bash
+dmint install-skill -y
+```
+
+This installs the skill to `.agents/skills/dmint-policy-manager/`, which Cursor automatically recognizes.
+
+---
+
+## 4. Review & Approve via Dashboard or CLI
+
+You can review and approve pending requests using the terminal or the web dashboard:
+
+```bash
+# Option A: Manage approvals via terminal:
+dmint pending
+dmint approve apr_abc123...
+
+# Option B: Launch the local web dashboard:
+dmint dashboard --db-path /absolute/path/to/approvals.sqlite3 --port 8080
+```
+
+---
+
+## 5. Experience the Flow in Cursor
+
+1. Open Cursor and prompt the Agent:
+   ```text
+   "Please update the email address of user 42 in the database to test@example.com."
+   ```
+2. Cursor invokes the `postgres_update` tool through the gateway.
+3. The gateway evaluates `policy.json`. Seeing `APPROVAL_REQUIRED`, it halts execution and returns a message instructing the agent to await human review.
+4. Switch to **http://127.0.0.1:8080**, review the SQL update payload, and click **Approve**.
+5. Cursor automatically retries the call with the approved assertion. The query executes, and Cursor reports success!

@@ -1,0 +1,197 @@
+{% extends "base.html" %}
+{% block title %}Dmint — Pending Approvals{% endblock %}
+
+{% block content %}
+
+<div class="d-page-heading">
+  <div class="d-eyebrow">Runtime Authorization Gate</div>
+  <h1>Pending Approvals</h1>
+  <p>Review AI agent tool requests waiting for your decision</p>
+</div>
+
+{# ── Stats ──────────────────────────────────────────────────────────── #}
+<div class="d-stats">
+
+  <div class="d-stat">
+    <div class="d-stat-icon pending" aria-hidden="true">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+      </svg>
+    </div>
+    <div>
+      <div class="d-stat-num" id="count-pending">{{ count_pending }}</div>
+      <div class="d-stat-label">Pending</div>
+    </div>
+  </div>
+
+  <div class="d-stat">
+    <div class="d-stat-icon approved" aria-hidden="true">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="20 6 9 17 4 12"/>
+      </svg>
+    </div>
+    <div>
+      <div class="d-stat-num" id="count-approved">{{ count_approved }}</div>
+      <div class="d-stat-label">Approved</div>
+    </div>
+  </div>
+
+  <div class="d-stat">
+    <div class="d-stat-icon rejected" aria-hidden="true">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+      </svg>
+    </div>
+    <div>
+      <div class="d-stat-num" id="count-rejected">{{ count_rejected }}</div>
+      <div class="d-stat-label">Rejected</div>
+    </div>
+  </div>
+
+</div>
+
+{# ── Pending table ──────────────────────────────────────────────────── #}
+<div class="d-panel">
+  <div class="d-panel-header">
+    <h2 class="d-panel-title">
+      <span class="d-badge pending" id="badge-pending-count">{{ count_pending }}</span>
+      Waiting for review
+    </h2>
+    <a href="/audit" class="d-btn d-btn-ghost d-btn-sm">View audit log</a>
+  </div>
+
+  <div id="pending-content">
+    {% if rows %}
+    <div class="d-panel-body-flush">
+      <div style="overflow-x:auto;">
+        <table class="d-table" role="grid">
+          <thead>
+            <tr>
+              <th scope="col">Agent</th>
+              <th scope="col">Tool / Action</th>
+              <th scope="col">Resource</th>
+              <th scope="col">Created</th>
+              <th scope="col">Expires</th>
+              <th scope="col">Status</th>
+              <th scope="col" style="text-align:right;">Review</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in rows %}
+            <tr>
+              <td><code>{{ row.agent_id }}</code></td>
+              <td>
+                <span style="font-weight:600;">{{ row.tool }}</span>
+                <span style="color:var(--text-dim);margin:0 4px;">/</span>
+                <span style="color:var(--text);">{{ row.action }}</span>
+              </td>
+              <td><code class="trunc" title="{{ row.resource }}">{{ row.resource }}</code></td>
+              <td style="color:var(--text-dim);font-size:0.8rem;white-space:nowrap;">{{ row.created_at }}</td>
+              <td style="color:var(--text-dim);font-size:0.8rem;white-space:nowrap;">{{ row.expires_at }}</td>
+              <td><span class="d-badge {{ row.badge }}">{{ row.state }}</span></td>
+              <td style="text-align:right;">
+                <a href="/approvals/{{ row.approval_id }}" class="d-btn d-btn-primary d-btn-sm">Review</a>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% else %}
+    <div class="d-empty">
+      <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+        <polyline points="22 4 12 14.01 9 11.01"/>
+      </svg>
+      <p class="d-empty-title">Queue is clear</p>
+      <p>No AI agent requests are waiting for review.</p>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<script>
+(function() {
+  var polling = false;
+
+  function escapeHtml(str) {
+    if (str === null || str === undefined) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
+  function renderPending(items) {
+    var container = document.getElementById('pending-content');
+    if (!container) return;
+
+    if (!items || items.length === 0) {
+      container.innerHTML = '<div class="d-empty">'
+        + '<svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>'
+        + '<p class="d-empty-title">Queue is clear</p>'
+        + '<p>No AI agent requests are waiting for review.</p>'
+        + '</div>';
+      return;
+    }
+
+    var rowsHtml = items.map(function(row) {
+      return '<tr>'
+        + '<td><code>' + escapeHtml(row.agent_id) + '</code></td>'
+        + '<td><span style="font-weight:600;">' + escapeHtml(row.tool) + '</span>'
+        + '<span style="color:var(--text-dim);margin:0 4px;">/</span>'
+        + '<span style="color:var(--text);">' + escapeHtml(row.action) + '</span></td>'
+        + '<td><code class="trunc" title="' + escapeHtml(row.resource) + '">' + escapeHtml(row.resource) + '</code></td>'
+        + '<td style="color:var(--text-dim);font-size:0.8rem;white-space:nowrap;">' + escapeHtml(row.created_at) + '</td>'
+        + '<td style="color:var(--text-dim);font-size:0.8rem;white-space:nowrap;">' + escapeHtml(row.expires_at) + '</td>'
+        + '<td><span class="d-badge ' + escapeHtml(row.badge || 'pending') + '">' + escapeHtml(row.state) + '</span></td>'
+        + '<td style="text-align:right;"><a href="/approvals/' + encodeURIComponent(row.approval_id) + '" class="d-btn d-btn-primary d-btn-sm">Review</a></td>'
+        + '</tr>';
+    }).join('');
+
+    container.innerHTML = '<div class="d-panel-body-flush"><div style="overflow-x:auto;">'
+      + '<table class="d-table" role="grid"><thead><tr>'
+      + '<th scope="col">Agent</th><th scope="col">Tool / Action</th><th scope="col">Resource</th>'
+      + '<th scope="col">Created</th><th scope="col">Expires</th><th scope="col">Status</th>'
+      + '<th scope="col" style="text-align:right;">Review</th>'
+      + '</tr></thead><tbody>' + rowsHtml + '</tbody></table></div></div>';
+  }
+
+  async function pollDashboard() {
+    if (polling) return;
+    if (document.visibilityState === 'hidden') return;
+    polling = true;
+    try {
+      var response = await fetch('/api/dashboard', { headers: { 'Accept': 'application/json' }, cache: 'no-store' });
+      if (!response.ok) return;
+      var data = await response.json();
+
+      var pendingEl  = document.getElementById('count-pending');
+      var badgeEl    = document.getElementById('badge-pending-count');
+      var approvedEl = document.getElementById('count-approved');
+      var rejectedEl = document.getElementById('count-rejected');
+
+      if (pendingEl  && typeof data.pending_count  === 'number') pendingEl.textContent  = data.pending_count;
+      if (badgeEl    && typeof data.pending_count  === 'number') badgeEl.textContent    = data.pending_count;
+      if (approvedEl && typeof data.approved_count === 'number') approvedEl.textContent = data.approved_count;
+      if (rejectedEl && typeof data.rejected_count === 'number') rejectedEl.textContent = data.rejected_count;
+
+      if (Array.isArray(data.pending)) renderPending(data.pending);
+    } catch (err) {
+      /* silent — retry on next interval */
+    } finally {
+      polling = false;
+    }
+  }
+
+  setInterval(pollDashboard, 5000);
+  document.addEventListener('visibilitychange', function() {
+    if (document.visibilityState === 'visible') pollDashboard();
+  });
+})();
+</script>
+
+{% endblock %}

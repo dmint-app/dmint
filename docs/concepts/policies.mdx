@@ -1,0 +1,139 @@
+---
+title: "Policies & Rules"
+description: "How Dmint evaluates rules, enforces fail-closed defaults, and guarantees deterministic execution."
+icon: "file-code"
+---
+
+# Policies & Rules
+
+In Dmint, a **policy** is a static, declarative JSON document specifying the exact authorization boundaries for AI tool calls.
+
+Policies are authored at development time, validated offline against strict schemas, and loaded into Core at runtime.
+
+---
+
+## The Policy Schema (`policy.json`)
+
+Here is an example production policy:
+
+```json title="policy.json"
+{
+  "rules": [
+    {
+      "effect": "allow",
+      "tool": "postgres",
+      "action": "select",
+      "resource": "public.analytics"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "postgres",
+      "action": "update",
+      "resource": "public.users"
+    },
+    {
+      "effect": "deny",
+      "tool": "postgres",
+      "action": "drop",
+      "resource": "*"
+    },
+    {
+      "effect": "allow",
+      "tool": "filesystem",
+      "action": "read",
+      "resource": "/var/log/app.log"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "write",
+      "resource": "/etc/passwd"
+    }
+  ]
+}
+```
+
+---
+
+## Rule Effects
+
+Every rule must declare one of three effects:
+
+| Effect | Runtime Behavior |
+|---|---|
+| **`allow`** | The capability is permitted. The tool executes immediately with zero human friction or latency. |
+| **`approval_required`** | Execution halts. Dmint persists the exact request fingerprint in the approval store (SQLite or PostgreSQL) and raises `DMT_APPROVAL_REQUIRED`. Execution resumes only after a signed human assertion is presented. |
+| **`deny`** | The capability is explicitly forbidden. Execution halts immediately and raises `DMT_POLICY_DENIED`. |
+
+---
+
+## Evaluation Invariants
+
+When evaluating an incoming request:
+
+### 1. Fail-Closed Default
+If an agent requests an action that does not match any rule in `policy.json`, Dmint **fails closed**:
+```text
+Decision: DENY
+Reason: No matching rule found for tool='redis', action='flushall', resource='*'
+```
+There is no ambient or implicit permission. Everything must be explicitly declared.
+
+### 2. Precedence & Evaluation Order
+Rules are evaluated deterministically using standard Dmint security precedence: `DENY` takes precedence over `APPROVAL_REQUIRED`, which takes precedence over `ALLOW`.
+
+---
+
+## Offline Validation (LLM-Free)
+
+Before deploying a policy to production, always verify its syntactic and semantic integrity using the `dmint` CLI:
+
+```bash
+dmint verify-policy policy.json
+```
+
+The verification command checks:
+- JSON syntax and schema compliance
+- Presence of required fields (`rules`, `effect`, `tool`, `action`)
+- Absence of unknown keys or invalid effect values
+- Maximum safe size limits to prevent resource exhaustion
+
+If valid, it outputs a human-readable summary and exits with code `0`:
+```text
+✓ Verified policy.json: 5 rule(s)
+  [ALLOW] tool='postgres', action='select', resource='public.analytics'
+  [APPROVAL_REQUIRED] tool='postgres', action='update', resource='public.users'
+  [DENY] tool='postgres', action='drop', resource='*'
+  [ALLOW] tool='filesystem', action='read', resource='/var/log/app.log'
+  [DENY] tool='filesystem', action='write', resource='/etc/passwd'
+```
+
+---
+
+## Authoritative Policy Storage & Provenance
+
+In distributed deployments (such as MCP Gateways or clusters using PostgreSQL), policy rules can be stored directly within the database store via the `store_policy` table:
+
+- **Policy Digest Invalidation**: Every policy is cryptographically fingerprinted using SHA-256. If a policy changes, any previously issued pending approval bound to the older policy epoch is refused during verification (`POLICY_INVALIDATED`).
+- **Store-Backed Policy (`store_policy`)**: Dmint gateways synchronize their authoritative policy into the database store via `store.set_authoritative_policy(policy, provenance)`.
+- **Precedence Hierarchy during Approval**:
+  1. Explicit `--policy <path>` command-line flag
+  2. Database store authoritative policy (`store_policy` table)
+  3. Local `./policy.json` file fallback
+
+<Note>
+When using PostgreSQL, `dmint approve` without `--policy` will re-verify against the database's `store_policy` table. If you are testing changes in a local `./policy.json`, pass `--policy ./policy.json` explicitly.
+</Note>
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Authoring Policies Guide" icon="wand-magic-sparkles" href="/guides/authoring-policies">
+    Use the interactive CLI wizard to convert natural language into policy.json.
+  </Card>
+  <Card title="Policy Schema Reference" icon="list" href="/reference/policy-schema">
+    Inspect the formal JSON schema and validation constraints.
+  </Card>
+</CardGroup>

@@ -1,0 +1,111 @@
+---
+title: "Exact Request Binding"
+description: "How RFC 8785 JSON Canonicalization Scheme (JCS) and SHA-256 create immutable, tamper-proof approval fingerprints."
+icon: "fingerprint"
+---
+
+# Exact Request Binding
+
+A critical vulnerability in naive approval systems is **parameter tampering** or **scope drift**:
+- A human approves: `delete_user(id=99)`
+- The agent executes: `delete_user(id=1)` (the admin account!)
+
+Dmint completely eliminates this vulnerability through **Exact Request Binding**.
+
+An approval in Dmint is not a general permission; it is a cryptographic assertion authorizing **one exact byte sequence** of parameters.
+
+---
+
+## The Request Binding Envelope
+
+Before any approval check or persistence occurs, Dmint constructs an immutable request binding envelope:
+
+```json
+{
+    "action": "update",
+    "arguments": {
+        "id": 42,
+        "role": "editor"
+    },
+    "binding_version": "dmint/request-binding/v1",
+    "canonicalization_profile": "dmint/jcs-v1",
+    "capability_id": "database.update",
+    "integration_id": "local-runtime",
+    "principal_id": "agent-cursor-prod",
+    "resource": {
+        "kind": "value",
+        "value": "users"
+    },
+    "tool": "database",
+    "trusted_context": {}
+}
+```
+
+---
+
+## Why RFC 8785 Canonicalization (JCS)?
+
+In standard JSON, the following payloads are semantically identical in Python dictionaries, but have different raw string representations:
+
+```json
+// Representation A:
+{"id": 42, "role": "editor"}
+
+// Representation B (reversed keys, different whitespace):
+{
+  "role":  "editor",
+  "id":    42
+}
+```
+
+If we hashed raw JSON strings, benign differences in key order or spacing would produce different SHA-256 digests, breaking approvals or allowing subtle malleability attacks.
+
+Dmint uses **RFC 8785 JSON Canonicalization Scheme (JCS)**:
+1. **Sorted Keys**: Dictionary keys are sorted lexicographically by UTF-16 code units.
+2. **Whitespace Stripped**: No whitespace outside of string literals.
+3. **Deterministic Numbers**: Floats and integers follow strict IEEE 754 canonical formatting.
+4. **UTF-8 Output**: Enforces strict UTF-8 character encoding without escaping unnecessary characters.
+
+---
+
+## Cryptographic Fingerprint Computation
+
+```text
+Request Envelope
+      ↓
+RFC 8785 JCS Canonicalization
+      ↓
+Canonical UTF-8 Bytes
+      ↓
+SHA-256 Hash
+      ↓
+64-Character Hex Digest (The Request Fingerprint)
+```
+
+For example:
+```text
+b'{"action":"update","arguments":{"id":42,"role":"editor"},"binding_version":"dmint/request-binding/v1","canonicalization_profile":"dmint/jcs-v1","capability_id":"database.update","integration_id":"local-runtime","principal_id":"agent-cursor-prod","resource":{"kind":"value","value":"users"},"tool":"database","trusted_context":{}}'
+```
+Produces the SHA-256 fingerprint:
+```text
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+```
+
+---
+
+## What Request Binding Protects Against
+
+<CardGroup cols={2}>
+  <Card title="Argument Malleability" icon="ban">
+    Changing `{"id": 42}` to `{"id": 43}` produces a different SHA-256 hash. The pre-existing approval will be rejected immediately with `DMT_APPROVAL_REQUEST_MISMATCH`.
+  </Card>
+  <Card title="Cross-Tool Spoofing" icon="shield-virus">
+    An approval granted for `postgres.query` cannot be submitted to `mysql.query` even if the query string is identical.
+  </Card>
+  <Card title="Agent Hijacking" icon="user-lock">
+    An approval requested by `agent-analytics` cannot be intercepted and executed by `agent-scraper`.
+  </Card>
+  <Card title="Epoch Replay" icon="clock-rotate-left">
+    When deploying a new version of your application, changing the `deployment_epoch` automatically invalidates all previous pending or approved records.
+  </Card>
+</CardGroup>

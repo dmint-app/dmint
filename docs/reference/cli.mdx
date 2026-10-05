@@ -1,0 +1,280 @@
+---
+title: "CLI Command Reference"
+description: "Comprehensive command-line interface documentation for the dmint CLI."
+icon: "terminal"
+---
+
+# `dmint` Command-Line Reference
+
+The `dmint` CLI provides developer tooling for policy authoring, validation, skill installation, and dashboard execution.
+
+```bash
+dmint [command] [options]
+```
+
+---
+
+## Global Options
+
+| Flag | Description |
+|---|---|
+| `-h`, `--help` | Display help text and available commands. |
+| `-V`, `--version` | Display the installed `dmint` version. |
+
+### Global Environment Variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `DMINT_DATABASE_URL` | None | Active database connection string (`postgresql://...` or `sqlite:///...`). Governs Core, MCP proxy, Dashboard, and CLI. |
+| `DMINT_DB_PATH` | `./approvals.sqlite3` / `dmint.db` | Fallback path to the SQLite approval store database. |
+| `DMINT_DEPLOYMENT_EPOCH` | `default` | Deployment epoch identifier used for cross-environment and rollback isolation. |
+| `DMINT_VERSION` | Package version | Optional environment override for the reported version string. |
+| `DMINT_USER_AGENT` | Dynamic | Optional environment override for the outgoing HTTP User-Agent string. |
+
+---
+
+## `dmint create-policy`
+
+Interactive wizard to convert natural language requirements into a verified `policy.json`.
+
+```bash
+dmint create-policy [options]
+```
+
+### Options
+
+| Flag | Default | Description |
+|---|---|---|
+| `-f`, `--file` | None | Path to input requirements file (e.g. `access.md`). |
+| `-o`, `--output` | `policy.json` | Path to destination policy JSON file. |
+| `-provider`, `--provider` | `openai` | LLM provider: `openai`, `gemini`, `groq`, `openrouter`, `ollama`. |
+| `-model`, `--model` | Provider default | Specific model name (e.g. `gpt-4o-mini`, `gemini-1.5-flash`). |
+| `-api_key`, `--api-key` | Env var | API key (or set `OPENAI_API_KEY`, `GEMINI_API_KEY`). |
+| `--non-interactive` | `False` | Run in non-interactive batch mode. |
+| `-y`, `--yes` | `False` | Automatically accept generated policy without confirmation. |
+| `--timeout` | `60.0` | API request timeout in seconds. |
+
+---
+
+## `dmint create-mcp-policy`
+
+Specialized wizard for Model Context Protocol servers: connects to the server, queries `tools/list`, and generates both `policy.json` and `mcp_protection.json`.
+
+```bash
+dmint create-mcp-policy [options]
+```
+
+### Options
+
+| Flag | Description |
+|---|---|
+| `--integration-id` | **Required / Recommended**. Unique namespace identifier for this tool integration (e.g. `postgres`, `ledger`). Always pass this explicitly when `--command` contains paths, binaries, or complex arguments. |
+| `--command` | Executable command for stdio servers (e.g. `npx`, `uvx`, `python`, `/path/to/venv/bin/python`). |
+| `--args` | Arguments array or string for the stdio command (e.g. `server.py`). |
+| `--transport` | Transport protocol: `stdio` (default) or `streamable-http`. |
+| `--url` | Remote URL for streamable-http MCP endpoints. |
+| `-f`, `--file` | Path to requirements file (default: `access.md`). |
+| `-o`, `--output` | Destination policy file (default: `policy.json`). |
+| `--config-output` | Destination protection config (default: `mcp_protection.json`). |
+| `--non-interactive` | Skip interactive prompt dialogues. |
+| `-y`, `--yes` | Automatically accept generated configuration. |
+
+<Note>
+**Capability Naming Compatibility**: In the current release, `dmint create-mcp-policy` outputs tool capabilities prefixed with `mcp.` (e.g. `"capability": "mcp.postgres.query"`). To ensure runtime policy matching against rules with `tool="postgres"`, ensure your `mcp_protection.json` capability is configured as `"<integration>.<action>"` (e.g. `"postgres.query"`).
+</Note>
+
+---
+
+## `dmint verify-policy`
+
+100% offline, deterministic validation of a `policy.json` file against Dmint schema and security invariants. Zero network calls; no LLM.
+
+```bash
+dmint verify-policy <policy.json>
+```
+
+### Exit Codes
+
+| Code | Meaning |
+|---|---|
+| `0` | Policy is valid and compliant. |
+| `1` | Schema violation, unknown keys, or invalid effect values. |
+| `2` | Missing argument or unreadable input file. |
+
+---
+
+## `dmint install-skill`
+
+Installs the official `dmint-policy-manager` AI coding agent skill for Antigravity, Claude Code, Cursor, and Gemini CLI.
+
+```bash
+dmint install-skill [options]
+```
+
+### Options
+
+| Flag | Description |
+|---|---|
+| `-y`, `--yes` | Non-interactive install to default `.agents/skills/`. |
+| `--dest`, `--target` | Install to a specific custom directory. |
+| `--global` | Install globally to `~/.gemini/config/skills/`. |
+| `--claude` | Install globally to `~/.claude/skills/`. |
+
+---
+
+## `dmint dashboard`
+
+Launches the local human approval web dashboard connected to Core-owned SQLite or PostgreSQL.
+
+```bash
+dmint dashboard [options]
+```
+
+### Examples
+
+```bash
+# Basic local launch with SQLite:
+dmint dashboard --db-path ./approvals.sqlite3 --port 8080
+
+# Launch with PostgreSQL:
+dmint dashboard --database-url postgresql://user:pass@localhost:5432/dmint --port 8080
+
+# Launch with matching deployment epoch:
+dmint dashboard --db-path ./approvals.sqlite3 --deployment-epoch prod-v1 --port 8080
+```
+
+<Note>
+**Matching Deployment Epoch**:
+If your application initialized `SQLiteApprovalStore` with a custom `deployment_epoch` (e.g. `deployment_epoch="prod-v1"`), you must pass the identical `--deployment-epoch prod-v1` to `dmint dashboard`. Mismatched epochs fail closed to prevent cross-deployment replay attacks.
+</Note>
+
+### Options
+
+| Flag | Default | Description |
+|---|---|---|
+| `--db-path` | `DMINT_DB_PATH` | Path to the Core SQLite database file (required if `--database-url` is not set). |
+| `--database-url` | `DMINT_DATABASE_URL` | Database connection URL (`postgresql://...` or `sqlite:///...`). Takes precedence over `--db-path`. |
+| `--host` | `127.0.0.1` | Local bind host. |
+| `--port` | `8080` | Local bind port. |
+| `--deployment-epoch` | `default` | Deployment epoch matching running Core instance. Must match the agent's `deployment_epoch`. |
+| `--authority-issuer` | `dmint-dashboard` | Issuer identifier for signed approvals. |
+| `--approver-id` | `dashboard-human` | Human approver identifier stamped on records. |
+
+---
+
+## `dmint pending`
+
+Lists all approval requests currently in `PENDING` state. Works seamlessly against either SQLite or PostgreSQL (via `DMINT_DATABASE_URL` or `--database-url`).
+
+```bash
+dmint pending [options]
+```
+
+### Examples
+
+```bash
+# List pending requests using active store:
+dmint pending
+
+# Query a specific database file:
+dmint pending --db-path ./approvals.sqlite3
+
+# Query a PostgreSQL instance:
+dmint pending --database-url postgresql://user:pass@localhost:5432/dmint
+```
+
+### Options
+
+| Flag | Default | Description |
+|---|---|---|
+| `--db-path` | `DMINT_DB_PATH` or local default | Path to SQLite database file. |
+| `--database-url` | `DMINT_DATABASE_URL` | Full database URL (`sqlite:///...` or `postgresql://...`). |
+| `--deployment-epoch` | `DMINT_DEPLOYMENT_EPOCH` / `default` | Deployment epoch matching running Core instance. |
+| `--limit` | `100` | Maximum number of pending records to display. |
+
+---
+
+## `dmint approve`
+
+Approves and cryptographically signs a pending tool execution request via Core's Ed25519 signing primitives.
+
+Before signing, `dmint approve` **re-verifies the request against the current policy**. If the policy has changed such that this request is now denied, approval is refused (`POLICY_INVALIDATED`).
+
+#### Policy Resolution Order & PostgreSQL Authoritative Caching
+
+When re-evaluating the request before signing, `dmint approve` resolves the current active policy using a deterministic precedence hierarchy:
+
+1. **Explicit `--policy <path>` Flag**: If provided, Dmint loads and parses the specified policy JSON directly.
+2. **Database Authoritative Policy (`store_policy` table)**: If `--policy` is not specified, Dmint queries the approval store for an authoritative policy registered via `store.set_authoritative_policy()`. In PostgreSQL deployments, this table stores the authoritative policy shared across gateway instances.
+3. **Local `./policy.json` Fallback**: If the database store contains no authoritative policy record, Dmint checks the current working directory for `./policy.json`.
+
+<Warning>
+**PostgreSQL Policy Caching Gotcha**:
+If your PostgreSQL store has a policy cached in its `store_policy` table, running `dmint approve` without `--policy` will re-verify against the database's cached policy, **not** local `./policy.json` edits.
+- To re-verify against local file edits, explicitly pass: `--policy ./policy.json`.
+- Or update the database's authoritative policy in your orchestration pipeline via `store.set_authoritative_policy(new_policy, provenance)`.
+</Warning>
+
+```bash
+dmint approve <id> [options]
+```
+
+### Examples
+
+```bash
+# Approve a pending request:
+dmint approve apr_abc123...
+
+# Approve with an audit note/reason:
+dmint approve apr_abc123... --reason "Reviewed and authorized for production migration"
+
+# Specify approver identity and custom policy file:
+dmint approve apr_abc123... --approver-id "alice@company.com" --policy ./policy.json
+```
+
+### Options
+
+| Flag | Default | Description |
+|---|---|---|
+| `approval_id` | *Positional, Required* | Unique approval ID (`apr_...`) to approve. |
+| `--reason` | None | Audit note explaining why the approval was granted (max 1000 chars). |
+| `--db-path` | `DMINT_DB_PATH` or local default | Path to SQLite database file. |
+| `--database-url` | `DMINT_DATABASE_URL` | Full database URL (`sqlite:///...` or `postgresql://...`). |
+| `--deployment-epoch` | `DMINT_DEPLOYMENT_EPOCH` / `default` | Deployment epoch matching running Core instance. |
+| `--policy` | Auto-detected | Path to policy file for re-verification before signing. |
+| `--approver-id` | `DMINT_APPROVER_ID` or username | Approver principal identity stamped on the approval record. |
+| `--authority-issuer` | `DMINT_AUTHORITY_ISSUER` / `dmint-cli` | Authority issuer identifier. |
+
+---
+
+## `dmint reject`
+
+Marks a pending tool execution request as `REJECTED` in the approval store. No cryptographic assertion is issued.
+
+```bash
+dmint reject <id> [options]
+```
+
+### Examples
+
+```bash
+# Reject a pending request:
+dmint reject apr_abc123...
+
+# Reject with an audit note/reason:
+dmint reject apr_abc123... --reason "Destructive operation not permitted during freeze"
+```
+
+### Options
+
+| Flag | Default | Description |
+|---|---|---|
+| `approval_id` | *Positional, Required* | Unique approval ID (`apr_...`) to reject. |
+| `--reason` | None | Audit note explaining why the request was rejected (max 1000 chars). |
+| `--db-path` | `DMINT_DB_PATH` or local default | Path to SQLite database file. |
+| `--database-url` | `DMINT_DATABASE_URL` | Full database URL (`sqlite:///...` or `postgresql://...`). |
+| `--deployment-epoch` | `DMINT_DEPLOYMENT_EPOCH` / `default` | Deployment epoch matching running Core instance. |
+| `--approver-id` | `DMINT_APPROVER_ID` or username | Rejecter principal identity stamped on the record. |
+| `--authority-issuer` | `DMINT_AUTHORITY_ISSUER` / `dmint-cli` | Authority issuer identifier. |
+
+

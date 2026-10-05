@@ -1,0 +1,62 @@
+---
+title: "Google Antigravity & Gemini CLI"
+description: "How to enforce deterministic security in Google Antigravity (AGY) and Gemini CLI workflows."
+icon: "atom"
+---
+
+# Google Antigravity & Gemini CLI
+
+**Google Antigravity (AGY)** and the **Gemini CLI** natively support agent skills located in `.agents/skills/` within your workspace, as well as global skills in `~/.gemini/config/skills/`.
+
+Integrating Dmint provides two key benefits:
+1. **Agent Skill**: Equips Antigravity with the system knowledge to author and verify Dmint policies.
+2. **MCP Security Gateway**: Intercepts MCP servers called by Antigravity subagents, guaranteeing that tool actions cannot escape your configured boundaries.
+
+---
+
+## 1. Install the Skill
+
+Run the skill installer from your workspace root:
+
+<Tabs>
+  <Tab title="Current Workspace (.agents/skills/)">
+    ```bash
+    dmint install-skill -y
+    ```
+    This creates `.agents/skills/dmint-policy-manager/` directly in your workspace. Antigravity discovers it immediately.
+  </Tab>
+
+  <Tab title="Global User Config (~/.gemini/config/skills/)">
+    ```bash
+    dmint install-skill --global
+    ```
+    Available to all Antigravity projects on your machine.
+  </Tab>
+</Tabs>
+
+---
+
+## 2. Using the Skill in Antigravity
+
+Once installed, simply prompt Antigravity in your chat or prompt window:
+
+```text
+"Inspect our database operations and draft a least-privilege Dmint access.md policy.
+Ensure read queries are allowed, but modifications require human approval."
+```
+
+Antigravity will:
+1. Load the `dmint-policy-manager` skill instructions.
+2. Draft `access.md` following least-privilege principles.
+3. Run `dmint create-policy` to compile `policy.json`.
+4. Run `dmint verify-policy` to prove zero validation errors.
+
+---
+
+## 3. Protecting Antigravity Subagents with `dmint-mcp`
+
+When running autonomous Antigravity subagents with external MCP tools:
+
+1. Configure your MCP server in `mcp_protection.json`.
+2. Launch `dmint-mcp` as the endpoint for your subagent tools.
+3. Review and approve sensitive actions as subagents execute via `dmint approve <id>` in your terminal or at **http://127.0.0.1:8080** via `dmint dashboard`.

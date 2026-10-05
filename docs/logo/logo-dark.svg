@@ -1,0 +1,186 @@
+<svg viewBox="0 0 512 512" role="img" aria-label="Dmint mark: a letter D with a shield formed from mint leaves" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="dm-body" x1="0.1" y1="0" x2="0.9" y2="1">
+      <stop offset="0%" stop-color="#4b5257"/>
+      <stop offset="42%" stop-color="#292e32"/>
+      <stop offset="100%" stop-color="#101214"/>
+    </linearGradient>
+    <linearGradient id="dm-sheen" x1="0" y1="0" x2="0.75" y2="1">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.22"/>
+      <stop offset="45%" stop-color="#ffffff" stop-opacity="0.04"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="dm-ring" x1="0.2" y1="0" x2="0.8" y2="1">
+      <stop offset="0%" stop-color="#eafff5" stop-opacity="0.95"/>
+      <stop offset="60%" stop-color="#9ff0cd" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="#0e5f3d" stop-opacity="0.5"/>
+    </linearGradient>
+    <radialGradient id="dm-halo" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="55%" stop-color="#2ee08f" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#2ee08f" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="dm-leaf-a" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0%" stop-color="#0e5f3d"/>
+      <stop offset="100%" stop-color="#2a9c69"/>
+    </linearGradient>
+    <linearGradient id="dm-leaf-b" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0%" stop-color="#168252"/>
+      <stop offset="100%" stop-color="#4cc48d"/>
+    </linearGradient>
+    <linearGradient id="dm-leaf-c" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0%" stop-color="#25a06c"/>
+      <stop offset="100%" stop-color="#82e7ba"/>
+    </linearGradient>
+    <clipPath id="dm-shield-clip">
+      <path d="M265 146
+     C 271 146 277 147 282 149
+     L 348 176
+     C 359 181 365 190 365 202
+     V 258
+     C 365 316 324 348 274 366
+     C 271 367 259 367 256 366
+     C 206 348 165 316 165 258
+     V 202
+     C 165 190 171 181 182 176
+     L 248 149
+     C 253 147 259 146 265 146
+     Z"/>
+    </clipPath>
+    <clipPath id="dm-body-clip">
+      <path d="M138 52
+     C 103 52 74 81 74 116
+     V 396
+     C 74 431 103 460 138 460
+     H 262
+     C 384 460 456 382 456 256
+     C 456 130 384 52 262 52
+     Z"/>
+    </clipPath>
+  </defs>
+
+  <!-- Letter D: fully rounded, no sharp corners -->
+  <path fill="url(#dm-body)" d="M138 52
+     C 103 52 74 81 74 116
+     V 396
+     C 74 431 103 460 138 460
+     H 262
+     C 384 460 456 382 456 256
+     C 456 130 384 52 262 52
+     Z"/>
+
+  <!-- interior polish: sheen sweep + inner highlight, clipped to the D -->
+  <g clip-path="url(#dm-body-clip)">
+    <path d="M138 52
+     C 103 52 74 81 74 116
+     V 396
+     C 74 431 103 460 138 460
+     H 262
+     C 384 460 456 382 456 256
+     C 456 130 384 52 262 52
+     Z" fill="url(#dm-sheen)"/>
+    <ellipse cx="265" cy="256" rx="150" ry="150" fill="url(#dm-halo)"/>
+    <path d="M138 52
+     C 103 52 74 81 74 116
+     V 396
+     C 74 431 103 460 138 460
+     H 262
+     C 384 460 456 382 456 256
+     C 456 130 384 52 262 52
+     Z" fill="none" stroke="#ffffff" stroke-opacity="0.12" stroke-width="14"/>
+  </g>
+
+  <!-- outer rim: clean white border -->
+  <path d="M138 52
+     C 103 52 74 81 74 116
+     V 396
+     C 74 431 103 460 138 460
+     H 262
+     C 384 460 456 382 456 256
+     C 456 130 384 52 262 52
+     Z" fill="none" stroke="#ffffff" stroke-width="3" stroke-opacity="0.95"/>
+
+  <!-- Shield built from leaves -->
+  <g clip-path="url(#dm-shield-clip)">
+    <rect x="150" y="130" width="230" height="250" fill="#0e5f3d"/>
+    <g transform="translate(265 368) rotate(-64) scale(1.84)">
+      <path fill="url(#dm-leaf-a)" stroke="#12181a" stroke-opacity="0.45" stroke-width="3.5" d="M0 0 C 34 -34 34 -88 0 -124 C -34 -88 -34 -34 0 0 Z"/>
+      <path d="M0 -6 C 4 -44 3 -82 0 -112" stroke="#0b4f32" stroke-opacity="0.28" stroke-width="3" stroke-linecap="round" fill="none"/>
+    </g>
+    <g transform="translate(265 368) rotate(-40) scale(1.9)">
+      <path fill="url(#dm-leaf-a)" stroke="#12181a" stroke-opacity="0.45" stroke-width="3.5" d="M0 0 C 34 -34 34 -88 0 -124 C -34 -88 -34 -34 0 0 Z"/>
+      <path d="M0 -6 C 4 -44 3 -82 0 -112" stroke="#0b4f32" stroke-opacity="0.28" stroke-width="3" stroke-linecap="round" fill="none"/>
+    </g>
+    <g transform="translate(265 368) rotate(-16) scale(1.96)">
+      <path fill="url(#dm-leaf-a)" stroke="#12181a" stroke-opacity="0.45" stroke-width="3.5" d="M0 0 C 34 -34 34 -88 0 -124 C -34 -88 -34 -34 0 0 Z"/>
+      <path d="M0 -6 C 4 -44 3 -82 0 -112" stroke="#0b4f32" stroke-opacity="0.28" stroke-width="3" stroke-linecap="round" fill="none"/>
+    </g>
+    <g transform="translate(265 368) rotate(16) scale(1.96)">
+      <path fill="url(#dm-leaf-a)" stroke="#12181a" stroke-opacity="0.45" stroke-width="3.5" d="M0 0 C 34 -34 34 -88 0 -124 C -34 -88 -34 -34 0 0 Z"/>
+      <path d="M0 -6 C 4 -44 3 -82 0 -112" stroke="#0b4f32" stroke-opacity="0.28" stroke-width="3" stroke-linecap="round" fill="none"/>
+    </g>
+    <g transform="translate(265 368) rotate(40) scale(1.9)">
+      <path fill="url(#dm-leaf-a)" stroke="#12181a" stroke-opacity="0.45" stroke-width="3.5" d="M0 0 C 34 -34 34 -88 0 -124 C -34 -88 -34 -34 0 0 Z"/>
+      <path d="M0 -6 C 4 -44 3 -82 0 -112" stroke="#0b4f32" stroke-opacity="0.28" stroke-width="3" stroke-linecap="round" fill="none"/>
+    </g>
+    <g transform="translate(265 368) rotate(64) scale(1.84)">
+      <path fill="url(#dm-leaf-a)" stroke="#12181a" stroke-opacity="0.45" stroke-width="3.5" d="M0 0 C 34 -34 34 -88 0 -124 C -34 -88 -34 -34 0 0 Z"/>
+      <path d="M0 -6 C 4 -44 3 -82 0 -112" stroke="#0b4f32" stroke-opacity="0.28" stroke-width="3" stroke-linecap="round" fill="none"/>
+    </g>
+    <g transform="translate(265 368) rotate(-52) scale(1.27167)">
+      <path fill="url(#dm-leaf-b)" stroke="#12181a" stroke-opacity="0.45" stroke-width="3.5" d="M0 0 C 34 -34 34 -88 0 -124 C -34 -88 -34 -34 0 0 Z"/>
+      <path d="M0 -6 C 4 -44 3 -82 0 -112" stroke="#0b4f32" stroke-opacity="0.28" stroke-width="3" stroke-linecap="round" fill="none"/>
+    </g>
+    <g transform="translate(265 368) rotate(-28) scale(1.36167)">
+      <path fill="url(#dm-leaf-b)" stroke="#12181a" stroke-opacity="0.45" stroke-width="3.5" d="M0 0 C 34 -34 34 -88 0 -124 C -34 -88 -34 -34 0 0 Z"/>
+      <path d="M0 -6 C 4 -44 3 -82 0 -112" stroke="#0b4f32" stroke-opacity="0.28" stroke-width="3" stroke-linecap="round" fill="none"/>
+    </g>
+    <g transform="translate(265 368) rotate(-4) scale(1.45167)">
+      <path fill="url(#dm-leaf-b)" stroke="#12181a" stroke-opacity="0.45" stroke-width="3.5" d="M0 0 C 34 -34 34 -88 0 -124 C -34 -88 -34 -34 0 0 Z"/>
+      <path d="M0 -6 C 4 -44 3 -82 0 -112" stroke="#0b4f32" stroke-opacity="0.28" stroke-width="3" stroke-linecap="round" fill="none"/>
+    </g>
+    <g transform="translate(265 368) rotate(20) scale(1.39167)">
+      <path fill="url(#dm-leaf-b)" stroke="#12181a" stroke-opacity="0.45" stroke-width="3.5" d="M0 0 C 34 -34 34 -88 0 -124 C -34 -88 -34 -34 0 0 Z"/>
+      <path d="M0 -6 C 4 -44 3 -82 0 -112" stroke="#0b4f32" stroke-opacity="0.28" stroke-width="3" stroke-linecap="round" fill="none"/>
+    </g>
+    <g transform="translate(265 368) rotate(46) scale(1.29417)">
+      <path fill="url(#dm-leaf-b)" stroke="#12181a" stroke-opacity="0.45" stroke-width="3.5" d="M0 0 C 34 -34 34 -88 0 -124 C -34 -88 -34 -34 0 0 Z"/>
+      <path d="M0 -6 C 4 -44 3 -82 0 -112" stroke="#0b4f32" stroke-opacity="0.28" stroke-width="3" stroke-linecap="round" fill="none"/>
+    </g>
+    <g transform="translate(265 368) rotate(-26) scale(0.866667)">
+      <path fill="url(#dm-leaf-c)" stroke="#12181a" stroke-opacity="0.45" stroke-width="3.5" d="M0 0 C 34 -34 34 -88 0 -124 C -34 -88 -34 -34 0 0 Z"/>
+      <path d="M0 -6 C 4 -44 3 -82 0 -112" stroke="#0b4f32" stroke-opacity="0.28" stroke-width="3" stroke-linecap="round" fill="none"/>
+    </g>
+    <g transform="translate(265 368) rotate(4) scale(0.866667)">
+      <path fill="url(#dm-leaf-c)" stroke="#12181a" stroke-opacity="0.45" stroke-width="3.5" d="M0 0 C 34 -34 34 -88 0 -124 C -34 -88 -34 -34 0 0 Z"/>
+      <path d="M0 -6 C 4 -44 3 -82 0 -112" stroke="#0b4f32" stroke-opacity="0.28" stroke-width="3" stroke-linecap="round" fill="none"/>
+    </g>
+  </g>
+
+  <!-- shield edge: white seat + bright ring so it lifts off the D -->
+  <path d="M265 146
+     C 271 146 277 147 282 149
+     L 348 176
+     C 359 181 365 190 365 202
+     V 258
+     C 365 316 324 348 274 366
+     C 271 367 259 367 256 366
+     C 206 348 165 316 165 258
+     V 202
+     C 165 190 171 181 182 176
+     L 248 149
+     C 253 147 259 146 265 146
+     Z" fill="none" stroke="#ffffff" stroke-opacity="0.35" stroke-width="12"/>
+  <path d="M265 146
+     C 271 146 277 147 282 149
+     L 348 176
+     C 359 181 365 190 365 202
+     V 258
+     C 365 316 324 348 274 366
+     C 271 367 259 367 256 366
+     C 206 348 165 316 165 258
+     V 202
+     C 165 190 171 181 182 176
+     L 248 149
+     C 253 147 259 146 265 146
+     Z" fill="none" stroke="url(#dm-ring)" stroke-width="5"/>
+</svg>

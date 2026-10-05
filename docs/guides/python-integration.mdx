@@ -1,0 +1,189 @@
+---
+title: "Direct Python Integration"
+description: "How to protect backend functions, service APIs, and agent loops using the @dmint.protected decorator."
+icon: "python"
+---
+
+# Direct Python Integration
+
+For custom agent backends, FastAPI services, or Python tool suites, Dmint provides in-process protection via the `@dmint.protected` decorator and programmatic authorization APIs.
+
+---
+
+## 1. Setup & Initialization
+
+Install `dmint` in your environment:
+
+```bash
+pip install dmint
+```
+
+Initialize your approval store and policy:
+
+```python title="security.py"
+import json
+from datetime import datetime, timezone, timedelta
+from dmint import (
+    Dmint,
+    Policy,
+    PolicyProvenance,
+    policy_digest,
+    create_approval_store,
+    SQLiteApprovalStore,
+    TrustedContext,
+)
+
+# Option A: Universal factory (reads DMINT_DATABASE_URL for PostgreSQL, or falls back to SQLite)
+store = create_approval_store(deployment_epoch="prod-v1")
+
+# Option B: Direct SQLite file store
+# store = SQLiteApprovalStore("./approvals.sqlite3", deployment_epoch="prod-v1")
+
+# Load compiled policy mapping
+with open("policy.json", "r", encoding="utf-8") as f:
+    policy = Policy.from_mapping(json.load(f))
+
+# Compute policy provenance for approval tracking
+provenance = PolicyProvenance("prod-v1", policy_digest(policy), datetime.now(timezone.utc))
+
+# Create Dmint instance bound to this agent identity
+dmint = Dmint(
+    policy=policy,
+    approval_store=store,
+    context=TrustedContext({}),
+    agent_id="agent-backend-service",
+    approval_ttl=timedelta(minutes=15),
+    policy_provenance=provenance,
+)
+```
+
+<Note>
+**Deployment Epoch & Rollback Detection**: `deployment_epoch` is a required parameter for approval stores. It participates in Core's rollback and recovery protection, tracking epoch state in an associated `.epoch` file alongside SQLite databases to prevent replay attacks from restored database backups.
+</Note>
+
+<Warning>
+**RFC 8785 Strict Numeric Canonicalization**: Dmint enforces RFC 8785 canonicalization for cryptographic request fingerprints. Whole numeric values must always be passed as integers (`42`), not integer-valued floats (`42.0`), which are rejected to eliminate cross-platform float ambiguity.
+</Warning>
+
+---
+
+## 2. The `@dmint.protected` Decorator
+
+Decorate any Python function with a capability identifier in the format `tool.action`:
+
+```python title="tools.py"
+from security import dmint
+
+@dmint.protected("database.select")
+def query_users(role: str):
+    """Permitted by ALLOW rule — runs immediately."""
+    return [{"id": 1, "name": "Alice", "role": role}]
+
+@dmint.protected("database.update")
+def set_user_role(user_id: int, new_role: str):
+    """Triggers APPROVAL_REQUIRED — halts and persists request."""
+    return f"User {user_id} updated to {new_role}"
+
+@dmint.protected("database.drop")
+def drop_database():
+    """Triggers DENY — halts immediately."""
+    return "Database dropped"
+```
+
+---
+
+## 3. Handling Interception & Retries
+
+When a function requires approval, Dmint halts execution and raises `ApprovalRequiredError`:
+
+```python title="agent_loop.py"
+from dmint.errors import ApprovalRequiredError, AuthorizationError
+from tools import set_user_role
+
+try:
+    # 1. Attempt privileged action
+    set_user_role(user_id=42, new_role="admin")
+except ApprovalRequiredError as exc:
+    # Action paused awaiting approval: exc.request_id, exc.approval_id
+    print(f"Action paused: {exc} (approval_id: {exc.approval_id})")
+    # The request is now recorded as PENDING in SQLite.
+```
+
+Once approved by a human (via `dmint dashboard`), the agent retrieves the approved assertion and passes it via `dmint.retry()`:
+
+```python
+from security import dmint, store
+
+# 2. Retrieve approved record from store
+approved_record = store.get_approved(exc.approval_id)
+
+# 3. Retry execution using dmint.retry()
+result = dmint.retry(
+    set_user_role,
+    user_id=42,
+    new_role="admin",
+    approval_credential=approval_assertion,
+)
+print("Execution complete:", result)
+```
+
+---
+
+## 4. Programmatic Authorization (`dmint.authorize`)
+
+If you prefer explicit two-phase authorization control without decorating functions directly:
+
+```python
+from security import dmint
+
+def process_refund(order_id: str, amount_usd: int):
+    return f"Refunded ${amount_usd} for {order_id}"
+
+# 1. Register the callable for the capability
+dmint.register(process_refund, "payment_gateway.refund")
+
+# 2. Pre-authorize the call with exact runtime arguments
+# (Note: whole numbers must be integers under RFC 8785)
+try:
+    authorized = dmint.authorize(
+        process_refund,
+        "order_12345",
+        150,
+        capability="payment_gateway.refund",
+    )
+    # 3. Execute the pre-authorized execution token
+    result = dmint.execute(authorized)
+    print("Execution complete:", result)
+except ApprovalRequiredError as exc:
+    print(f"Approval required: approval_id={exc.approval_id}")
+except AuthorizationError as exc:
+    print(f"Action denied: {exc}")
+```
+
+---
+
+## 5. Multi-Threaded Web Framework Integration (FastAPI)
+
+When running inside multi-threaded or multi-process web applications like FastAPI, Uvicorn, or Gunicorn, store access is completely isolated. Core's `ThreadSafeApprovalStore` (or `SQLAlchemyApprovalStore` under PostgreSQL) manages connection pooling and transactional isolation safely.
+
+```python title="main.py"
+from fastapi import FastAPI, HTTPException
+from security import dmint, store
+from tools import set_user_role
+
+app = FastAPI()
+
+@app.post("/users/{user_id}/role")
+def change_role(user_id: int, role: str, approval_token: str | None = None):
+    try:
+        if approval_token:
+            return dmint.retry(
+                set_user_role,
+                user_id=user_id,
+                new_role=role,
+                approval_credential=bytes.fromhex(approval_token),
+            )
+        return set_user_role(user_id=user_id, new_role=role)
+    except Exception as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+```

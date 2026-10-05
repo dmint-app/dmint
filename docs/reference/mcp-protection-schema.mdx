@@ -1,0 +1,126 @@
+---
+title: "MCP Protection Schema"
+description: "Configuration specification for mcp_protection.json used by the dmint-mcp gateway."
+icon: "network-wired"
+---
+
+# MCP Protection Schema Specification
+
+The `mcp_protection.json` file configures how the `dmint-mcp` gateway connects to downstream servers, binds MCP tools to Dmint capabilities, and manages protocol routing.
+
+---
+
+## Configuration Example
+
+```json title="mcp_protection.json"
+{
+  "policy_file": "policy.json",
+  "approval_db": "./approvals.sqlite3",
+  "approval_ttl": 300,
+  "disclosure_mode": "dog",
+  "integrations": [
+    {
+      "integration_id": "postgres",
+      "transport": "stdio",
+      "connection": {
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-postgres", "postgresql://localhost/mydb"]
+      },
+      "tool_bindings": {
+        "query": {
+          "tool_name": "query",
+          "capability": "postgres.query",
+          "discovery": "exposed"
+        }
+      }
+    },
+    {
+      "integration_id": "cloud_service",
+      "transport": "streamable-http",
+      "connection": {
+        "url": "https://api.internal.company.com/mcp",
+        "headers": {
+          "Authorization": "Bearer ${CLOUD_MCP_TOKEN}"
+        }
+      },
+      "tool_bindings": {
+        "get_metrics": {
+          "tool_name": "get_metrics",
+          "capability": "cloud.get_metrics",
+          "discovery": "exposed"
+        }
+      }
+    }
+  ]
+}
+```
+
+---
+
+## Top-Level Fields
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `policy_file` | string | **Yes\*** | Relative or absolute path to the compiled `policy.json`. (\*Either `policy_file` or embedded `policy` is required). |
+| `policy` | object | **Yes\*** | Direct embedded policy dictionary containing `{"rules": [...]}`. |
+| `integrations` | array | **Yes** | Non-empty array of downstream MCP server integration configurations. |
+| `approval_db` | string | No | Path to SQLite database used for persisting approval-required requests (e.g. `./approvals.sqlite3`). If `DMINT_DATABASE_URL` is set, PostgreSQL is used automatically. |
+| `approval_ttl` | number | No | Approval validity time-to-live in seconds (e.g. `300` for 5 minutes). Required for persistence. |
+| `disclosure_mode` | string | No | Error disclosure level: `"dog"` (standard structured diagnostics, default), `"cat"` (opaque workflow IDs), or `"god"` (fail-closed 403 access denied). |
+| `agent_id` | string | No | Authenticated identity of the agent consuming the gateway (default: `"mcp-agent"`). |
+| `context` | object | No | Key-value dictionary of trusted environmental context passed into policy evaluations. |
+| `server_name` | string | No | Server identifier name exposed in MCP protocol handshakes (default: `"dmint-mcp-gateway"`). |
+
+---
+
+## Integration Object Fields
+
+Each element in the `integrations` array defines one downstream server connection:
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `integration_id` | string | **Yes** | Unique alphanumeric identifier for this server (supports letters, numbers, `-`, and `_`). |
+| `transport` | string | **Yes** | Transport protocol: `"stdio"` (subprocess) or `"streamable-http"` (remote HTTP/SSE endpoint). |
+| `connection` | object | No | Connection settings container (`command`/`args` for stdio, or `url`/`headers` for HTTP). |
+| `command` | string | stdio | Executable command or launcher (e.g. `"npx"`, `"uvx"`, or interpreter path). Can be placed in `connection` or top-level of integration. |
+| `args` | array | No | Command-line arguments array passed to the executable. |
+| `env` | object | No | Subprocess environment variable overrides. |
+| `cwd` | string | No | Working directory for the spawned subprocess. |
+| `url` | string | HTTP | Remote MCP endpoint URL (must use HTTPS or loopback HTTP). |
+| `headers` | object | No | Request headers dictionary (supports `${ENV_VAR}` expansion). |
+| `tool_bindings` | object/array | **Yes** | Mapping of exposed MCP tools to canonical Dmint capabilities. |
+| `timeout` | number | No | Default operation timeout in seconds (default: `30.0`). |
+| `connect_timeout` | number | No | Subprocess handshake or HTTP connection timeout in seconds. |
+
+---
+
+## Tool Binding Specification
+
+Tool bindings link downstream MCP tools to canonical Dmint capabilities (`<tool>.<action>`). They are specified under `tool_bindings` as a dictionary keyed by the tool name:
+
+```json
+"tool_bindings": {
+  "query": {
+    "tool_name": "query",
+    "capability": "postgres.query",
+    "discovery": "exposed",
+    "resource_key": "table_name"
+  }
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `tool_name` | string | **Yes** | Raw tool name as published by the downstream server. |
+| `capability` | string | **Yes** | Canonical Dmint capability (`<tool>.<action>`) evaluated against policy rules (e.g. `"postgres.query"`). |
+| `discovery` | string | No | `"exposed"` (default, visible in `tools/list`) or `"hidden"` (hidden from discovery, but evaluated on invocation). |
+| `resource_key` | string | No | Argument parameter name used to extract the targeted resource for granular policy matching. |
+
+Alternatively, tool bindings may be specified concisely as string mappings:
+
+```json
+"tool_bindings": {
+  "query": "postgres.query",
+  "exec": "postgres.exec"
+}
+```

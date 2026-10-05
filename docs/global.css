@@ -1,0 +1,25 @@
+/* Keep original logo SVG colors without inversion */
+img[src*="logo"],
+.dark img[src*="logo"],
+img[alt="Dmint"],
+img[alt="dmint"],
+.dark [class*="invert"],
+[class*="dark:invert"] {
+  filter: none !important;
+}
+
+/* Hide Powered by Holocron footer */
+footer div.opacity-40,
+footer div:has(a[href*="holocron.so"]),
+div:has(> span + span > a[href*="holocron.so"]),
+div.opacity-40:has(span),
+a[href*="holocron.so"] {
+  display: none !important;
+}
+
+/* Hide Copy page as Markdown 3rd section */
+button[title="Copy page as Markdown"],
+div:has(> button[title="Copy page as Markdown"]),
+.slot-aside {
+  display: none !important;
+}

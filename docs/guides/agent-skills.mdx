@@ -1,0 +1,88 @@
+---
+title: "AI Coding Agent Skills"
+description: "How to install the official dmint-policy-manager skill into AI coding assistants like Antigravity, Claude Code, and Cursor."
+icon: "brain"
+---
+
+# AI Coding Agent Skills
+
+When using AI coding assistants (such as Google Antigravity, Gemini CLI, Claude Code, or Cursor), you can install the official **`dmint-policy-manager`** skill.
+
+This equips your AI coding agent with the system prompts, threat models, and authoring guidelines required to create and verify Dmint policies directly in your chat interface.
+
+---
+
+## Installing the Skill (`dmint install-skill`)
+
+Dmint bundles the official skill and provides an installation command:
+
+```bash
+# Interactive installation (prompts for destination):
+dmint install-skill
+```
+
+```text
+Dmint AI Coding Agent Skill Installer
+
+Choose installation destination:
+  [1] .agents/skills/          (Recommended: Workspace standard for Antigravity, Gemini CLI, Cursor)
+  [2] .agent/skills/           (Alternative workspace path)
+  [3] ~/.gemini/config/skills/ (Global config for Antigravity / Gemini)
+  [4] ~/.claude/skills/        (Global config for Claude Code)
+  [5] Type custom path
+```
+
+---
+
+## Non-Interactive & Automated Installation
+
+For scripted setups or Docker environments:
+
+<Tabs>
+  <Tab title="Project Workspace (.agents/skills/)">
+    ```bash
+    dmint install-skill -y
+    # Installs to .agents/skills/dmint-policy-manager/
+    ```
+  </Tab>
+
+  <Tab title="Global Gemini / Antigravity">
+    ```bash
+    dmint install-skill --global
+    # Installs to ~/.gemini/config/skills/dmint-policy-manager/
+    ```
+  </Tab>
+
+  <Tab title="Global Claude Code">
+    ```bash
+    dmint install-skill --claude
+    # Installs to ~/.claude/skills/dmint-policy-manager/
+    ```
+  </Tab>
+
+  <Tab title="Custom Directory">
+    ```bash
+    dmint install-skill --dest ./my-agent-rules/skills
+    ```
+  </Tab>
+</Tabs>
+
+---
+
+## What the Skill Teaches Your AI Agent
+
+Once installed in your project, your AI assistant automatically adheres to these invariants:
+
+1. **Least Privilege Principles**: When drafting policies, the agent defaults unmentioned actions to `DENY`.
+2. **Wildcard Containment**: The agent is instructed never to replace specific resources with broad wildcards (`*`) without explicit developer confirmation.
+3. **Verification Before Deployment**: The agent will run `dmint verify-policy` to ensure syntactic and semantic validity before committing policy files.
+4. **Separation of Concerns**: The agent understands that an LLM can draft policies at development time, but can *never* participate in runtime authorization.
+
+---
+
+## Security Hardening
+
+The `dmint install-skill` command includes strict path sanitization:
+- Whitelists skill names against `^[a-zA-Z0-9_-]+$`.
+- Rejects path traversal payloads (`../`, `..\\`, absolute root escapes).
+- Uses atomic file writes with file descriptor validation to prevent symlink hijacking.

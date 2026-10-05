@@ -1,0 +1,257 @@
+{% extends "base.html" %}
+{% block title %}Dmint — Approval {{ record.approval_id[:16] }}…{% endblock %}
+
+{% block content %}
+
+{# ── Breadcrumb ───────────────────────────────────────────────────── #}
+<ol class="d-breadcrumb" aria-label="Breadcrumb">
+  <li><a href="/">Dashboard</a></li>
+  <li class="d-breadcrumb-sep" aria-hidden="true">/</li>
+  <li class="d-breadcrumb-current" aria-current="page">Approval</li>
+</ol>
+
+{# ── Detail heading ───────────────────────────────────────────────── #}
+<div class="d-detail-head">
+  <div>
+    <div class="d-eyebrow">Deterministic Gate Decision</div>
+    <h1>Approval request</h1>
+    <div class="d-detail-id">{{ record.approval_id }}</div>
+  </div>
+  <span class="d-badge {{ record.badge }}" style="font-size:0.8rem;padding:4px 12px;">{{ record.state }}</span>
+</div>
+
+{# ── Request overview ─────────────────────────────────────────────── #}
+<div class="d-panel">
+  <div class="d-panel-header">
+    <h2 class="d-panel-title">Request</h2>
+  </div>
+  <div class="d-panel-body">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(280px, 1fr));gap:0 2.5rem;">
+      <div class="d-dl">
+        <div class="d-dl-row">
+          <div class="d-dl-label">Agent</div>
+          <div class="d-dl-value"><code>{{ record.agent_id }}</code></div>
+        </div>
+        <div class="d-dl-row">
+          <div class="d-dl-label">Tool / Action</div>
+          <div class="d-dl-value">
+            <span style="font-weight:600;">{{ record.tool }}</span>
+            <span style="color:var(--text-dim);margin:0 4px;">/</span>
+            <span>{{ record.action }}</span>
+          </div>
+        </div>
+        <div class="d-dl-row">
+          <div class="d-dl-label">Resource</div>
+          <div class="d-dl-value"><code>{{ record.resource }}</code></div>
+        </div>
+        <div class="d-dl-row">
+          <div class="d-dl-label">Integration</div>
+          <div class="d-dl-value" style="color:var(--text-secondary);">{{ record.integration_id }} / {{ record.capability_id }}</div>
+        </div>
+      </div>
+      <div class="d-dl">
+        <div class="d-dl-row">
+          <div class="d-dl-label">Request ID</div>
+          <div class="d-dl-value"><code>{{ record.request_id }}</code></div>
+        </div>
+        <div class="d-dl-row">
+          <div class="d-dl-label">Approval ID</div>
+          <div class="d-dl-value"><code>{{ record.approval_id }}</code></div>
+        </div>
+        <div class="d-dl-row">
+          <div class="d-dl-label">Created</div>
+          <div class="d-dl-value" style="color:var(--text-secondary);">{{ record.created_at }}</div>
+        </div>
+        <div class="d-dl-row">
+          <div class="d-dl-label">Expires</div>
+          <div class="d-dl-value">
+            {% if record.state == 'PENDING' %}
+            <span style="color:var(--approval);font-weight:600;">{{ record.expires_at }}</span>
+            {% else %}
+            <span style="color:var(--text-secondary);">{{ record.expires_at }}</span>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ── Arguments ────────────────────────────────────────────────────── #}
+<div class="d-panel">
+  <div class="d-panel-header">
+    <h2 class="d-panel-title">Arguments</h2>
+    <span style="font-size:0.75rem;color:var(--deny);font-weight:600;text-transform:uppercase;letter-spacing:0.04em;">Treat as untrusted — do not execute</span>
+  </div>
+  <div class="d-panel-body-flush">
+    <pre>{{ record.arguments_json }}</pre>
+  </div>
+</div>
+
+{# ── Policy provenance ────────────────────────────────────────────── #}
+<div class="d-panel">
+  <div class="d-panel-header">
+    <h2 class="d-panel-title">Policy provenance</h2>
+  </div>
+  <div class="d-panel-body">
+    <div class="d-dl">
+      <div class="d-dl-row">
+        <div class="d-dl-label">Version</div>
+        <div class="d-dl-value"><code>{{ record.policy_version_id }}</code></div>
+      </div>
+      <div class="d-dl-row">
+        <div class="d-dl-label">Digest</div>
+        <div class="d-dl-value"><code>{{ record.policy_digest }}</code></div>
+      </div>
+      <div class="d-dl-row">
+        <div class="d-dl-label">Evaluated at</div>
+        <div class="d-dl-value" style="color:var(--text-secondary);">{{ record.policy_evaluated_at }}</div>
+      </div>
+      <div class="d-dl-row">
+        <div class="d-dl-label">Fingerprint</div>
+        <div class="d-dl-value"><code>{{ record.fingerprint }}</code></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ── Decision info (if decided) ───────────────────────────────────── #}
+{% if record.state != 'PENDING' %}
+<div class="d-panel">
+  <div class="d-panel-header">
+    <h2 class="d-panel-title">Decision</h2>
+  </div>
+  <div class="d-panel-body">
+    <div class="d-dl">
+      <div class="d-dl-row">
+        <div class="d-dl-label">Outcome</div>
+        <div class="d-dl-value">
+          <span class="d-badge {{ record.badge }}">{{ record.state }}</span>
+          {% if record.state_reason %}
+          <span style="color:var(--text-dim);font-size:0.8rem;margin-left:10px;">{{ record.state_reason }}</span>
+          {% endif %}
+        </div>
+      </div>
+      {% if record.decision_at %}
+      <div class="d-dl-row">
+        <div class="d-dl-label">Decided at</div>
+        <div class="d-dl-value" style="color:var(--text-secondary);">{{ record.decision_at }}</div>
+      </div>
+      {% endif %}
+      {% if record.authority_subject %}
+      <div class="d-dl-row">
+        <div class="d-dl-label">Decided by</div>
+        <div class="d-dl-value">
+          {{ record.authority_subject }}
+          <span class="d-badge secondary" style="margin-left:6px;">{{ record.authority_kind }}</span>
+        </div>
+      </div>
+      {% endif %}
+      {% if record.consumed_at %}
+      <div class="d-dl-row">
+        <div class="d-dl-label">Consumed at</div>
+        <div class="d-dl-value" style="color:var(--text-secondary);">{{ record.consumed_at }}</div>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{# ── Approve / Reject (PENDING only) ──────────────────────────────── #}
+{% if record.is_pending %}
+<div class="d-panel">
+  <div class="d-panel-header">
+    <h2 class="d-panel-title">Your decision</h2>
+    <span style="font-size:0.75rem;color:var(--text-dim);">Irreversible — Core records the decision atomically</span>
+  </div>
+  <div class="d-decision-bar">
+    <button type="button" class="d-btn d-btn-primary" data-modal-open="approveModal">
+      Approve request
+    </button>
+    <button type="button" class="d-btn d-btn-danger" data-modal-open="rejectModal">
+      Reject request
+    </button>
+  </div>
+</div>
+
+{# ── Approve modal ────────────────────────────────────────────────── #}
+<div class="d-modal-backdrop" id="approveModal" role="dialog" aria-modal="true" aria-labelledby="approveModalTitle">
+  <div class="d-modal">
+    <div class="d-modal-header">
+      <h2 id="approveModalTitle">Confirm approval</h2>
+      <button class="d-modal-close" data-modal-close="approveModal" aria-label="Close">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+          <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+        </svg>
+      </button>
+    </div>
+    <div class="d-modal-body">
+      <p style="color:var(--text-secondary);font-size:0.875rem;margin:0 0 1rem;">You are approving this exact request:</p>
+      <div class="d-dl" style="margin-bottom:1rem;">
+        <div class="d-dl-row">
+          <div class="d-dl-label">Agent</div>
+          <div class="d-dl-value"><code>{{ record.agent_id }}</code></div>
+        </div>
+        <div class="d-dl-row">
+          <div class="d-dl-label">Tool / Action</div>
+          <div class="d-dl-value"><strong>{{ record.tool }}</strong> / {{ record.action }}</div>
+        </div>
+        <div class="d-dl-row">
+          <div class="d-dl-label">Resource</div>
+          <div class="d-dl-value"><code>{{ record.resource }}</code></div>
+        </div>
+      </div>
+      <div class="d-warn-strip">Core will atomically sign and record this approval. This cannot be undone.</div>
+    </div>
+    <div class="d-modal-footer">
+      <button type="button" class="d-btn d-btn-ghost" data-modal-close="approveModal">Cancel</button>
+      <form method="post" action="/approvals/{{ record.approval_id }}/approve" style="display:inline;">
+        <button type="submit" class="d-btn d-btn-primary">Confirm approval</button>
+      </form>
+    </div>
+  </div>
+</div>
+
+{# ── Reject modal ─────────────────────────────────────────────────── #}
+<div class="d-modal-backdrop" id="rejectModal" role="dialog" aria-modal="true" aria-labelledby="rejectModalTitle">
+  <div class="d-modal">
+    <form method="post" action="/approvals/{{ record.approval_id }}/reject">
+      <div class="d-modal-header">
+        <h2 id="rejectModalTitle">Reject request</h2>
+        <button type="button" class="d-modal-close" data-modal-close="rejectModal" aria-label="Close">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+      <div class="d-modal-body">
+        <div class="d-dl" style="margin-bottom:1rem;">
+          <div class="d-dl-row">
+            <div class="d-dl-label">Agent</div>
+            <div class="d-dl-value"><code>{{ record.agent_id }}</code></div>
+          </div>
+          <div class="d-dl-row">
+            <div class="d-dl-label">Tool / Action</div>
+            <div class="d-dl-value"><strong>{{ record.tool }}</strong> / {{ record.action }}</div>
+          </div>
+          <div class="d-dl-row">
+            <div class="d-dl-label">Resource</div>
+            <div class="d-dl-value"><code>{{ record.resource }}</code></div>
+          </div>
+        </div>
+        <label class="d-form-label" for="reasonInput">Reason (optional)</label>
+        <textarea class="d-input" id="reasonInput" name="reason" rows="3" maxlength="500"
+                  placeholder="e.g. Scope too broad, production resources affected…"></textarea>
+        <div class="d-form-hint">Max 500 characters. Recorded in Core.</div>
+      </div>
+      <div class="d-modal-footer">
+        <button type="button" class="d-btn d-btn-ghost" data-modal-close="rejectModal">Cancel</button>
+        <button type="submit" class="d-btn d-btn-danger">Confirm rejection</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}

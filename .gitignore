@@ -1,0 +1,113 @@
+# Environments & Credentials
+.env
+.env.*
+!.env.example
+.secrets/
+secrets/
+*.secret
+*.token
+*.credentials
+credentials.*
+*.pem
+*.key
+*.crt
+*.p12
+
+# Database & Epoch Files
+*.sqlite
+*.sqlite3
+*.db
+*.db3
+*.epoch
+*.db.epoch
+
+# Local approval stores & dmint runtime state
+dmint_approvals.db
+approvals.db
+policy_epoch.db
+
+# Python Cache & Bytecode
+__pycache__/
+__pycache__
+**/__pycache__
+**/__pycache__/**
+*.py[cod]
+*$py.class
+.pytest_cache/
+.pytest_cache
+**/.pytest_cache
+**/.pytest_cache/**
+.mypy_cache/
+.mypy_cache
+**/.mypy_cache
+**/.mypy_cache/**
+.ruff_cache/
+.ruff_cache
+**/.ruff_cache
+**/.ruff_cache/**
+
+# Coverage & Audit Output
+.coverage
+.coverage.*
+coverage.xml
+coverage.lcov
+htmlcov/
+
+# Virtual Environments
+.venv/
+venv/
+env/
+ENV/
+
+# Build & Package Artifacts
+dist/
+dist
+build/
+build
+*.egg-info/
+*.egg-info
+src/*.egg-info/
+src/*.egg-info
+**/*.egg-info/
+**/*.egg-info
+**/*.egg-info/**
+UNKNOWN.egg-info/
+
+# Pre-commit cache
+.pre-commit-cache/
+.pre-commit-cache
+
+# Logs & Temporary Files
+*.log
+*.tmp
+*.temp
+temp/
+temp
+
+# OS & Editor Junk
+.DS_Store
+Thumbs.db
+.idea/
+.idea
+**/.idea
+**/.idea/**
+.vscode/
+.vscode
+**/.vscode
+**/.vscode/**
+*.swp
+*.swo
+
+# Node & Frontend Build Artifacts
+node_modules/
+node_modules
+**/node_modules
+**/node_modules/**
+.wrangler/
+.wrangler
+**/.wrangler
+**/.wrangler/**
+.holocron/
+.holocron
+**/.holocron
+**/.holocron/**

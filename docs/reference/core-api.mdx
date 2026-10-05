@@ -1,0 +1,302 @@
+---
+title: "Python Core API Reference"
+description: "Public classes, methods, and error codes in the dmint v2.0.0 core package."
+icon: "cube"
+---
+
+# Python Core API Reference (`dmint`)
+
+This page documents the public API exposed by the `dmint` v2.0.0 Python package.
+
+```python
+from dmint import (
+    Dmint,
+    Policy,
+    Rule,
+    ToolRequest,
+    SQLiteApprovalStore,
+    LocalApprovalAuthority,
+    ApprovalState,
+)
+```
+
+---
+
+## `Dmint`
+
+The primary authorization and execution orchestrator.
+
+### Constructor
+```python
+from datetime import timedelta
+from dmint.models import TrustedContext
+
+dmint = Dmint(
+    policy: Policy,
+    *,
+    agent_id: str,
+    context: TrustedContext,
+    integration_id: str = "local-runtime",
+    approval_store: SQLiteApprovalStore | None = None,
+    approval_verifier: ApprovalVerifier | None = None,
+    policy_provenance: PolicyProvenance | None = None,
+    approval_ttl: timedelta | None = None,
+)
+```
+
+### Methods
+
+#### `@dmint.protected(capability: str)`
+Decorator that intercepts a Python function. Halts execution if the capability evaluates to `DENY` or `APPROVAL_REQUIRED`.
+```python
+@dmint.protected("database.update")
+def modify_user(id: int, name: str):
+    ...
+```
+
+#### `dmint.retry(function: Callable, *args, approval_credential: ApprovalAssertion | bytes, **kwargs) -> Any`
+Executes an approved retry for a previously intercepted function using a cryptographic approval assertion. Atomically consumes the approval in the store to enforce single-use replay defense.
+```python
+result = dmint.retry(
+    modify_user,
+    42,
+    "Alice",
+    approval_credential=assertion,
+)
+```
+
+#### `dmint.authorize(function: Callable, *args, capability: str, resource: ResourceSpec = NO_RESOURCE, **kwargs) -> AuthorizedRequest`
+Evaluates and pre-authorizes a callable with its arguments against the policy for the given capability. Returns an `AuthorizedRequest` token if permitted, raises `ApprovalRequiredError` if human approval is required (persisting a pending record to SQLite), or raises `AuthorizationError` if denied.
+
+#### `dmint.execute(authorized: AuthorizedRequest) -> Any`
+Executes an `AuthorizedRequest` token produced by `dmint.authorize()`.
+
+---
+
+## `Policy`
+
+Represents an immutable, validated authorization policy.
+
+### Static Methods
+```python
+# Parse from Python dictionary (mapping containing {"rules": [...]})
+import json
+from dmint import Policy
+
+with open("policy.json", "r", encoding="utf-8") as f:
+    policy = Policy.from_mapping(json.load(f))
+```
+
+<Warning>
+**Strict Schema Validation**: `Policy.from_mapping()` enforces strict key validation. The mapping must contain only the top-level `"rules"` key. Any extra metadata keys (such as `"name"`, `"version"`, `"description"`, or `"$schema"`) will cause `PolicyError("policy contains unknown keys")`. Strip extraneous metadata before passing dictionaries to `Policy.from_mapping()`.
+</Warning>
+
+### Properties
+- `policy.rules`: Tuple of `Rule` objects.
+
+### Functions
+- `policy_digest(policy: Policy | Mapping[str, Any]) -> str`: Returns the canonical SHA-256 hex digest of the policy.
+
+---
+
+## `TrustedContext`
+
+Represents trusted environmental attributes (e.g. `{"env": "production", "user_role": "admin"}`) used in policy condition evaluations.
+
+### Constructor
+```python
+from dmint.models import TrustedContext
+
+context = TrustedContext({"env": "production", "region": "us-east-1"})
+```
+
+---
+
+## `PolicyProvenance`
+
+Binds an approval lifecycle to a specific policy version and digest.
+
+### Constructor
+```python
+from datetime import datetime, timezone
+from dmint import PolicyProvenance, policy_digest
+
+provenance = PolicyProvenance(
+    version_id="prod-v1",
+    digest=policy_digest(policy),
+    evaluated_at=datetime.now(timezone.utc),
+)
+```
+
+---
+
+## `LocalApprovalAuthority` & `ApprovalVerifier`
+
+Cryptographic signing and verification of human approval assertions using Ed25519.
+
+### Constructor
+```python
+from dmint import LocalApprovalAuthority, ApprovalVerifier
+
+# Issuer side (e.g. Dashboard / Admin)
+authority = LocalApprovalAuthority(
+    issuer_id="dmint-dashboard",
+    audience="dmint/dashboard/v1",
+)
+
+# Verifier side (e.g. Backend / Runtime)
+verifier = ApprovalVerifier(
+    trusted_issuers={"dmint-dashboard": authority.public_key_bytes},
+    audience="dmint/dashboard/v1",
+)
+```
+
+---
+
+## `ApprovalStore` Interface
+
+The abstract base persistence interface implemented by both `SQLiteApprovalStore` and `SQLAlchemyApprovalStore`.
+
+```python
+from dmint import ApprovalStore, create_approval_store, SQLiteApprovalStore, SQLAlchemyApprovalStore
+
+# Preferred factory: reads DMINT_DATABASE_URL or defaults to local SQLite
+store = create_approval_store(deployment_epoch="prod-v1")
+```
+
+### Factory Function: `create_approval_store()`
+```python
+def create_approval_store(
+    database_url: str | None = None,
+    *,
+    deployment_epoch: str,
+    default_sqlite_path: str | Path = "dmint.db",
+    recovery_epoch_file: str | Path | None = None,
+    redact_keys: Collection[str] | None = None,
+    max_pending_per_principal: int = 100,
+    clock: Callable[[], datetime] | None = None,
+) -> ApprovalStore:
+    ...
+```
+
+- When `DMINT_DATABASE_URL` is unset, returns `SQLiteApprovalStore` (zero external dependencies).
+- When `DMINT_DATABASE_URL` is `postgresql://...`, returns `SQLAlchemyApprovalStore` with PostgreSQL row-level locking.
+- When `DMINT_DATABASE_URL` is invalid or unreachable, raises `ApprovalStoreConfigurationError` immediately.
+
+---
+
+## `SQLiteApprovalStore`
+
+The Core-owned SQLite database client managing approval lifecycles for local/dev use.
+
+### Constructor
+```python
+store = SQLiteApprovalStore(
+    database: str | Path,
+    *,
+    deployment_epoch: str,
+    recovery_epoch_file: str | Path | None = None,
+)
+```
+
+<Note>
+`deployment_epoch` participates in Core's rollback and recovery protection, tracking epoch state in a companion `.epoch` file (`<db_path>.epoch`) alongside the SQLite database to prevent rollback attacks.
+</Note>
+
+---
+
+## `SQLAlchemyApprovalStore`
+
+SQLAlchemy Core-backed implementation for production environments requiring PostgreSQL.
+
+### Constructor
+```python
+store = SQLAlchemyApprovalStore(
+    url_or_engine: str | Engine,
+    *,
+    deployment_epoch: str,
+    recovery_epoch_file: str | Path | None = None,
+)
+```
+
+Provides exact behavioral parity with SQLite, including atomic single-use consumption (`SELECT ... FOR UPDATE`), exact-request binding, and strict concurrency protection.
+
+---
+
+## `ThreadSafeApprovalStore`
+
+Canonical thread-safe proxy wrapping either `SQLiteApprovalStore` (with thread-local connections) or `SQLAlchemyApprovalStore` (with native connection pooling). Used by `dmint-mcp` and `dmint dashboard`.
+
+### Constructor
+```python
+from dmint import ThreadSafeApprovalStore
+
+store = ThreadSafeApprovalStore(
+    database: str | Path | None = None,
+    *,
+    deployment_epoch: str = "default",
+    database_url: str | None = None,
+    default_sqlite_path: str | Path = "dmint.db",
+    recovery_epoch_file: str | Path | None = None,
+)
+```
+
+Constructed using the same `DMINT_DATABASE_URL`-aware logic as `create_approval_store()`, ensuring seamless SQLite/PostgreSQL support across all threads and workers.
+
+### Public Methods (`ApprovalStore`)
+
+#### `store.list_pending(*, limit: int = 100) -> list[ApprovalRecord]`
+Queries unexpired `PENDING` approval records ordered newest first.
+
+#### `store.list_records(*, states: set[ApprovalState] | None = None, limit: int = 200) -> list[ApprovalRecord]`
+Queries approval records with optional state filtering (for audit logs and history).
+
+#### `store.get_pending(approval_id: str) -> ApprovalRecord | None`
+Retrieves a pending approval record by its `approval_id`.
+
+#### `store.get_approved(approval_id: str) -> ApprovalRecord | None`
+Retrieves an approved approval record by its `approval_id`.
+
+#### `store.get(approval_id: str) -> ApprovalRecord | None`
+Retrieves an approval record (in any state) by its `approval_id`.
+
+#### `store.require_pending(approval_id: str) -> ApprovalRecord`
+Retrieves a pending approval record, raising an error if not found or not in `PENDING` state.
+
+#### `store.approve_pending(approval_id: str, *, authority: LocalApprovalAuthority, approved_by: str, now: datetime | None = None) -> ApprovalRecord`
+Atomically transitions a record from `PENDING` to `APPROVED`, generating and storing the cryptographic assertion.
+
+#### `store.reject_pending(approval_id: str, *, authority: LocalApprovalAuthority, rejected_by: str, reason: str | None = None, now: datetime | None = None) -> ApprovalRecord`
+Atomically transitions a record from `PENDING` to `REJECTED` with an optional reason.
+
+#### `store.save_approved(record: ApprovalRecord) -> None`
+Persists a transitioned `APPROVED` approval record to the store.
+
+#### `store.consume_approved(*, approval_id: str, credential: ApprovalAssertion | bytes, expected_request: ToolRequest, verifier: ApprovalVerifier, now: datetime | None = None) -> ApprovalRecord`
+Atomically verifies and transitions an approved record to `CONSUMED`. Core's `dmint.retry()` handles this automatically.
+
+#### `store.invalidate_approved(record: ApprovalRecord, *, reason: str, now: datetime | None = None) -> ApprovalRecord`
+Invalidates an approved record if policy provenance changes or conditions no longer hold.
+
+#### `store.cleanup_expired(*, now: datetime | None = None) -> int`
+Purges expired pending records from the database and returns the count of removed records.
+
+#### `store.close() -> None`
+Closes the underlying database connection pool cleanly.
+
+---
+
+## Error Codes & Exceptions
+
+Exceptions in Dmint derive from `dmint.errors.DmintError`. Authorization decisions raise `AuthorizationError`, while approval lifecycle transitions raise `ApprovalError` subclasses:
+
+| Error Constant | Exception Class | Meaning |
+|---|---|---|
+| `DMT_POLICY_DENIED` | `AuthorizationError` | Action explicitly forbidden by policy rule or fail-closed default. |
+| `DMT_APPROVAL_REQUIRED` | `ApprovalRequiredError` | Action is paused awaiting human approval. |
+| `DMT_APPROVAL_CONSUMED` | `ApprovalConsumedError` | Attempted to replay an assertion that has already been executed. |
+| `DMT_APPROVAL_EXPIRED` | `ApprovalExpiredError` | Assertion timestamp exceeded time-to-live. |
+| `DMT_APPROVAL_REQUEST_MISMATCH` | `ApprovalRequestMismatchError` | Runtime arguments do not match the approved request fingerprint. |
+| `DMT_APPROVAL_POLICY_INVALID` | `ApprovalPolicyInvalidError` | The policy file was modified after the approval was granted. |
+| `DMT_APPROVAL_STORE_CONFIG_ERROR` | `ApprovalStoreConfigurationError` | Invalid database URL, unreachable host, or database connection failure at startup. |
+| `DMT_APPROVAL_CONCURRENT_CONSUME` | `ApprovalConcurrentConsumeError` | Another consumer won the approval consumption race. |

@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Dmint Dashboard{% endblock %}</title>
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <script>
+    /* Theme initialisation to prevent flash of unstyled theme */
+    (function () {
+      try {
+        var params = new URLSearchParams(window.location.search);
+        var qTheme = params.get('theme');
+        if (qTheme === 'light' || qTheme === 'dark') {
+          document.documentElement.setAttribute('data-theme', qTheme);
+          return;
+        }
+        var saved = localStorage.getItem('dmint-theme');
+        if (saved === 'light' || saved === 'dark') {
+          document.documentElement.setAttribute('data-theme', saved);
+        } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) {
+          document.documentElement.setAttribute('data-theme', 'light');
+        } else {
+          document.documentElement.setAttribute('data-theme', 'dark');
+        }
+      } catch (e) {}
+    })();
+  </script>
+  <link rel="stylesheet" href="/static/style.css">
+  <script defer src="/static/theme.js"></script>
+</head>
+<body>
+
+  <nav class="d-nav">
+    <div class="d-container">
+      <div class="d-nav-inner">
+        <a class="d-nav-brand" href="/">
+          <img class="d-nav-logo" src="/static/logo.svg" alt="Dmint" width="26" height="26">
+          <span class="d-nav-wordmark">Dmint</span>
+          <span class="d-nav-sub">Security Dashboard</span>
+        </a>
+
+        <div class="d-nav-controls">
+          <ul class="d-nav-links" role="list">
+            <li>
+              <a href="/" {% if request.url.path == '/' %}class="active"{% endif %}>
+                Approvals
+              </a>
+            </li>
+            <li>
+              <a href="/audit" {% if request.url.path == '/audit' %}class="active"{% endif %}>
+                Audit
+              </a>
+            </li>
+          </ul>
+
+          <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Switch theme">
+            <svg class="icon-sun" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="4"></circle>
+              <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"></path>
+            </svg>
+            <svg class="icon-moon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+            </svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  </nav>
+
+  <main class="d-main">
+    <div class="d-container">
+
+      {% if flash_message %}
+      <div class="d-flash {{ flash_type }}" role="alert">
+        {{ flash_message }}
+      </div>
+      {% endif %}
+
+      {% block content %}{% endblock %}
+
+    </div>
+  </main>
+
+  <footer class="d-footer">
+    <div class="d-container">
+      Dmint Dashboard &mdash;
+      <span class="warn">No authentication</span> &mdash;
+      Local / demo use only
+    </div>
+  </footer>
+
+  <script>
+  /* Modal controller — vanilla JS, zero external dependencies */
+  document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('[data-modal-open]').forEach(function(trigger) {
+      trigger.addEventListener('click', function() {
+        var id = trigger.getAttribute('data-modal-open');
+        var modal = document.getElementById(id);
+        if (modal) modal.classList.add('open');
+      });
+    });
+    document.querySelectorAll('[data-modal-close]').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        var id = btn.getAttribute('data-modal-close');
+        var modal = document.getElementById(id);
+        if (modal) modal.classList.remove('open');
+      });
+    });
+    document.querySelectorAll('.d-modal-backdrop').forEach(function(backdrop) {
+      backdrop.addEventListener('click', function(e) {
+        if (e.target === backdrop) backdrop.classList.remove('open');
+      });
+    });
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape') {
+        document.querySelectorAll('.d-modal-backdrop.open').forEach(function(m) {
+          m.classList.remove('open');
+        });
+      }
+    });
+  });
+  </script>
+
+</body>
+</html>

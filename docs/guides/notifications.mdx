@@ -1,0 +1,147 @@
+---
+title: "Approval Notifications & Webhooks"
+description: "Configure real-time outgoing webhook alerts for Slack, Discord, and Microsoft Teams on approval events."
+icon: "bell"
+---
+
+# Approval Notifications & Webhooks
+
+When an AI agent requests a capability that evaluates to `APPROVAL_REQUIRED`, Dmint can automatically post real-time alerts to **Slack**, **Discord**, and **Microsoft Teams**.
+
+Human operators are notified immediately with full context and the exact command needed to approve the action—without requiring active polling or keeping a browser tab open.
+
+```text
+┌─────────────────┐
+│    AI Agent     │  Attempts sensitive tool call
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│ Dmint Gate      │  Evaluates policy: APPROVAL_REQUIRED
+└────────┬────────┘
+         │
+         ├─────────────────────────────────────────┐
+         ▼                                         ▼
+┌─────────────────┐                       ┌─────────────────┐
+│ Approval Store  │ (Atomic Record Created)│ Webhook Engine  │ (Fire-and-forget)
+└─────────────────┘                       └────────┬────────┘
+                                                   │
+                   ┌───────────────────────────────┼───────────────────────────────┐
+                   ▼                               ▼                               ▼
+            ┌─────────────┐                 ┌─────────────┐                 ┌─────────────┐
+            │    Slack    │                 │   Discord   │                 │  MS Teams   │
+            │  (Channel)  │                 │  (Channel)  │                 │  (Channel)  │
+            └─────────────┘                 └─────────────┘                 └─────────────┘
+```
+
+---
+
+## Configuration via Environment Variables
+
+Webhooks are configured simply through environment variables. Any combination of channels is supported:
+
+| Environment Variable | Platform | Description |
+|---|---|---|
+| `DMINT_SLACK_WEBHOOK_URL` | Slack | Incoming webhook URL for a Slack channel |
+| `DMINT_DISCORD_WEBHOOK_URL` | Discord | Webhook URL for a Discord channel |
+| `DMINT_TEAMS_WEBHOOK_URL` | Microsoft Teams | Incoming webhook or Power Automate workflow URL |
+| `DMINT_WEBHOOK_TIMEOUT` | All | HTTP request timeout in seconds (default: `3.0`) |
+
+<Note>
+**Zero-Config Default**: If no webhook environment variables are set, notification dispatch is a complete no-op. Webhook configuration is never mandatory.
+</Note>
+
+---
+
+## How to Get Webhook URLs
+
+### 1. Slack
+1. In your Slack workspace, navigate to [Slack API: Your Apps](https://api.slack.com/apps).
+2. Create a new app or select an existing one, then select **Incoming Webhooks**.
+3. Toggle **Activate Incoming Webhooks** to **On**.
+4. Click **Add New Webhook to Workspace**, choose your target channel, and authorize it.
+5. Copy the generated Webhook URL and set:
+   ```bash
+   export DMINT_SLACK_WEBHOOK_URL="https://hooks.slack.com/services/<TEAM_ID>/<CHANNEL_ID>/<TOKEN>"
+   ```
+
+### 2. Discord
+1. Open Discord and go to your server's target text channel.
+2. Click the gear icon (**Edit Channel**) $\to$ **Integrations** $\to$ **Webhooks**.
+3. Click **New Webhook**, give it a name (e.g. `Dmint Guard`), and select the channel.
+4. Click **Copy Webhook URL** and set:
+   ```bash
+   export DMINT_DISCORD_WEBHOOK_URL="https://discord.com/api/webhooks/123456789012345678/abcdefghijklmnopqrstuvwxyz"
+   ```
+
+### 3. Microsoft Teams
+1. In Microsoft Teams, navigate to the channel where you want notifications.
+2. Click **...** (More options) next to the channel name $\to$ **Workflows** (or **Connectors**).
+3. Select **Post to a channel when a webhook request is received**.
+4. Follow the setup wizard and copy the generated webhook URL:
+   ```bash
+   export DMINT_TEAMS_WEBHOOK_URL="https://prod-XX.location.logic.azure.com/workflows/..."
+   ```
+   *(Note: `DMINT_MSTEAMS_WEBHOOK_URL` is also accepted as an alias).*
+
+---
+
+## Notification Content
+
+Every webhook notification includes the critical context needed for a human operator to audit and act on the request:
+
+- **Approval ID**: The unique non-sequential identifier (`apr_...`).
+- **Tool & Action**: The target capability requested by the agent (e.g. `bash.execute`, `github.merge_pr`).
+- **Resource / Target**: The specific asset or parameter target (e.g. `/var/log`, `repo:prod-main`).
+- **Agent / Principal**: The authenticated identity of the requesting AI agent.
+- **Copy-Paste Action Command**: The exact CLI command ready to execute:
+  ```bash
+  dmint approve <approval_id>
+  ```
+
+<Warning>
+**Terminal Environment & Connection Requirements for Approvals**:
+
+The generated approval command runs directly in the operator's shell. For the command to successfully locate and authenticate the approval record:
+
+1. **Pre-Exported Environment Variables (Recommended)**: Ensure your operator terminal has exported your database and deployment epoch:
+   ```bash
+   export DMINT_DATABASE_URL="postgresql://user:pass@db:5432/dmint"  # Required if using PostgreSQL
+   export DMINT_DEPLOYMENT_EPOCH="prod-2026-q1"                      # Required if using non-default epoch
+   ```
+2. **Explicit CLI Flags**: If executing from an unconfigured terminal session, pass explicit connection flags:
+   ```bash
+   dmint approve <approval_id> --database-url "postgresql://..." --deployment-epoch "prod-2026-q1"
+   ```
+   *(If omitted, `dmint approve` defaults to local SQLite at `~/.dmint/approvals.db` and deployment epoch `"default"`, which will report `Error: approval record was not found` on PostgreSQL deployments).*
+3. **Web Dashboard Alternative**: Alternatively, use the Web Dashboard (`dmint dashboard`), which already connects directly to your configured store and allows single-click approvals without terminal configuration.
+</Warning>
+
+---
+
+## Real-Time Policy Denial Alerts
+
+In addition to `APPROVAL_REQUIRED` events, Dmint can also dispatch real-time security alerts whenever a tool execution is explicitly blocked (`DENY`). This gives security teams instant visibility into policy violations, prompt injection attempts, or unauthorized tool calls directly in your team's Slack, Discord, or Microsoft Teams channels.
+
+Denial notifications include:
+- **Status**: `DENIED`
+- **Tool & Action**: Requested capability (e.g. `bash.execute`, `filesystem.write`)
+- **Resource / Target**: Target resource or path
+- **Agent Identity**: The requesting agent principal ID
+- **Timestamp**: Exact UTC timestamp of the denial event
+
+Programmatically, you can dispatch denial alerts via `dispatch_denial_webhook(request)` or `WebhookNotifier.send_policy_denied(request)`. In MCP gateways, explicit policy denials are forwarded automatically when webhook URLs are configured.
+
+---
+
+## Security & Isolation Invariant
+
+<Warning>
+**Strict Notification Boundary**:
+Webhook delivery is strictly an asynchronous notification side-effect.
+Under no circumstances will a webhook error (such as a network timeout, 4xx/5xx HTTP error, DNS resolution failure, or unreachable endpoint) ever block, weaken, or alter the authorization decision path.
+</Warning>
+
+- **Fail-Closed Guarantee**: If a tool requires approval, the agent is paused and `ApprovalRequiredError` is raised regardless of whether webhooks succeed or fail.
+- **Non-Blocking Dispatch**: Outgoing webhooks execute with a short timeout (`3.0s` by default), preventing sluggish external APIs from stalling tool evaluation.
+- **Tamper Resistance**: The notification displays the canonical RFC 8785 request binding, ensuring that the command `dmint approve <id>` only authorizes the exact immutable request.

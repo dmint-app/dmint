@@ -1,0 +1,90 @@
+---
+title: "Claude Code Integration"
+description: "How to route Claude Code MCP tools through dmint-mcp with deterministic policy enforcement."
+icon: "terminal"
+---
+
+# Claude Code Integration
+
+[Claude Code](https://docs.anthropic.com/en/docs/agents-and-tools/claude-code/overview) is Anthropic's agentic command-line tool. By routing Claude Code's tools through `dmint-mcp`, you ensure that autonomous file edits, database mutations, and external API requests follow deterministic security boundaries.
+
+---
+
+## 1. Install the Policy Skill
+
+Install the official `dmint-policy-manager` skill into Claude Code's global configuration:
+
+```bash
+dmint install-skill --claude
+# Installs to ~/.claude/skills/dmint-policy-manager/
+```
+
+This gives Claude Code full understanding of Dmint's policy syntax, failure modes, and approval retries.
+
+---
+
+## 2. Configure Claude Code with `dmint-mcp`
+
+Configure Claude Code to route downstream tools through the `dmint-mcp` gateway.
+
+Add the gateway to your Claude Code configuration:
+
+```bash
+claude mcp add dmint-gateway -- dmint-mcp run \
+  --config /path/to/mcp_protection.json
+```
+
+<Note>
+The policy file (`policy_file`), approval database (`approval_db`), and TTL (`approval_ttl`) are configured inside `mcp_protection.json`.
+</Note>
+
+Alternatively, configure `~/.claude/config.json`:
+
+```json title="~/.claude/config.json"
+{
+  "mcpServers": {
+    "dmint-gateway": {
+      "command": "python",
+      "args": [
+        "-m",
+        "dmint.mcp",
+        "run",
+        "--config",
+        "/path/to/mcp_protection.json"
+      ]
+    }
+  }
+}
+```
+
+---
+
+## 3. Run Claude Code
+
+Start your Claude Code session as usual:
+
+```bash
+claude
+```
+
+When Claude Code requests a tool call:
+1. `ALLOW` tools (e.g. reading logs, running tests) execute immediately.
+2. `DENY` tools (e.g. dropping production databases, deleting root files) fail closed immediately with a structured security error.
+3. `APPROVAL_REQUIRED` tools halt and wait for human review on your local dashboard.
+
+---
+
+## 4. Approve via CLI or Dashboard
+
+Run the approval dashboard alongside your terminal session:
+
+```bash
+# Terminal approval:
+dmint pending
+dmint approve apr_abc123...
+
+# Or launch the approval dashboard web UI:
+dmint dashboard --db-path /path/to/approvals.sqlite3
+```
+
+Review the request via `dmint approve` or in the browser at **http://127.0.0.1:8080**, inspect the parameters, and approve. Claude Code resumes execution immediately upon approval.

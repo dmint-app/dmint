@@ -1,0 +1,122 @@
+---
+title: "Authoring Policies"
+description: "How to convert natural language security requirements into verified, least-privilege Dmint policies."
+icon: "wand-magic-sparkles"
+---
+
+# Authoring Policies with the `dmint` CLI
+
+Manually authoring JSON security policies for dozens of tools can be error-prone. The `dmint` CLI provides interactive wizards that use an LLM during **development time** to draft policies from natural language requirements (`access.md`).
+
+<Warning>
+**Development-Time Only**: The LLM is used *only* as a developer drafting assistant to write JSON. At runtime, the LLM is completely removed from the loop; Dmint evaluates the compiled `policy.json` deterministically.
+</Warning>
+
+---
+
+## The Policy Authoring Workflow
+
+```text
+Human Security Intent (access.md)
+        ↓
+dmint create-policy (Multi-Turn Dialogue with LLM)
+        ↓
+Candidate Policy JSON
+        ↓
+Deterministic Core Validation (Policy.from_mapping)
+        ↓
+Verified Authoritative policy.json
+```
+
+---
+
+## 1. General Policy Authoring (`create-policy`)
+
+For custom Python functions or local tool suites, use `dmint create-policy`:
+
+```bash
+dmint create-policy
+```
+
+The wizard prompts you for:
+1. **Requirements file**: Path to your `access.md` (or defaults to typing requirements).
+2. **Local capability discovery**: Statically parses local Python files using Python's `ast.parse()` to discover `@dmint.protected` functions with **zero code execution**.
+3. **LLM Provider**: Choose OpenAI, Gemini, Groq, OpenRouter, or a local Ollama instance.
+4. **Interactive refinement**: Review the generated rules in terminal, request adjustments, and confirm.
+
+### Non-Interactive Batch Mode
+
+For CI/CD pipelines or scripted setups:
+
+```bash
+dmint create-policy \
+  -f access.md \
+  -o policy.json \
+  --provider openai \
+  --model gpt-4o-mini \
+  --non-interactive \
+  -y
+```
+
+---
+
+## 2. Specialized MCP Policy Authoring (`create-mcp-policy`)
+
+When working with external MCP servers, use `dmint create-mcp-policy`. This command:
+1. Spawns or connects to the live downstream MCP server.
+2. Dispatches `tools/list` to retrieve exact tool names, schemas, and descriptions.
+3. Automatically namespaces the capabilities under the chosen `--integration-id`.
+4. Generates both `policy.json` and the corresponding `mcp_protection.json`.
+
+```bash
+dmint create-mcp-policy \
+  --command npx \
+  --args "-y @modelcontextprotocol/server-postgres postgresql://localhost/mydb" \
+  --integration-id db \
+  -f access.md \
+  -o policy.json \
+  --config-output mcp_protection.json \
+  -y
+```
+
+---
+
+## 3. Offline Verification (`verify-policy`)
+
+Once generated, verify your policy file offline without calling any LLM:
+
+```bash
+dmint verify-policy policy.json
+```
+
+Output:
+```text
+✓ Verified policy.json: 4 rule(s)
+  [ALLOW] tool='db', action='select', resource='*'
+  [APPROVAL_REQUIRED] tool='db', action='update', resource='users'
+  [APPROVAL_REQUIRED] tool='db', action='insert', resource='users'
+  [DENY] tool='db', action='drop', resource='*'
+```
+
+---
+
+## Supported LLM Providers
+
+The `dmint` CLI supports any OpenAI-compatible or Gemini API endpoint:
+
+| Provider | CLI Option | Environment Variable | Default Model |
+|---|---|---|---|
+| **OpenAI** | `-provider openai` | `OPENAI_API_KEY` | `gpt-4o-mini` |
+| **Gemini** | `-provider gemini` | `GEMINI_API_KEY` | `gemini-1.5-flash` |
+| **Groq** | `-provider groq` | `GROQ_API_KEY` | `llama-3.1-70b-versatile` |
+| **OpenRouter** | `-provider openrouter` | `OPENROUTER_API_KEY` | `anthropic/claude-3.5-sonnet` |
+| **Ollama** | `-provider ollama` | None | `llama3.1` (http://localhost:11434/v1) |
+
+---
+
+## Invariants Enforced During Authoring
+
+To prevent insecure policy generation:
+- **Least Privilege Default**: Unmentioned capabilities default to `DENY`.
+- **No Wildcard Expansion**: The compiler rejects attempts to replace specific resource scopes with unvetted wildcards (`*`).
+- **Capability Pinning**: The authoring wizard validates all generated rules against the real discovered tools; hallucinated tool names are rejected and retried automatically.

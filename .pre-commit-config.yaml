@@ -1,0 +1,32 @@
+repos:
+  # 1. Standard file hygiene & safety hooks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-json
+      - id: check-toml
+      - id: check-added-large-files
+        args: [--maxkb=1000]
+      - id: check-merge-conflict
+      - id: detect-private-key
+
+  # 2. Ruff: The modern Python equivalent of ESLint + Prettier (Rust-powered, 100x faster)
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.9
+    hooks:
+      # Linter (like ESLint) with auto-fix enabled
+      - id: ruff
+        args: [--fix]
+      # Formatter (like Prettier) with deterministic code formatting
+      - id: ruff-format
+
+  # 3. Commitizen: Enforces Conventional Commits (fix:, feat:, chore:, docs:, etc.)
+  # Replaces commitlint / husky commit-msg hook
+  - repo: https://github.com/commitizen-tools/commitizen
+    rev: v3.29.1
+    hooks:
+      - id: commitizen
+        stages: [commit-msg]

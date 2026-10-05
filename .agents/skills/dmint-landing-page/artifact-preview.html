@@ -1,0 +1,836 @@
+<title>Dmint landing page</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;500;600&family=Inconsolata:wght@400;600&family=Fira+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<style>
+  :root {
+    /* dark-first design — these are the default values */
+    --bg: #0A0A0A;
+    --bg-alt: #141414;
+    --text: #EDEDED;
+    --text-dim: #8F8F8F;
+    --line: #262626;
+    color-scheme: dark;
+
+    --allow: #3ECFA0;
+    --deny: #E5484D;
+    --approval: #E8B339;
+    --on-allow: #06201A;
+
+    --space-1: 0.5rem;
+    --space-2: 1rem;
+    --space-3: 1.75rem;
+    --space-4: 3rem;
+    --space-5: 5rem;
+    --space-6: 7rem;
+    --space-7: 8rem;
+
+    --content-max: 1140px;
+    --side-gutter: var(--space-3);
+    --font-mono: 'Roboto Mono', 'Inconsolata', 'Fira Mono',
+                 ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+  }
+
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+      --bg: #FAFAFA;
+      --bg-alt: #F0EFEC;
+      --text: #141414;
+      --text-dim: #63615C;
+      --line: #D8D6D1;
+      color-scheme: light;
+    }
+  }
+
+  :root[data-theme="light"] {
+    --bg: #FAFAFA;
+    --bg-alt: #F0EFEC;
+    --text: #141414;
+    --text-dim: #63615C;
+    --line: #D8D6D1;
+    color-scheme: light;
+  }
+
+  :root[data-theme="dark"] {
+    --bg: #0A0A0A;
+    --bg-alt: #141414;
+    --text: #EDEDED;
+    --text-dim: #8F8F8F;
+    --line: #262626;
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 16px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+
+  h1, h2, h3, h4 {
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    line-height: 1.2;
+    margin: 0 0 var(--space-2) 0;
+    text-wrap: balance;
+  }
+
+  h1 { font-size: clamp(2rem, 4.5vw, 3.1rem); }
+  h2 { font-size: clamp(1.4rem, 3vw, 2rem); max-width: 34ch; }
+  h3 { font-size: 1.05rem; font-weight: 600; }
+
+  p { margin: 0 0 var(--space-2) 0; color: var(--text-dim); max-width: 62ch; }
+
+  code { font-family: var(--font-mono); }
+  a code { color: inherit; }
+
+  a { color: var(--text); text-decoration: none; }
+  a:hover, a:focus-visible { color: var(--allow); }
+
+  pre {
+    background: var(--bg-alt);
+    padding: var(--space-3);
+    overflow-x: auto;
+    color: var(--text);
+    font-size: 0.85rem;
+    line-height: 1.6;
+  }
+
+  /* A section with the alternate background would make a pre block's own
+     --bg-alt contrast disappear — give it the opposite surface instead. */
+  .section:nth-of-type(even) pre { background: var(--bg); }
+
+  ::selection { background: var(--allow); color: var(--on-allow); }
+
+  .container { max-width: var(--content-max); margin-inline: auto; padding-inline: var(--side-gutter); }
+
+  .eyebrow { color: var(--text-dim); font-size: 0.85rem; margin-bottom: var(--space-1); }
+
+  .site-header { background: var(--bg); padding-inline: 16px; }
+
+  .navbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding-block: var(--space-3); gap: var(--space-3); flex-wrap: wrap;
+  }
+
+  .navbar__logo { color: var(--allow); font-weight: 600; font-size: 1.1rem; }
+
+  .theme-toggle {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 32px; height: 32px; padding: 0;
+    background: transparent; color: var(--text); cursor: pointer;
+    view-transition-name: theme-toggle;
+  }
+  .theme-toggle svg { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-width: 1.6; }
+  .theme-toggle:hover { color: var(--allow); }
+  .theme-toggle .icon-sun { display: none; }
+  .theme-toggle .icon-moon { display: block; }
+  :root[data-theme="light"] .theme-toggle .icon-sun { display: block; }
+  :root[data-theme="light"] .theme-toggle .icon-moon { display: none; }
+
+  @media (prefers-reduced-motion: no-preference) {
+    ::view-transition-old(root),
+    ::view-transition-new(root) {
+      animation: none;
+      mix-blend-mode: normal;
+    }
+  }
+
+  .hero {
+    display: flex; flex-direction: column; gap: var(--space-3);
+    padding-block: var(--space-6) var(--space-5);
+    max-width: 640px; padding-inline: 16px;
+  }
+  .hero p { font-size: 1.05rem; }
+  .hero__diagram { max-width: 100%; margin-top: var(--space-2); }
+  .hero__actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+
+  .btn {
+    font-family: var(--font-mono); font-size: 0.9rem;
+    padding: var(--space-2) var(--space-3); cursor: pointer; display: inline-block;
+  }
+  .btn--primary { background: var(--allow); color: var(--on-allow); }
+  .btn--secondary { background: var(--bg-alt); color: var(--text); }
+  .btn:hover { opacity: 0.85; }
+
+  .section { padding-block: var(--space-7); padding-inline: 16px; }
+  .section:nth-of-type(even) { background: var(--bg-alt); }
+
+  .section__head { max-width: 640px; margin-bottom: var(--space-5); }
+
+  .split { display: grid; grid-template-columns: minmax(260px, 420px) 1fr; gap: var(--space-5); align-items: center; }
+  @media (max-width: 860px) { .split { grid-template-columns: 1fr; } }
+
+  .steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--space-4); margin-top: var(--space-5); }
+  .step__index { color: var(--text-dim); font-size: 0.85rem; margin-bottom: var(--space-1); }
+  .step h3 { margin-bottom: var(--space-1); }
+  .step p { margin-bottom: 0; }
+
+  figure { margin: 0; min-width: 0; }
+  figure svg { width: 100%; height: auto; display: block; }
+  figcaption { color: var(--text-dim); font-size: 0.85rem; margin-top: var(--space-2); }
+
+  .d-line { stroke: var(--line); stroke-width: 1.5; fill: none; }
+  .d-node { fill: var(--bg-alt); stroke: var(--line); stroke-width: 1.5; }
+  .d-label { fill: var(--text); font-size: 12px; }
+  .d-label--dim { fill: var(--text-dim); font-size: 11px; }
+  .d-allow { stroke: var(--allow); }
+  .d-deny { stroke: var(--deny); }
+  .d-approval { stroke: var(--approval); }
+  .d-allow-fill { fill: var(--allow); }
+  .d-deny-fill { fill: var(--deny); }
+  .d-approval-fill { fill: var(--approval); }
+
+  .d-flow { stroke-dasharray: 5 7; animation: dmint-flow 1.6s linear infinite; }
+  @keyframes dmint-flow { to { stroke-dashoffset: -24; } }
+  .d-pulse { animation: dmint-pulse 2.4s ease-in-out infinite; }
+  @keyframes dmint-pulse { 0%, 100% { opacity: 0.7; } 50% { opacity: 1; } }
+
+  .d-aux { stroke: var(--line); stroke-width: 1.5; stroke-dasharray: 4 5; fill: none; opacity: 0.65; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .d-flow, .d-pulse { animation: none; }
+  }
+
+  .cmd-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: var(--space-3); margin-top: var(--space-5); }
+  .cmd { background: var(--bg-alt); padding: var(--space-3); }
+  .cmd code { display: block; color: var(--allow); font-size: 0.95rem; margin-bottom: var(--space-2); }
+  .cmd p { margin: 0; font-size: 0.9rem; }
+  .section:nth-of-type(even) .cmd { background: var(--bg); }
+
+  .demo-frame { position: relative; aspect-ratio: 16 / 9; max-width: 720px; margin-top: var(--space-4); }
+  .demo-frame svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .demo-frame__corner { stroke: var(--line); stroke-width: 1.5; fill: none; }
+  .demo-frame__content { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+  .demo-frame__rec { display: inline-flex; align-items: center; gap: var(--space-1); color: var(--text-dim); font-size: 0.85rem; }
+  .demo-frame__dot { width: 8px; height: 8px; background: var(--deny); display: inline-block; }
+
+  .site-footer { background: var(--bg-alt); padding-block: var(--space-6) var(--space-4); padding-inline: 16px; }
+  .footer__top { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--space-5); margin-bottom: var(--space-5); }
+  .footer__brand { max-width: 360px; }
+  .footer__brand .navbar__logo { display: block; margin-bottom: var(--space-2); }
+  .footer__brand p { margin: 0; font-size: 0.9rem; }
+  .footer__cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: var(--space-4); flex: 1 1 auto; max-width: 560px; }
+  .footer__col h3 { font-size: 0.85rem; color: var(--text-dim); font-weight: 600; margin: 0 0 var(--space-2) 0; }
+  .footer__col ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-1); }
+  .footer__col a { color: var(--text); font-size: 0.9rem; }
+  .footer__col a:hover, .footer__col a:focus-visible { color: var(--allow); }
+  .footer__bottom { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--space-2); padding-top: var(--space-4); color: var(--text-dim); font-size: 0.8rem; }
+
+  @media (max-width: 640px) {
+    .hero { padding-block: var(--space-5) var(--space-4); }
+    .section { padding-block: var(--space-5); }
+  }
+</style>
+
+<header class="site-header">
+  <div class="container navbar">
+    <a class="navbar__logo" href="#top" aria-label="Dmint home">dmint</a>
+    <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Switch to light theme">
+      <svg class="icon-sun" viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="12" cy="12" r="4.2" />
+        <path d="M12 2.5v3M12 18.5v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2.5 12h3M18.5 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1" stroke-linecap="round" />
+      </svg>
+      <svg class="icon-moon" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a7 7 0 0 0 10.5 10.5z" stroke-linejoin="round" />
+      </svg>
+    </button>
+  </div>
+
+  <div class="container hero">
+    <h1>AI can request.<br>Dmint decides.</h1>
+    <p>An open-source gate between AI agents and the tools they call. Every request is checked against a policy you control — before anything runs, with no LLM in that decision.</p>
+
+    <figure class="hero__diagram" role="img" aria-label="An AI agent's request passes through Dmint before it reaches the tool, instead of calling the tool directly.">
+      <svg viewBox="0 0 560 120" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" style="fill: var(--line); stroke: none;" />
+          </marker>
+        </defs>
+        <rect x="10" y="35" width="130" height="50" class="d-node" />
+        <text x="75" y="65" text-anchor="middle" class="d-label">AI agent</text>
+        <line x1="140" y1="60" x2="210" y2="60" class="d-line d-flow d-allow" marker-end="url(#arrow)" />
+        <rect x="215" y="25" width="130" height="70" class="d-node d-allow d-pulse" />
+        <text x="280" y="55" text-anchor="middle" class="d-label">Dmint</text>
+        <text x="280" y="72" text-anchor="middle" class="d-label--dim">checks policy</text>
+        <line x1="345" y1="60" x2="415" y2="60" class="d-line d-flow d-allow" marker-end="url(#arrow)" />
+        <rect x="420" y="35" width="130" height="50" class="d-node" />
+        <text x="485" y="65" text-anchor="middle" class="d-label">Tool runs</text>
+      </svg>
+      <figcaption>The agent never reaches the tool directly — every call passes through Dmint's policy check first.</figcaption>
+    </figure>
+
+    <div class="hero__actions">
+      <a class="btn btn--primary" href="#install">Install Dmint</a>
+      <a class="btn btn--secondary" href="https://github.com/dmint-app" target="_blank" rel="noopener">View on GitHub</a>
+    </div>
+  </div>
+</header>
+
+<main>
+
+  <section class="section" id="overview">
+    <div class="container split">
+      <div>
+        <div class="eyebrow">the problem</div>
+        <h2>Agents already have write access. Most of them have no gate at all.</h2>
+        <p>An agent with tool access can call anything it decides to — delete a record, push to production, move money — the moment it decides to. Without an enforcement layer in between, "the model shouldn't do that" is a hope, not a guarantee.</p>
+      </div>
+
+      <figure role="img" aria-label="Without Dmint, an agent calls a tool directly with nothing to stop it. With Dmint, the same call passes through a policy check first.">
+        <svg viewBox="0 0 620 220" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <marker id="arrow2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" style="fill: var(--line); stroke: none;" />
+            </marker>
+          </defs>
+
+          <text x="0" y="20" class="d-label--dim">without dmint</text>
+          <rect x="0" y="35" width="110" height="46" class="d-node" />
+          <text x="55" y="63" text-anchor="middle" class="d-label">Agent</text>
+          <line x1="110" y1="58" x2="230" y2="58" class="d-line" marker-end="url(#arrow2)" />
+          <rect x="235" y="35" width="190" height="46" class="d-node" />
+          <text x="330" y="63" text-anchor="middle" class="d-label">delete_customer()</text>
+          <text x="55" y="100" class="d-label--dim">nothing in between</text>
+
+          <text x="0" y="140" class="d-label--dim">with dmint</text>
+          <rect x="0" y="155" width="110" height="46" class="d-node" />
+          <text x="55" y="183" text-anchor="middle" class="d-label">Agent</text>
+          <line x1="110" y1="178" x2="200" y2="178" class="d-line d-flow d-allow" marker-end="url(#arrow2)" />
+          <rect x="205" y="140" width="110" height="76" class="d-node d-allow" />
+          <text x="260" y="175" text-anchor="middle" class="d-label">Dmint</text>
+          <text x="260" y="192" text-anchor="middle" class="d-label--dim">policy check</text>
+          <line x1="315" y1="178" x2="405" y2="178" class="d-line d-flow d-allow" marker-end="url(#arrow2)" />
+          <rect x="410" y="155" width="190" height="46" class="d-node" />
+          <text x="505" y="183" text-anchor="middle" class="d-label">delete_customer()</text>
+        </svg>
+        <figcaption>The only difference is one hop — but it's the hop where the request can be checked, logged, or stopped.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section class="section" id="how-it-works">
+    <div class="container">
+      <div class="section__head">
+        <div class="eyebrow">how it works</div>
+        <h2>Every request ends in exactly one of three outcomes.</h2>
+        <p>Dmint evaluates the request against your policy — deterministically, no model involved in the decision itself. One of three things happens next.</p>
+      </div>
+
+      <figure role="img" aria-label="A request is canonicalized and hashed, then Dmint decides allow, deny, or approval required. Allow and an approved request both reach the tool. Deny goes nowhere.">
+        <svg viewBox="0 0 1000 300" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <marker id="arrow3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" style="fill: var(--line); stroke: none;" />
+            </marker>
+            <marker id="arrow-allow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" style="fill: var(--allow); stroke: none;" />
+            </marker>
+            <marker id="arrow-deny2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" style="fill: var(--deny); stroke: none;" />
+            </marker>
+            <marker id="arrow-approval" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" style="fill: var(--approval); stroke: none;" />
+            </marker>
+          </defs>
+
+          <rect x="10" y="125" width="140" height="50" class="d-node" />
+          <text x="80" y="155" text-anchor="middle" class="d-label">request</text>
+          <line x1="150" y1="150" x2="220" y2="150" class="d-line" marker-end="url(#arrow3)" />
+
+          <rect x="225" y="125" width="170" height="50" class="d-node" />
+          <text x="310" y="150" text-anchor="middle" class="d-label">canonicalize</text>
+          <text x="310" y="166" text-anchor="middle" class="d-label--dim">+ SHA-256</text>
+          <line x1="395" y1="150" x2="465" y2="150" class="d-line" marker-end="url(#arrow3)" />
+
+          <rect x="470" y="125" width="130" height="50" class="d-node d-pulse" />
+          <text x="535" y="155" text-anchor="middle" class="d-label">decision</text>
+
+          <path d="M600,135 C650,135 650,45 690,45" class="d-line d-flow d-allow" marker-end="url(#arrow-allow)" />
+          <rect x="695" y="20" width="120" height="50" class="d-node d-allow" />
+          <text x="755" y="50" text-anchor="middle" class="d-label d-allow-fill">allow</text>
+
+          <line x1="600" y1="150" x2="695" y2="150" class="d-line d-flow d-deny" marker-end="url(#arrow-deny2)" />
+          <rect x="700" y="125" width="120" height="50" class="d-node d-deny" />
+          <text x="760" y="155" text-anchor="middle" class="d-label d-deny-fill">deny</text>
+          <text x="760" y="192" text-anchor="middle" class="d-label--dim">nothing runs</text>
+
+          <path d="M600,165 C650,165 650,255 690,255" class="d-line d-flow d-approval" marker-end="url(#arrow-approval)" />
+          <rect x="695" y="230" width="150" height="50" class="d-node d-approval" />
+          <text x="770" y="253" text-anchor="middle" class="d-label d-approval-fill">approval required</text>
+          <text x="770" y="268" text-anchor="middle" class="d-label--dim">human signs</text>
+
+          <path d="M815,45 C870,45 870,145 905,145" class="d-line d-flow d-allow" marker-end="url(#arrow-allow)" />
+          <path d="M845,255 C880,255 880,165 905,165" class="d-line d-flow d-approval" marker-end="url(#arrow-approval)" />
+          <rect x="910" y="110" width="80" height="80" class="d-node" />
+          <text x="950" y="145" text-anchor="middle" class="d-label">tool</text>
+          <text x="950" y="161" text-anchor="middle" class="d-label">runs</text>
+        </svg>
+        <figcaption>Allow and an approved request both reach the tool. Deny is a dead end — that's the point of it.</figcaption>
+      </figure>
+
+      <div class="steps">
+        <div class="step">
+          <div class="step__index">01</div>
+          <h3>Request is bound exactly</h3>
+          <p>The tool, arguments, and context are canonicalized and hashed — if anything changes later, even one character, the hash won't match.</p>
+        </div>
+        <div class="step">
+          <div class="step__index">02</div>
+          <h3>Policy decides, not a model</h3>
+          <p>Evaluation is deterministic pattern matching against policy.json — sub-millisecond, no network call, nothing for a prompt injection to influence.</p>
+        </div>
+        <div class="step">
+          <div class="step__index">03</div>
+          <h3>Approval is cryptographically bound</h3>
+          <p>A human approval is an Ed25519 signature over that exact request hash — reused, replayed, or altered requests fail verification.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="capabilities">
+    <div class="container">
+      <div class="section__head">
+        <div class="eyebrow">the permission model</div>
+        <h2>A capability is three things, not a role.</h2>
+        <p>Dmint doesn't grant "database access" or "admin." Every rule names a tool, an action, and a resource — <code>postgres.select</code> on <code>public.users</code> is a capability. Anything that exact combination doesn't cover is denied by default, same as everything else in <code>policy.json</code>.</p>
+      </div>
+
+      <figure role="img" aria-label="A tool, an action, and a resource combine into one capability, which policy.json matches against a rule.">
+        <svg viewBox="0 0 760 240" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <marker id="arrow-cap" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" style="fill: var(--line); stroke: none;" />
+            </marker>
+          </defs>
+
+          <rect x="10" y="10" width="180" height="50" class="d-node" />
+          <text x="100" y="40" text-anchor="middle" class="d-label">tool: postgres</text>
+
+          <rect x="10" y="90" width="180" height="50" class="d-node" />
+          <text x="100" y="120" text-anchor="middle" class="d-label">action: select</text>
+
+          <rect x="10" y="170" width="180" height="50" class="d-node" />
+          <text x="100" y="200" text-anchor="middle" class="d-label">resource: users</text>
+
+          <path d="M190,35 C250,35 250,115 300,115" class="d-line" marker-end="url(#arrow-cap)" />
+          <line x1="190" y1="115" x2="300" y2="115" class="d-line" marker-end="url(#arrow-cap)" />
+          <path d="M190,195 C250,195 250,115 300,115" class="d-line" marker-end="url(#arrow-cap)" />
+
+          <rect x="300" y="70" width="240" height="90" class="d-node d-pulse" />
+          <text x="420" y="92" text-anchor="middle" class="d-label--dim">capability</text>
+          <text x="420" y="118" text-anchor="middle" class="d-label">postgres.select</text>
+          <text x="420" y="138" text-anchor="middle" class="d-label--dim">on public.users</text>
+
+          <line x1="540" y1="115" x2="600" y2="115" class="d-line" marker-end="url(#arrow-cap)" />
+          <rect x="600" y="90" width="150" height="50" class="d-node" />
+          <text x="675" y="120" text-anchor="middle" class="d-label">policy.json</text>
+        </svg>
+        <figcaption>Nothing is granted by role — only this exact combination, explicitly, against a rule that names it.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section class="section" id="deterministic">
+    <div class="container split">
+      <div>
+        <div class="eyebrow">deterministic by design</div>
+        <h2>The model proposes. It never decides.</h2>
+        <p>A model asked to judge its own tool call is still a probabilistic check — and a prompt injection only has to beat it once. Dmint's decision runs in compiled code against <code>policy.json</code>, with no model call anywhere in the authorization path.</p>
+      </div>
+
+      <figure role="img" aria-label="A probabilistic LLM judge can be swayed by what it reads. Dmint's compiled policy check guards the same tool call without that risk.">
+        <svg viewBox="0 0 600 240" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <marker id="arrow-det" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" style="fill: var(--line); stroke: none;" />
+            </marker>
+            <marker id="arrow-det-allow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" style="fill: var(--allow); stroke: none;" />
+            </marker>
+          </defs>
+
+          <text x="0" y="12" class="d-label--dim">a probabilistic guardrail</text>
+          <rect x="0" y="28" width="100" height="46" class="d-node" />
+          <text x="50" y="56" text-anchor="middle" class="d-label">agent</text>
+          <line x1="100" y1="51" x2="188" y2="51" class="d-line" marker-end="url(#arrow-det)" />
+          <rect x="190" y="13" width="190" height="76" class="d-node d-deny" />
+          <text x="285" y="48" text-anchor="middle" class="d-label">LLM judge</text>
+          <text x="285" y="66" text-anchor="middle" class="d-label--dim">probabilistic</text>
+          <g class="d-deny" stroke-width="2">
+            <line x1="389" y1="45" x2="401" y2="57" />
+            <line x1="401" y1="45" x2="389" y2="57" />
+          </g>
+          <line x1="380" y1="51" x2="458" y2="51" class="d-line" marker-end="url(#arrow-det)" />
+          <rect x="460" y="28" width="100" height="46" class="d-node" />
+          <text x="510" y="56" text-anchor="middle" class="d-label">tool</text>
+
+          <text x="0" y="138" class="d-label--dim">dmint: a deterministic gate</text>
+          <rect x="0" y="158" width="100" height="46" class="d-node" />
+          <text x="50" y="186" text-anchor="middle" class="d-label">agent</text>
+          <line x1="100" y1="181" x2="188" y2="181" class="d-line d-flow d-allow" marker-end="url(#arrow-det-allow)" />
+          <rect x="190" y="143" width="190" height="76" class="d-node d-allow d-pulse" />
+          <text x="285" y="178" text-anchor="middle" class="d-label">policy.json</text>
+          <text x="285" y="196" text-anchor="middle" class="d-label--dim">compiled, no model</text>
+          <line x1="380" y1="181" x2="458" y2="181" class="d-line d-flow d-allow" marker-end="url(#arrow-det-allow)" />
+          <rect x="460" y="158" width="100" height="46" class="d-node" />
+          <text x="510" y="186" text-anchor="middle" class="d-label">tool runs</text>
+        </svg>
+        <figcaption>Same job, two different failure modes. Only one of them is zero.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section class="section" id="mcp-proxy">
+    <div class="container">
+      <div class="section__head">
+        <div class="eyebrow">protecting MCP servers</div>
+        <h2>One gateway in front of every downstream server.</h2>
+        <p><code>dmint-mcp</code> sits between an agent and its MCP servers — Postgres, the filesystem, GitHub, anything else it's wired to. It aggregates their tools, validates remote endpoints before trusting them, and checks every call against policy before it reaches a real server.</p>
+      </div>
+
+      <figure role="img" aria-label="An AI agent talks to the dmint-mcp gateway as if it were the real server. The gateway checks policy and approval, then forwards the call to Postgres, the filesystem, or GitHub.">
+        <svg viewBox="0 0 740 220" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <marker id="arrow-mcp" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" style="fill: var(--line); stroke: none;" />
+            </marker>
+          </defs>
+
+          <rect x="0" y="75" width="160" height="50" class="d-node" />
+          <text x="80" y="105" text-anchor="middle" class="d-label">AI agent / IDE</text>
+
+          <line x1="160" y1="100" x2="218" y2="100" class="d-line d-flow d-allow" marker-end="url(#arrow-mcp)" />
+
+          <rect x="220" y="10" width="300" height="180" class="d-node" />
+          <text x="370" y="34" text-anchor="middle" class="d-label">dmint-mcp gateway</text>
+
+          <rect x="250" y="55" width="240" height="36" class="d-node d-pulse" />
+          <text x="370" y="77" text-anchor="middle" class="d-label--dim">aggregates tools/list</text>
+
+          <rect x="250" y="100" width="240" height="36" class="d-node d-pulse" />
+          <text x="370" y="122" text-anchor="middle" class="d-label--dim">SSRF + policy check</text>
+
+          <rect x="250" y="145" width="240" height="36" class="d-node d-pulse" />
+          <text x="370" y="167" text-anchor="middle" class="d-label--dim">approval verification</text>
+
+          <path d="M520,73 C555,73 545,40 580,40" class="d-line d-flow d-allow" marker-end="url(#arrow-mcp)" />
+          <rect x="580" y="15" width="150" height="40" class="d-node" />
+          <text x="655" y="40" text-anchor="middle" class="d-label">postgres</text>
+
+          <path d="M520,118 C555,118 545,105 580,105" class="d-line d-flow d-allow" marker-end="url(#arrow-mcp)" />
+          <rect x="580" y="85" width="150" height="40" class="d-node" />
+          <text x="655" y="110" text-anchor="middle" class="d-label">filesystem</text>
+
+          <path d="M520,163 C555,163 545,170 580,170" class="d-line d-flow d-allow" marker-end="url(#arrow-mcp)" />
+          <rect x="580" y="150" width="150" height="40" class="d-node" />
+          <text x="655" y="175" text-anchor="middle" class="d-label">github</text>
+        </svg>
+        <figcaption>One gateway, any number of downstream servers — the policy check happens once, in front of all of them.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section class="section" id="storage">
+    <div class="container split">
+      <div>
+        <div class="eyebrow">storage</div>
+        <h2>SQLite by default. PostgreSQL if you need it.</h2>
+        <p>Switching backends is one environment variable, <code>DMINT_DATABASE_URL</code>. Whichever you choose, only Dmint Core reads or writes it directly — the CLI, dashboard, and gateway all go through Core's API, never raw SQL.</p>
+      </div>
+
+      <figure role="img" aria-label="The CLI, dashboard, and MCP gateway all call into Dmint Core, which is the only component that reads or writes SQLite or PostgreSQL directly.">
+        <svg viewBox="0 0 640 300" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <marker id="arrow-store" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" style="fill: var(--line); stroke: none;" />
+            </marker>
+          </defs>
+
+          <rect x="20" y="10" width="130" height="44" class="d-node" />
+          <text x="85" y="37" text-anchor="middle" class="d-label">CLI</text>
+
+          <rect x="185" y="10" width="130" height="44" class="d-node" />
+          <text x="250" y="37" text-anchor="middle" class="d-label">dashboard</text>
+
+          <rect x="350" y="10" width="150" height="44" class="d-node" />
+          <text x="425" y="37" text-anchor="middle" class="d-label">MCP gateway</text>
+
+          <path d="M85,54 C85,85 280,85 330,112" class="d-line" marker-end="url(#arrow-store)" />
+          <line x1="250" y1="54" x2="320" y2="108" class="d-line" marker-end="url(#arrow-store)" />
+          <path d="M425,54 C425,85 380,85 335,110" class="d-line" marker-end="url(#arrow-store)" />
+
+          <rect x="220" y="110" width="220" height="80" class="d-node d-pulse" />
+          <text x="330" y="140" text-anchor="middle" class="d-label">Dmint Core</text>
+          <text x="330" y="165" text-anchor="middle" class="d-label--dim">approval store</text>
+
+          <text x="330" y="216" text-anchor="middle" class="d-label--dim">DMINT_DATABASE_URL</text>
+
+          <path d="M300,190 C280,205 250,215 230,230" class="d-line" marker-end="url(#arrow-store)" />
+          <path d="M360,190 C380,205 400,215 410,230" class="d-line" marker-end="url(#arrow-store)" />
+
+          <rect x="150" y="230" width="160" height="50" class="d-node" />
+          <text x="230" y="254" text-anchor="middle" class="d-label">SQLite</text>
+          <text x="230" y="270" text-anchor="middle" class="d-label--dim">default</text>
+
+          <rect x="340" y="230" width="160" height="50" class="d-node" />
+          <text x="420" y="254" text-anchor="middle" class="d-label">PostgreSQL</text>
+          <text x="420" y="270" text-anchor="middle" class="d-label--dim">production</text>
+        </svg>
+        <figcaption>Swap the backend with one environment variable — nothing upstream of Core changes.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section class="section" id="webhooks">
+    <div class="container split">
+      <div>
+        <div class="eyebrow">notifications</div>
+        <h2>A Slack ping, never a security dependency.</h2>
+        <p>When a request needs a human, Dmint can notify Slack, Discord, or Teams with the exact command to approve it. If the webhook times out or fails, the authorization decision doesn't change — the agent stays paused either way.</p>
+      </div>
+
+      <figure role="img" aria-label="When a request needs approval, Dmint pauses the agent immediately and, separately and best-effort, pings Slack, Discord, or Teams with the approve command.">
+        <svg viewBox="0 0 640 220" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <marker id="arrow-hook" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" style="fill: var(--line); stroke: none;" />
+            </marker>
+            <marker id="arrow-hook-approval" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" style="fill: var(--approval); stroke: none;" />
+            </marker>
+          </defs>
+
+          <rect x="10" y="70" width="220" height="60" class="d-node d-approval d-pulse" />
+          <text x="120" y="96" text-anchor="middle" class="d-label d-approval-fill">approval_required</text>
+          <text x="120" y="114" text-anchor="middle" class="d-label--dim">agent paused here</text>
+
+          <line x1="230" y1="100" x2="328" y2="100" class="d-line d-flow d-approval" marker-end="url(#arrow-hook-approval)" />
+          <rect x="330" y="75" width="160" height="50" class="d-node" />
+          <text x="410" y="105" text-anchor="middle" class="d-label">stays paused</text>
+
+          <path d="M230,85 C340,40 400,25 478,25" class="d-line d-aux" marker-end="url(#arrow-hook)" />
+          <rect x="480" y="5" width="130" height="36" class="d-node" />
+          <text x="545" y="27" text-anchor="middle" class="d-label--dim">slack</text>
+
+          <path d="M230,95 C340,65 400,55 478,55" class="d-line d-aux" marker-end="url(#arrow-hook)" />
+          <rect x="480" y="40" width="130" height="36" class="d-node" />
+          <text x="545" y="62" text-anchor="middle" class="d-label--dim">discord</text>
+
+          <path d="M230,105 C340,90 400,85 478,85" class="d-line d-aux" marker-end="url(#arrow-hook)" />
+          <rect x="480" y="75" width="130" height="36" class="d-node" />
+          <text x="545" y="97" text-anchor="middle" class="d-label--dim">teams</text>
+        </svg>
+        <figcaption>The dashed lines can fail silently — the solid one can't. A dropped webhook never changes the decision.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section class="section" id="example">
+    <div class="container">
+      <div class="eyebrow">a real request</div>
+      <h2>What this looks like for one call.</h2>
+      <pre><code>$ agent: delete_customer(id="c_8213")
+
+dmint: checking policy for delete_customer...
+dmint: destructive action on prod — approval required
+dmint: notified #approvals on slack
+dmint: waiting for signed approval (apr_9f2a...)
+
+$ dmint pending
+apr_9f2a   delete_customer   public.customers   waiting 00:14
+
+$ dmint approve apr_9f2a --reason "confirmed with support ticket #4021"
+dmint: signature verified, request matches exactly
+dmint: executing delete_customer(id="c_8213")</code></pre>
+    </div>
+  </section>
+
+  <section class="section" id="cli">
+    <div class="container">
+      <div class="section__head">
+        <div class="eyebrow">reference</div>
+        <h2>The CLI you'll actually run.</h2>
+        <p>Everything above is also a command — policies, approvals, and the gateway, all from one binary.</p>
+      </div>
+
+      <div class="cmd-grid">
+        <div class="cmd"><code>dmint create-policy</code><p>Wizard that turns plain-language requirements into a verified policy.json.</p></div>
+        <div class="cmd"><code>dmint create-mcp-policy</code><p>Discovers an MCP server's tools and generates its policy and gateway config together.</p></div>
+        <div class="cmd"><code>dmint verify-policy</code><p>Validates policy.json offline — zero network calls, zero model calls.</p></div>
+        <div class="cmd"><code>dmint pending</code><p>Lists every request currently waiting on a human decision.</p></div>
+        <div class="cmd"><code>dmint approve / reject</code><p>Signs or rejects a pending request straight from a terminal.</p></div>
+        <div class="cmd"><code>dmint dashboard</code><p>A local web UI for the same queue, polling every 5 seconds.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="install">
+    <div class="container split">
+      <div>
+        <div class="eyebrow">install</div>
+        <h2>One package, local by default.</h2>
+        <p>SQLite and local policy files out of the box — nothing to stand up before you can try it.</p>
+        <pre><code>pip install dmint
+dmint create-policy
+
+# optional — SQLite is used otherwise
+export DMINT_DATABASE_URL=postgresql://localhost/dmint</code></pre>
+      </div>
+      <div>
+        <p class="eyebrow" style="margin-bottom: var(--space-1);">policy.json</p>
+        <pre><code>{
+  "rules": [
+    { "tool": "read_records",
+      "effect": "allow" },
+
+    { "tool": "delete_customer",
+      "effect": "approval_required" },
+
+    { "tool": "drop_table",
+      "effect": "deny" }
+  ]
+}</code></pre>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="demo">
+    <div class="container">
+      <div class="eyebrow">demo</div>
+      <h2>Watch a blocked request become an approved one.</h2>
+      <p>Recording in progress — follow the repository for updates.</p>
+      <div class="demo-frame" role="img" aria-label="Placeholder for the demo recording, not yet available.">
+        <svg viewBox="0 0 400 225" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M14,34 V14 H34" class="demo-frame__corner" />
+          <path d="M366,14 H386 V34" class="demo-frame__corner" />
+          <path d="M386,191 V211 H366" class="demo-frame__corner" />
+          <path d="M34,211 H14 V191" class="demo-frame__corner" />
+        </svg>
+        <div class="demo-frame__content">
+          <span class="demo-frame__rec"><span class="demo-frame__dot d-pulse"></span>recording soon</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer class="site-footer">
+  <div class="container footer__top">
+    <div class="footer__brand">
+      <a class="navbar__logo" href="#top" aria-label="Dmint home">dmint</a>
+      <p>An open-source, fail-closed authorization gate for AI agent tool calls. No LLM in the decision path, ever.</p>
+    </div>
+
+    <div class="footer__cols">
+      <div class="footer__col">
+        <h3>learn</h3>
+        <ul>
+          <li><a href="#overview">The problem</a></li>
+          <li><a href="#how-it-works">How it works</a></li>
+          <li><a href="#capabilities">Permission model</a></li>
+          <li><a href="#example">A real request</a></li>
+        </ul>
+      </div>
+      <div class="footer__col">
+        <h3>docs</h3>
+        <ul>
+          <li><a href="https://docs.dmint.app/quickstart" target="_blank" rel="noopener">Quickstart</a></li>
+          <li><a href="https://docs.dmint.app/reference/cli" target="_blank" rel="noopener">CLI reference</a></li>
+          <li><a href="https://docs.dmint.app/architecture/threat-model" target="_blank" rel="noopener">Threat model</a></li>
+        </ul>
+      </div>
+      <div class="footer__col">
+        <h3>project</h3>
+        <ul>
+          <li><a href="https://github.com/dmint-app" target="_blank" rel="noopener">GitHub</a></li>
+          <li><a href="https://pypi.org/project/dmint/" target="_blank" rel="noopener">PyPI</a></li>
+          <li><a href="#install">Install</a></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <div class="container footer__bottom">
+    <span>© 2026 Dmint. MIT licensed.</span>
+    <span>Code decides. Humans sign.</span>
+  </div>
+</footer>
+
+<script>
+  (function () {
+    try {
+      var saved = localStorage.getItem('dmint-theme');
+      if (saved) document.documentElement.setAttribute('data-theme', saved);
+    } catch (e) {}
+  })();
+
+  (function () {
+    var toggle = document.getElementById('theme-toggle');
+
+    function getTheme() {
+      return (
+        document.documentElement.getAttribute('data-theme') ||
+        (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark')
+      );
+    }
+
+    function updateLabel(theme) {
+      toggle.setAttribute('aria-label', theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme');
+    }
+
+    updateLabel(getTheme());
+
+    toggle.addEventListener('click', function () {
+      var current = getTheme();
+      var next = current === 'dark' ? 'light' : 'dark';
+
+      function applyTheme() {
+        document.documentElement.setAttribute('data-theme', next);
+        updateLabel(next);
+        try { localStorage.setItem('dmint-theme', next); } catch (e) {}
+      }
+
+      var reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+      if (reduceMotion || typeof document.startViewTransition !== 'function') {
+        applyTheme();
+        return;
+      }
+
+      var rect = toggle.getBoundingClientRect();
+      var x = rect.left + rect.width / 2;
+      var y = rect.top + rect.height / 2;
+      var endRadius = Math.hypot(
+        Math.max(x, window.innerWidth - x),
+        Math.max(y, window.innerHeight - y)
+      );
+
+      var transition = document.startViewTransition(applyTheme);
+
+      transition.ready.then(function () {
+        document.documentElement.animate(
+          {
+            clipPath: [
+              'circle(0px at ' + x + 'px ' + y + 'px)',
+              'circle(' + endRadius + 'px at ' + x + 'px ' + y + 'px)',
+            ],
+          },
+          { duration: 600, easing: 'ease-in-out', pseudoElement: '::view-transition-new(root)' }
+        );
+      }).catch(function () {});
+    });
+  })();
+</script>

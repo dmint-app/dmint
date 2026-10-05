@@ -1,0 +1,117 @@
+{
+  "$schema": "https://holocron.so/docs.json",
+  "name": "Dmint",
+  "colors": {
+    "primary": "#10b981",
+    "light": "#34d399",
+    "dark": "#059669"
+  },
+  "logo": {
+    "light": "/logo.svg",
+    "dark": "/logo-dark.svg",
+    "text": "dmint",
+    "href": "https://dmint.app"
+  },
+  "layout": {
+    "mode": "compact"
+  },
+  "assistant": {
+    "enabled": false
+  },
+  "fonts": {
+    "family": "Outfit",
+    "heading": {
+      "family": "Outfit",
+      "weight": 600
+    }
+  },
+  "favicon": "/logo.svg",
+  "navbar": {
+    "links": [
+      {
+        "label": "GitHub",
+        "href": "https://github.com/dmint-app"
+      },
+      {
+        "label": "PyPI",
+        "href": "https://pypi.org/project/dmint/"
+      }
+    ],
+    "primary": {
+      "type": "button",
+      "label": "Quickstart",
+      "href": "/quickstart"
+    }
+  },
+  "navigation": {
+    "groups": [
+      {
+        "group": "Get Started",
+        "pages": [
+          "index",
+          "introduction",
+          "quickstart"
+        ]
+      },
+      {
+        "group": "Core Concepts",
+        "pages": [
+          "concepts/overview",
+          "concepts/capabilities",
+          "concepts/request-binding",
+          "concepts/approvals",
+          "concepts/policies"
+        ]
+      },
+      {
+        "group": "Guides",
+        "pages": [
+          "guides/protecting-mcp",
+          "guides/authoring-policies",
+          "guides/agent-skills",
+          "guides/python-integration",
+          "guides/human-approvals",
+          "guides/notifications"
+        ]
+      },
+      {
+        "group": "Integrations",
+        "pages": [
+          "integrations/cursor",
+          "integrations/claude-code",
+          "integrations/antigravity",
+          "integrations/custom-agents"
+        ]
+      },
+      {
+        "group": "Architecture & Security",
+        "pages": [
+          "architecture/deterministic-enforcement",
+          "architecture/security-invariants",
+          "architecture/threat-model"
+        ]
+      },
+      {
+        "group": "Reference",
+        "pages": [
+          "reference/cli",
+          "reference/policy-schema",
+          "reference/mcp-protection-schema",
+          "reference/core-api"
+        ]
+      }
+    ]
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/dmint-app",
+      "x": "https://x.com/dmint_app"
+    }
+  },
+  "integrations": {
+    "ga4": {
+      "measurementId": "G-W7EBSH066H"
+    }
+  },
+  "customCss": "img[src*='logo'], .dark [class*='invert'], [class*='dark:invert'] { filter: none !important; } footer div.opacity-40, footer div:has(a[href*='holocron.so']), a[href*='holocron.so'] { display: none !important; } button[title='Copy page as Markdown'] { display: none !important; }"
+}

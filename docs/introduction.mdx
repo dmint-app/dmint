@@ -1,0 +1,95 @@
+---
+title: "Introduction"
+description: "Why deterministic authorization is required for autonomous AI agents and how Dmint secures tool execution."
+icon: "book-open"
+---
+
+# Introduction to Dmint
+
+Autonomous AI agents (such as Cursor, Claude Code, Antigravity, and autonomous LangChain or CrewAI pipelines) are increasingly granted direct access to privileged tools: executing shell scripts, modifying databases, deleting cloud resources, and triggering API calls.
+
+Giving an LLM direct access to system tools creates an urgent security challenge:
+
+> **LLMs are probabilistic systems. Security boundaries must be deterministic.**
+
+A system that relies on prompting an LLM to "only delete safe files" or "be careful when updating records" is vulnerable to prompt injection, jailbreaking, context confusion, and hallucination.
+
+**Dmint provides an unbypassable, code-governed security boundary between the agent and the execution environment.**
+
+---
+
+## The Core Problem
+
+When an AI agent decides to run a tool, today's typical setups do one of two flawed things:
+
+1. **Unrestricted Tool Access**: The agent has ambient credentials and runs whatever it decides. A prompt injection in a README file or web search result can cause catastrophic data deletion.
+2. **Probabilistic LLM Guardrails**: Another LLM or classification model reviews the prompt to decide if it's "malicious". This adds latency, cost, and remains probabilistic—adversarial prompts can still bypass the classifier.
+
+```text
+Traditional (Vulnerable):
+AI Model ───[ Probabilistic Prompt Inspection ]───► Executes privileged tool directly
+
+With Dmint (Deterministic):
+AI Model ───► Tool Request ───► [ Dmint Deterministic Policy ] ──► Executes ONLY if ALLOW
+                                      │
+                                      ├── DENY (Immediate fail-closed)
+                                      └── APPROVAL_REQUIRED (Requires signed human token)
+```
+
+---
+
+## What Dmint Is and Is NOT
+
+To design effective security architectures, it is critical to understand Dmint's exact boundaries:
+
+<Tabs>
+  <Tab title="What Dmint IS">
+    - **A Deterministic Runtime Gate**: Evaluates tool calls against declarative JSON policies before execution occurs.
+    - **An Exact Request Binder**: Computes a cryptographic SHA-256 fingerprint over RFC 8785 canonicalized JSON payloads so approvals cannot be replayed or altered.
+    - **A Single-Use Approval Engine**: Enforces atomic state transitions (`PENDING` $\to$ `APPROVED` $\to$ `CONSUMED`) backed by Core-owned SQLite or PostgreSQL.
+    - **An MCP Gateway**: Transparently wraps downstream Model Context Protocol servers over standard I/O and HTTP.
+  </Tab>
+  <Tab title="What Dmint Is NOT">
+    - **NOT an LLM Guardrail**: Dmint does not perform prompt scanning or semantic intent analysis. It does not care *why* the agent made the request; it only checks if the exact capability is authorized.
+    - **NOT General IAM / RBAC**: Dmint does not manage human user passwords or enterprise Single Sign-On. It answers: *"May this AI agent call this specific tool with these exact arguments right now?"*
+    - **NOT a Direct Bypass Barrier**: If an agent has direct OS shell access outside Dmint, an in-process decorator cannot prevent out-of-band execution. Dmint protects the boundaries it is configured to wrap.
+  </Tab>
+</Tabs>
+
+---
+
+## How Dmint Works
+
+Every tool invocation follows an authoritative 4-stage lifecycle:
+
+```text
+1. Intercept Request
+   Agent calls tool(action="update", resource="users", id=42)
+
+2. Canonicalize & Fingerprint
+   RFC 8785 JCS Canonicalization ──► SHA-256 Request Fingerprint
+
+3. Policy Evaluation
+   Match (tool, action, resource) against policy.json:
+   ├─ ALLOW             ──► Execute immediately
+   ├─ DENY              ──► Raise DMT_POLICY_DENIED (Fail closed)
+   └─ APPROVAL_REQUIRED ──► Persist PENDING in Approval Store; return DMT_APPROVAL_REQUIRED
+
+4. Human Approval & Atomic Retry
+   Human approves via Dashboard or CLI ──► Ed25519 Assertion Signed
+   Agent retries call with Credential  ──► Verified against current Policy & Store
+   Assertion marked CONSUMED          ──► Execute tool
+```
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Quickstart Tutorial" icon="rocket" href="/quickstart">
+    Set up Dmint and protect a real tool with human approvals in 5 minutes.
+  </Card>
+  <Card title="Core Concepts" icon="brain" href="/concepts/overview">
+    Learn how capabilities, request bindings, and policy evaluation work under the hood.
+  </Card>
+</CardGroup>

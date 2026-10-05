@@ -1,0 +1,114 @@
+---
+title: "Overview"
+description: "Deterministic authorization and security enforcement for AI-agent tool execution."
+---
+
+# Deterministic Security for AI Agents
+
+> **AI can request actions. Dmint deterministically decides whether those actions may execute.**
+
+`dmint` is an in-process and gateway-level security boundary between AI models and privileged execution environments. It intercepts AI tool calls and deterministically evaluates them against declarative policies: `ALLOW`, `DENY`, or `APPROVAL_REQUIRED`.
+
+```text
+┌─────────────────┐
+│    AI Agent     │  (Cursor, Claude Code, Antigravity, Custom)
+└────────┬────────┘
+         │ tool request
+         ▼
+┌─────────────────┐
+│  Dmint Security │
+│                 │
+│   ├─ ALLOW ───────────────────┐
+│   ├─ DENY ──► Fail Closed     │
+│   └─ APPROVAL_REQUIRED ──┐    │
+└──────────────────────────┼────┼─┘
+                           │    │
+                   Persist │    │ Execute
+                   Request │    │ Tool
+                           ▼    ▼
+┌─────────────────────────────────┐
+│         Protected Tool          │  (Postgres, Filesystem, Bash, APIs)
+└─────────────────────────────────┘
+```
+
+---
+
+## Key Pillars
+
+<CardGroup cols={2}>
+  <Card title="Deterministic Enforcement" icon="shield" href="/architecture/deterministic-enforcement">
+    Runtime authorization is governed strictly by declarative code and policy. An LLM never makes runtime authorization decisions.
+  </Card>
+  <Card title="Exact Request Binding" icon="fingerprint" href="/concepts/request-binding">
+    Approvals are bound to the cryptographic SHA-256 fingerprint of the canonicalized RFC 8785 payload. Approving `update(id=1)` cannot authorize `update(id=2)`.
+  </Card>
+  <Card title="Transparent MCP Gateway" icon="network-wired" href="/guides/protecting-mcp">
+    Intercept Model Context Protocol (stdio & streamable HTTP) tools in Cursor, Claude Code, and Antigravity with zero agent code changes.
+  </Card>
+  <Card title="Human Approval UI & CLI" icon="desktop" href="/guides/human-approvals">
+    Review, inspect argument diffs, and approve sensitive tool calls using the local web dashboard or directly from the terminal with `dmint approve`.
+  </Card>
+</CardGroup>
+
+---
+
+## Quick Start
+
+You can evaluate Dmint on any tool in under 5 minutes:
+
+<Steps>
+  <Step title="Install Dmint Suite">
+    ```bash
+    pip install "dmint[all]"
+    ```
+  </Step>
+  <Step title="Author Policy">
+    Describe rules in `access.md` and compile to verified `policy.json`:
+    ```bash
+    dmint create-policy -f access.md -o policy.json -y
+    ```
+  </Step>
+  <Step title="Enforce Tool Calls">
+    Wrap an MCP server with `dmint-mcp` or decorate Python functions with `@dmint.protected`.
+  </Step>
+  <Step title="Review Approvals">
+    Review and approve sensitive actions via the terminal or local web dashboard:
+    ```bash
+    # Terminal approval:
+    dmint pending
+    dmint approve <approval_id>
+
+    # Or launch the local web dashboard:
+    dmint dashboard --db-path ./approvals.sqlite3
+    ```
+  </Step>
+</Steps>
+
+<Tip>
+Ready to run a live test? Jump directly to the complete [5-Minute Quickstart](/quickstart).
+</Tip>
+
+---
+
+## The Dmint Ecosystem
+
+<CardGroup cols={3}>
+  <Card title="Core Engine" icon="cube" href="/reference/core-api">
+    Deterministic authorization engine, frozen SQLite & PostgreSQL state machines, and Ed25519 signing authority (`dmint.core`).
+  </Card>
+  <Card title="CLI Tooling" icon="terminal" href="/reference/cli">
+    Interactive policy authoring wizards, offline schema validation, skill installer, and dashboard launcher (`dmint`).
+  </Card>
+  <Card title="MCP Gateway" icon="server" href="/guides/protecting-mcp">
+    Multi-integration gateway, SSRF defenses, downstream stdio/HTTP proxies, and protocol enforcement (`dmint-mcp`).
+  </Card>
+  <Card title="Approval Dashboard" icon="window-maximize" href="/guides/human-approvals">
+    Local human approval console with real-time polling and zero direct SQL access (`dmint-dashboard`).
+  </Card>
+  <Card title="Agent Skills" icon="brain" href="/guides/agent-skills">
+    Coding agent skills that guide LLMs to draft least-privilege security policies (`dmint install-skill`).
+  </Card>
+  <Card title="Examples & Recipes" icon="code" href="https://github.com/dmint-app/dmint-examples">
+    Ready-to-run scenarios covering database mutations, shell operations, and multi-agent governance.
+  </Card>
+</CardGroup>

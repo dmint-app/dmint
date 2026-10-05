@@ -1,0 +1,144 @@
+---
+title: "Approvals & Lifecycle"
+description: "How human approval assertions are requested, signed via Ed25519, verified, and atomically consumed."
+icon: "stamp"
+---
+
+# Approval Lifecycle & State Machine
+
+When an AI agent requests an action governed by an `APPROVAL_REQUIRED` rule, Dmint intercepts the execution and initiates the **Approval Lifecycle**.
+
+```text
+       ┌───────────┐
+       │  PENDING  │  (Tool request persisted in SQLite)
+       └─────┬─────┘
+             │
+      ┌──────┴──────┐
+      │             │
+      ▼             ▼
+┌───────────┐ ┌───────────┐
+│ APPROVED  │ │ REJECTED  │  (Human reviews in Dashboard)
+└─────┬─────┘ └───────────┘
+      │
+      ▼
+┌───────────┐
+│ CONSUMED  │ (Agent retries with credential; tool executes)
+└───────────┘
+```
+
+---
+
+## The 5 Approval States
+
+1. **`PENDING`**: The agent has initiated the call. Dmint stopped execution before calling downstream logic and stored the exact request envelope in Core SQLite.
+2. **`APPROVED`**: An authorized authority (such as a human in `dmint dashboard` or an administrative script) inspected the payload and generated an Ed25519 signature.
+3. **`REJECTED`**: The reviewer explicitly denied the request. Any subsequent retry with this request ID will fail closed.
+4. **`CONSUMED`**: The approved assertion was submitted, verified, and used to execute the underlying tool. The assertion is now permanently invalidated and cannot be replayed.
+5. **`EXPIRED`**: The assertion exceeded its configured time-to-live (`expires_at`) before being executed.
+
+---
+
+## The Approval Assertion
+
+When a human clicks **Approve** in the dashboard, Dmint's `LocalApprovalAuthority` issues a signed cryptographic assertion:
+
+```json title="Approval Assertion Envelope"
+{
+  "algorithm": "Ed25519",
+  "credential_version": "dmint/approval-assertion/v1",
+  "payload": {
+    "approval_id": "apr_01j7v0q9...",
+    "approver_authority_id": "auth_01j7v0p8...",
+    "approver_kind": "local",
+    "approver_subject_id": "dashboard-human",
+    "assertion_id": "ast_01j7v0r7...",
+    "audience": "dmint/dashboard/v1",
+    "expires_at": "2026-09-28T12:05:00+00:00",
+    "issued_at": "2026-09-28T12:00:00+00:00",
+    "issuer": "dmint-dashboard",
+    "policy_digest": "4a7d1ed414474e4033ac29ccb8653d9b4a7d1ed414474e4033ac29ccb8653d9b",
+    "policy_evaluated_at": "2026-09-28T12:00:00+00:00",
+    "policy_version_id": "prod-v1",
+    "request_fingerprint": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "request_id": "req_01j7v0p6..."
+  },
+  "signature": "base64_signature..."
+}
+```
+
+### Critical Security Fields
+- **`request_fingerprint`**: Ensures the approval is valid *only* for the exact arguments that the human saw on screen.
+- **`policy_digest`**: Contains the SHA-256 digest of `policy.json` at the time of approval. If someone alters the policy file before the agent executes, the approval is automatically invalidated.
+- **`signature`**: Cryptographic Ed25519 signature over the canonical assertion payload. Cannot be forged.
+
+---
+
+## Atomic Single-Use Consumption
+
+To prevent **Replay Attacks** (where an attacker or runaway agent captures an approved credential and uses it multiple times), Dmint enforces atomic consumption:
+
+```python
+# During tool retry, dmint.retry verifies signature and marks record CONSUMED in SQLite:
+result = dmint.retry(
+    update_record,
+    "users",
+    42,
+    "admin",
+    approval_credential=assertion,
+)
+```
+
+Inside Core's SQLite store, this runs inside an atomic transaction:
+```sql
+UPDATE approval_records 
+SET state = 'CONSUMED', consumed_at = ? 
+WHERE approval_id = ? AND state = 'APPROVED';
+```
+
+```text
+ApprovalConsumedError: DMT_APPROVAL_CONSUMED
+```
+
+<Warning>
+**Cryptographic Integrity Checksum (`record_checksum`)**:
+
+Every row in `approval_records` is protected by a deterministic SHA-256 HMAC `record_checksum` computed across all stored columns. 
+
+**Do NOT perform direct SQL updates** (e.g. `UPDATE approval_records SET state = 'CONSUMED'`). Direct database mutations fail integrity validation on the next read, raising `CorruptApprovalRecordError: stored approval integrity check failed`.
+
+All state transitions must be executed programmatically through Dmint APIs:
+- Via `dmint.retry(...)` (recommended for application and agent runtimes)
+- Or via `store.consume_approved(...)` (for custom orchestrators and frameworks)
+</Warning>
+
+---
+
+## Pluggable Storage: SQLite & PostgreSQL
+
+Dmint supports pluggable approval storage through the `ApprovalStore` interface implemented with SQLAlchemy Core.
+
+### Production: Postgres
+
+In high-concurrency or multi-instance deployments, approvals can be persisted in PostgreSQL by setting the `DMINT_DATABASE_URL` environment variable:
+
+```bash
+export DMINT_DATABASE_URL="postgresql://user:password@pg-host:5432/dmint_db"
+```
+
+PostgreSQL storage enforces exact parity with SQLite:
+- **Row-level locking (`SELECT ... FOR UPDATE`)**: Concurrent retry requests are serialized at the database row level, guaranteeing that exactly 1 worker consumes the approval while all other racing workers receive `DMT_APPROVAL_CONSUMED` or `DMT_APPROVAL_CONCURRENT_CONSUME`.
+- **Fail-Closed Startup**: If `DMINT_DATABASE_URL` is set to an unreachable host, invalid credentials, or malformed URL, Dmint raises `ApprovalStoreConfigurationError` immediately at startup and refuses to start. Dmint will **never** silently fall back to an ephemeral local SQLite file when configured for production.
+- **Local / Dev Default**: When `DMINT_DATABASE_URL` is unset, Dmint defaults to local SQLite file storage with zero external dependencies.
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Human Approvals Guide" icon="window-maximize" href="/guides/human-approvals">
+    Learn how to launch and configure the local web approval dashboard.
+  </Card>
+  <Card title="Security Invariants" icon="shield" href="/architecture/security-invariants">
+    Review the formal proof and test matrix behind single-use assertions.
+  </Card>
+</CardGroup>

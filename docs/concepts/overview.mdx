@@ -1,0 +1,106 @@
+---
+title: "Architecture & Mental Model"
+description: "The core primitives that make Dmint deterministic, tamper-proof, and fail-closed."
+icon: "compass"
+---
+
+# Architecture & Mental Model
+
+Dmint is built on a simple premise: **AI agents propose actions, but code and deterministic policy authorize them.**
+
+To understand how Dmint secures tool execution, here are the four core primitives:
+
+```text
+┌─────────────────────────────────────────────────────────────┐
+│ 1. Capabilities (tool.action)                               │
+│    Namespaces the exact action being requested.             │
+└──────────────────────────────┬──────────────────────────────┘
+                               │
+                               ▼
+┌─────────────────────────────────────────────────────────────┐
+│ 2. Exact Request Binding (RFC 8785)                         │
+│    Canonicalizes arguments into a cryptographic fingerprint.│
+└──────────────────────────────┬──────────────────────────────┘
+                               │
+                               ▼
+┌─────────────────────────────────────────────────────────────┐
+│ 3. Deterministic Policy Evaluation                          │
+│    Matches rules in policy.json (ALLOW, DENY, APPROVAL_REQ) │
+└──────────────────────────────┬──────────────────────────────┘
+                               │
+                               ▼
+┌─────────────────────────────────────────────────────────────┐
+│ 4. Single-Use Approval State Machine                        │
+│    PENDING ──► APPROVED ──► CONSUMED (Core SQLite / Postgres)│
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## The Four Primitives
+
+### 1. Capabilities
+A **capability** identifies an actionable operation in the format `tool.action`:
+- `database.select`
+- `filesystem.read_file`
+- `bash.execute_command`
+
+Policies assign rules to capabilities matching resources (e.g. table names, file paths, or wildcards `*`).
+
+### 2. Exact Request Binding
+Unlike human RBAC (which grants broad permissions like "user may update rows"), Dmint approvals authorize **one exact request payload**:
+- The tool name (`postgres`)
+- The action (`update`)
+- The sorted, type-preserved arguments (`{"table": "users", "id": 42}`)
+- The deployment epoch
+
+These values are canonicalized via **RFC 8785 JSON Canonicalization Scheme (JCS)** and hashed with SHA-256 to produce an immutable 64-character fingerprint.
+
+### 3. Declarative Policies
+Policies are defined in `policy.json`. Every rule has:
+- `effect`: `allow`, `deny`, or `approval_required`
+- `tool`: the target tool namespace
+- `action`: the target action name
+- `resource`: a specific resource string, or universal wildcard `*`
+
+<Warning>
+**Fail-Closed Invariant**: If a request does not match any rule in `policy.json`, Dmint defaults to `DENY`. There is no implicit allow.
+</Warning>
+
+### 4. Single-Use Approval State Machine
+When an operation triggers `APPROVAL_REQUIRED`:
+1. **`PENDING`**: Request is saved into the approval store (SQLite or PostgreSQL) with its canonical fingerprint and parameter snapshot.
+2. **`APPROVED`**: A human approver inspects the payload and signs an assertion using Ed25519 (via `dmint dashboard` or `dmint approve`).
+3. **`CONSUMED`**: The agent retries the call. Dmint validates the signature against the active policy, checks that the fingerprint matches, and atomically transitions the record to `CONSUMED`.
+
+---
+
+## Core vs Gateways vs Dashboard
+
+Dmint divides responsibilities strictly to avoid privilege escalation:
+
+| Component | Responsibility | Database Access |
+|---|---|---|
+| **Dmint Core (`dmint.core`)** | Authorization engine, cryptographic signing, policy parser, approval store schema owner | **Sole Owner** of SQLite/PostgreSQL schema |
+| **MCP Gateway (`dmint-mcp`)** | Downstream proxy for AI clients (Cursor, Claude, Antigravity) | Uses Core APIs |
+| **CLI (`dmint`)** | Developer wizards, policy validation, skill installer, and terminal approvals | Calls Core public APIs only (Zero SQL) |
+| **Dashboard (`dmint-dashboard`)** | Web UI for reviewing diffs and approving actions | Calls Core public APIs only (Zero SQL) |
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Capabilities" icon="key" href="/concepts/capabilities">
+    Learn how tools, actions, and resources are structured.
+  </Card>
+  <Card title="Request Binding" icon="fingerprint" href="/concepts/request-binding">
+    Understand RFC 8785 canonicalization and fingerprinting.
+  </Card>
+  <Card title="Approvals Lifecycle" icon="stamp" href="/concepts/approvals">
+    Explore how human approval tokens are signed and consumed.
+  </Card>
+  <Card title="Policies" icon="file-code" href="/concepts/policies">
+    Deep-dive into policy schema and rule evaluation order.
+  </Card>
+</CardGroup>

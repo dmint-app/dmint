@@ -1,0 +1,929 @@
+/* ==========================================================================
+   Dmint Dashboard — Design System
+   Developer-facing security authorization console for AI-agent tool calls.
+   Rectangular (zero border-radius), zero box-shadow, purely monospace,
+   semantic decision colors (allow / deny / approval / consumed).
+   Aligned with dmint-landing-page design system.
+   ========================================================================== */
+
+@import url('https://fonts.googleapis.com/css2?family=Roboto+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap');
+
+:root {
+  /* ---- Semantic decision colors ---- */
+  --allow: #3ECFA0;     /* mint — allow / success / primary action */
+  --deny: #E5484D;      /* muted red — deny / blocked */
+  --approval: #E8B339;  /* amber — approval required / human-in-the-loop */
+  --consumed: #A78BFA;  /* violet — single-use consumed */
+  --on-allow: #06201A;  /* dark text for mint surface */
+
+  /* Legacy & mapped variables */
+  --accent: var(--allow);
+  --accent-dim: var(--allow-dim);
+  --accent-ring: rgba(62, 207, 160, 0.35);
+
+  --pending: var(--approval);
+  --pending-dim: var(--approval-dim);
+  --approved: var(--allow);
+  --approved-dim: var(--allow-dim);
+  --rejected: var(--deny);
+  --rejected-dim: var(--deny-dim);
+
+  /* Spacing */
+  --space-1: 0.5rem;    /* 8px  */
+  --space-2: 1rem;      /* 16px */
+  --space-3: 1.75rem;   /* 28px */
+  --space-4: 3rem;      /* 48px */
+  --space-5: 5rem;      /* 80px */
+
+  --content-max: 1140px;
+  --side-gutter: var(--space-3);
+
+  --font-mono: 'Roboto Mono', 'Google Sans Code', 'Inconsolata', 'Fira Mono',
+               ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+  --mono: var(--font-mono);
+  --sans: var(--font-mono);
+
+  /* Zero border-radius invariant */
+  --radius-sm: 0px;
+  --radius-md: 0px;
+  --radius-pill: 0px;
+}
+
+:root,
+:root[data-theme='dark'] {
+  --bg: #0A0A0A;
+  --bg-alt: #141414;
+  --surface: #141414;
+  --surface-alt: #1F1F1F;
+  --text: #EDEDED;
+  --text-dim: #8F8F8F;
+  --text-primary: #EDEDED;
+  --text-secondary: #8F8F8F;
+  --border: #262626;
+  --border-soft: #1F1F1F;
+  --line: #262626;
+
+  --allow-dim: rgba(62, 207, 160, 0.12);
+  --deny-dim: rgba(229, 72, 77, 0.12);
+  --approval-dim: rgba(232, 179, 57, 0.12);
+  --consumed-dim: rgba(167, 139, 250, 0.12);
+}
+
+:root[data-theme='light'] {
+  --bg: #FAFAFA;
+  --bg-alt: #F0EFEC;
+  --surface: #FFFFFF;
+  --surface-alt: #F5F4F0;
+  --text: #141414;
+  --text-dim: #63615C;
+  --text-primary: #141414;
+  --text-secondary: #63615C;
+  --border: #D8D6D1;
+  --border-soft: #E6E4DF;
+  --line: #D8D6D1;
+
+  --allow-dim: rgba(14, 132, 82, 0.12);
+  --deny-dim: rgba(229, 72, 77, 0.12);
+  --approval-dim: rgba(232, 179, 57, 0.12);
+  --consumed: #6D28D9;
+  --consumed-dim: rgba(109, 40, 217, 0.12);
+}
+
+/* ── Reset base ──────────────────────────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
+  border-radius: 0 !important;
+}
+
+html {
+  font-size: 15px;
+}
+
+body {
+  font-family: var(--font-mono);
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  min-height: 100vh;
+  margin: 0;
+  padding: 0;
+}
+
+::selection {
+  background: var(--allow);
+  color: var(--on-allow);
+}
+
+/* ── Typography ──────────────────────────────────────────────────────── */
+h1, h2, h3, h4, h5, h6 {
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+  margin: 0 0 var(--space-2) 0;
+}
+
+h1 { font-size: 1.5rem; }
+h2 { font-size: 1.15rem; }
+h3 { font-size: 1rem; }
+
+p {
+  margin: 0 0 var(--space-2) 0;
+  color: var(--text-dim);
+}
+
+a {
+  color: var(--text);
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+a:hover, a:focus-visible {
+  color: var(--allow);
+}
+
+code, pre, .mono {
+  font-family: var(--font-mono);
+}
+
+/* ── Layout ──────────────────────────────────────────────────────────── */
+.d-container {
+  max-width: var(--content-max);
+  margin-inline: auto;
+  padding-inline: var(--side-gutter);
+}
+
+.d-eyebrow {
+  color: var(--text-dim);
+  font-size: 0.8rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  margin-bottom: var(--space-1);
+}
+
+/* ── Nav ─────────────────────────────────────────────────────────────── */
+.d-nav {
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.d-nav-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 56px;
+  gap: var(--space-2);
+}
+
+.d-nav-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-decoration: none;
+  color: var(--text);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  font-size: 1rem;
+}
+
+.d-nav-brand:hover {
+  color: var(--text);
+}
+
+.d-nav-logo {
+  width: 26px;
+  height: 26px;
+  display: block;
+  flex-shrink: 0;
+}
+
+.d-nav-wordmark {
+  color: var(--allow);
+  font-weight: 700;
+  font-size: 1.1rem;
+  letter-spacing: -0.02em;
+}
+
+.d-nav-sub {
+  color: var(--text-dim);
+  font-weight: 500;
+  font-size: 0.75rem;
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  padding: 2px 7px;
+  margin-left: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.d-nav-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.d-nav-links {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.d-nav-links a {
+  display: block;
+  padding: 6px 12px;
+  color: var(--text-dim);
+  text-decoration: none;
+  font-size: 0.85rem;
+  font-weight: 500;
+  border: 1px solid transparent;
+  transition: all 0.15s ease;
+}
+
+.d-nav-links a:hover {
+  color: var(--text);
+  background: var(--surface-alt);
+  border-color: var(--border);
+}
+
+.d-nav-links a.active {
+  color: var(--allow);
+  background: var(--allow-dim);
+  border-color: var(--allow);
+}
+
+/* ── Theme toggle button ─────────────────────────────────────────────── */
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  border: 1px solid var(--border) !important;
+  view-transition-name: theme-toggle;
+  transition: all 0.15s ease;
+}
+
+.theme-toggle svg {
+  width: 17px;
+  height: 17px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 1.75;
+}
+
+.theme-toggle:hover {
+  color: var(--allow);
+  border-color: var(--allow) !important;
+  background: var(--surface-alt);
+}
+
+.theme-toggle .icon-sun { display: none; }
+.theme-toggle .icon-moon { display: block; }
+:root[data-theme="light"] .theme-toggle .icon-sun { display: block; }
+:root[data-theme="light"] .theme-toggle .icon-moon { display: none; }
+
+/* ── Main content ───────────────────────────────────────────────────── */
+.d-main {
+  padding: var(--space-3) 0 var(--space-5);
+}
+
+/* ── Page heading ───────────────────────────────────────────────────── */
+.d-page-heading {
+  margin-bottom: var(--space-3);
+}
+
+.d-page-heading h1 {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: var(--text);
+  margin: 0 0 4px;
+  letter-spacing: -0.01em;
+}
+
+.d-page-heading p {
+  color: var(--text-dim);
+  font-size: 0.875rem;
+  margin: 0;
+}
+
+/* ── Stat counters ──────────────────────────────────────────────────── */
+.d-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  background: var(--border);
+  border: 1px solid var(--border);
+  margin-bottom: var(--space-3);
+}
+
+.d-stat {
+  background: var(--surface);
+  padding: var(--space-2) var(--space-3);
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.d-stat-icon {
+  width: 38px;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border: 1px solid transparent;
+}
+
+.d-stat-icon.pending  {
+  background: var(--approval-dim);
+  color: var(--approval);
+  border-color: var(--approval);
+}
+.d-stat-icon.approved {
+  background: var(--allow-dim);
+  color: var(--allow);
+  border-color: var(--allow);
+}
+.d-stat-icon.rejected {
+  background: var(--deny-dim);
+  color: var(--deny);
+  border-color: var(--deny);
+}
+
+.d-stat-num {
+  font-size: 1.75rem;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+.d-stat-label {
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  margin-top: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+}
+
+/* ── Panel / card ───────────────────────────────────────────────────── */
+.d-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  margin-bottom: var(--space-3);
+}
+
+.d-panel-header {
+  padding: 0.875rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-alt);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.d-panel-title {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.d-panel-body {
+  padding: 1.25rem;
+}
+
+.d-panel-body-flush {
+  padding: 0;
+}
+
+/* ── Tables ─────────────────────────────────────────────────────────── */
+.d-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.d-table th {
+  padding: 0.75rem 1rem;
+  text-align: left;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-alt);
+  white-space: nowrap;
+}
+
+.d-table td {
+  padding: 0.875rem 1rem;
+  border-bottom: 1px solid var(--border-soft);
+  color: var(--text);
+  vertical-align: middle;
+}
+
+.d-table tr:last-child td {
+  border-bottom: none;
+}
+
+.d-table tbody tr {
+  transition: background 0.1s ease;
+}
+.d-table tbody tr:hover {
+  background: var(--surface-alt);
+}
+
+/* ── Mono / code ─────────────────────────────────────────────────────── */
+code, .mono {
+  font-family: var(--font-mono);
+  font-size: 0.82em;
+  color: var(--text);
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  padding: 2px 6px;
+  word-break: break-all;
+}
+
+pre {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  padding: 1rem 1.25rem;
+  overflow-x: auto;
+  color: var(--text);
+  margin: 0;
+  max-height: 380px;
+  line-height: 1.6;
+}
+
+/* ── Status badges ──────────────────────────────────────────────────── */
+.d-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+
+.d-badge::before {
+  content: '';
+  width: 5px;
+  height: 5px;
+  flex-shrink: 0;
+  background: currentColor;
+}
+
+.d-badge.pending  {
+  background: var(--approval-dim);
+  color: var(--approval);
+  border-color: var(--approval);
+}
+.d-badge.approved {
+  background: var(--allow-dim);
+  color: var(--allow);
+  border-color: var(--allow);
+}
+.d-badge.rejected {
+  background: var(--deny-dim);
+  color: var(--deny);
+  border-color: var(--deny);
+}
+.d-badge.consumed {
+  background: var(--consumed-dim);
+  color: var(--consumed);
+  border-color: var(--consumed);
+}
+.d-badge.secondary {
+  background: var(--surface-alt);
+  color: var(--text-dim);
+  border-color: var(--border);
+}
+
+/* ── Buttons ─────────────────────────────────────────────────────────── */
+.d-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 14px;
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+  border: 1px solid transparent;
+  transition: all 0.15s ease;
+  line-height: 1.4;
+}
+
+.d-btn:focus-visible {
+  outline: 2px solid var(--allow);
+  outline-offset: 2px;
+}
+
+.d-btn-primary {
+  background: var(--allow);
+  color: var(--on-allow);
+  border-color: var(--allow);
+}
+.d-btn-primary:hover {
+  opacity: 0.88;
+  color: var(--on-allow);
+}
+
+.d-btn-danger {
+  background: transparent;
+  color: var(--deny);
+  border-color: var(--deny);
+}
+.d-btn-danger:hover {
+  background: var(--deny);
+  color: #FFFFFF;
+}
+
+.d-btn-ghost {
+  background: transparent;
+  color: var(--text);
+  border-color: var(--border);
+}
+.d-btn-ghost:hover {
+  background: var(--surface-alt);
+  border-color: var(--text-dim);
+  color: var(--text);
+}
+
+.d-btn-sm {
+  padding: 3px 10px;
+  font-size: 0.75rem;
+}
+
+/* ── Flash messages ─────────────────────────────────────────────────── */
+.d-flash {
+  padding: 0.875rem 1.25rem;
+  font-size: 0.85rem;
+  margin-bottom: var(--space-3);
+  border: 1px solid;
+  border-left-width: 4px;
+}
+.d-flash.success {
+  background: var(--allow-dim);
+  color: var(--allow);
+  border-color: var(--allow);
+}
+.d-flash.danger {
+  background: var(--deny-dim);
+  color: var(--deny);
+  border-color: var(--deny);
+}
+.d-flash.warning {
+  background: var(--approval-dim);
+  color: var(--approval);
+  border-color: var(--approval);
+}
+.d-flash.info {
+  background: var(--surface-alt);
+  color: var(--text);
+  border-color: var(--border);
+}
+
+/* ── Empty state ─────────────────────────────────────────────────────── */
+.d-empty {
+  padding: 4rem 1.5rem;
+  text-align: center;
+  color: var(--text-dim);
+}
+.d-empty svg {
+  display: block;
+  margin: 0 auto 1.25rem;
+  opacity: 0.45;
+  color: var(--text-dim);
+}
+.d-empty p {
+  margin: 0;
+  font-size: 0.875rem;
+}
+.d-empty .d-empty-title {
+  color: var(--text);
+  font-weight: 600;
+  font-size: 1rem;
+  margin-bottom: 6px;
+}
+
+/* ── Definition list for approval detail ───────────────────────────── */
+.d-dl {
+  display: grid;
+  gap: 0;
+}
+.d-dl-row {
+  display: grid;
+  grid-template-columns: 160px 1fr;
+  gap: 1rem;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid var(--border-soft);
+  align-items: baseline;
+}
+.d-dl-row:last-child {
+  border-bottom: none;
+}
+.d-dl-label {
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+  padding-top: 2px;
+}
+.d-dl-value {
+  color: var(--text);
+  font-size: 0.875rem;
+}
+
+/* ── Breadcrumb ─────────────────────────────────────────────────────── */
+.d-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  margin-bottom: var(--space-3);
+  list-style: none;
+  padding: 0;
+}
+.d-breadcrumb a {
+  color: var(--text-dim);
+  text-decoration: none;
+}
+.d-breadcrumb a:hover {
+  color: var(--allow);
+}
+.d-breadcrumb-sep {
+  color: var(--border);
+}
+.d-breadcrumb-current {
+  color: var(--text);
+}
+
+/* ── Approval detail heading ────────────────────────────────────────── */
+.d-detail-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: var(--space-3);
+  flex-wrap: wrap;
+}
+.d-detail-head h1 {
+  font-size: 1.35rem;
+  font-weight: 700;
+  margin: 0 0 4px;
+  color: var(--text);
+}
+.d-detail-id {
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  color: var(--text-dim);
+  word-break: break-all;
+}
+
+/* ── Decision action area ───────────────────────────────────────────── */
+.d-decision-bar {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding: 1.25rem;
+  background: var(--bg-alt);
+}
+.d-decision-note {
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  margin-top: 0.25rem;
+}
+
+/* ── Modal ───────────────────────────────────────────────────────────── */
+.d-modal-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+  z-index: 500;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+.d-modal-backdrop.open {
+  display: flex;
+}
+
+.d-modal {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  max-width: 520px;
+  width: 100%;
+  overflow: hidden;
+}
+
+.d-modal-header {
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-alt);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.d-modal-header h2 {
+  font-size: 0.95rem;
+  font-weight: 600;
+  margin: 0;
+  color: var(--text);
+}
+
+.d-modal-close {
+  background: none;
+  border: none !important;
+  color: var(--text-dim);
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  transition: color 0.15s ease;
+}
+.d-modal-close:hover {
+  color: var(--text);
+}
+
+.d-modal-body {
+  padding: 1.25rem;
+}
+.d-modal-footer {
+  padding: 0.875rem 1.25rem;
+  border-top: 1px solid var(--border);
+  background: var(--bg-alt);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.75rem;
+}
+
+/* ── Alert info block ───────────────────────────────────────────────── */
+.d-info-block {
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  padding: 0.875rem 1.25rem;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  margin-top: var(--space-3);
+  line-height: 1.6;
+}
+
+/* ── Warning strip ──────────────────────────────────────────────────── */
+.d-warn-strip {
+  background: var(--approval-dim);
+  border: 1px solid var(--approval);
+  padding: 0.65rem 1rem;
+  font-size: 0.78rem;
+  color: var(--approval);
+  margin-bottom: 0.75rem;
+}
+
+/* ── Filter bar ─────────────────────────────────────────────────────── */
+.d-filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.d-select {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 6px 12px;
+  font-size: 0.82rem;
+  font-family: var(--font-mono);
+  cursor: pointer;
+}
+.d-select:focus {
+  outline: 2px solid var(--allow);
+  border-color: var(--allow);
+}
+
+/* ── Footer ─────────────────────────────────────────────────────────── */
+.d-footer {
+  border-top: 1px solid var(--border);
+  padding: var(--space-3) 0;
+  text-align: center;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  background: var(--bg-alt);
+}
+.d-footer .warn {
+  color: var(--deny);
+  font-weight: 600;
+}
+
+/* ── Textarea & inputs ──────────────────────────────────────────────── */
+textarea.d-input, input.d-input {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  padding: 0.75rem 1rem;
+  resize: vertical;
+  transition: border-color 0.15s ease;
+}
+textarea.d-input:focus, input.d-input:focus {
+  outline: none;
+  border-color: var(--allow);
+}
+textarea.d-input::placeholder, input.d-input::placeholder {
+  color: var(--text-dim);
+}
+
+.d-form-label {
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  margin-bottom: 6px;
+  display: block;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.d-form-hint {
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  margin-top: 4px;
+}
+
+/* ── Truncate ────────────────────────────────────────────────────────── */
+.trunc {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: inline-block;
+  vertical-align: middle;
+}
+
+/* ── View Transitions theme circle wipe ─────────────────────────────── */
+@media (prefers-reduced-motion: no-preference) {
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation: none;
+    mix-blend-mode: normal;
+  }
+}
+
+/* ── Responsive: collapse stats on narrow ───────────────────────────── */
+@media (max-width: 768px) {
+  .d-stats {
+    grid-template-columns: 1fr;
+  }
+  .d-dl-row {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+  .d-dl-label {
+    font-size: 0.7rem;
+  }
+  .d-nav-inner {
+    height: auto;
+    padding-block: var(--space-2);
+    flex-wrap: wrap;
+  }
+}
+
+/* ── Reduced motion ─────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    transition-duration: 0.01ms !important;
+    animation: none !important;
+  }
+}

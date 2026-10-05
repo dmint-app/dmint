@@ -1,0 +1,111 @@
+---
+title: "Capabilities"
+description: "How Dmint namespaces tools, actions, and resources for granular security enforcement."
+icon: "key"
+---
+
+# Capabilities
+
+In Dmint, a **capability** is the unique identifier for a sensitive operation that an AI agent might request.
+
+Every capability consists of three elements:
+
+$$ \text{Capability} = (\text{Tool}, \text{Action}, \text{Resource}) $$
+
+```text
+┌─────────────────────────────────────────────────────────────┐
+│                       CAPABILITY                            │
+│                                                             │
+│   tool:     "database"          (Which integration/system?) │
+│   action:   "update"            (What operation?)           │
+│   resource: "users"             (On what target?)           │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## The 3 Elements
+
+### 1. Tool
+The namespace of the tool provider or server:
+- In direct Python code: set in `@dmint.protected("tool.action")` or `dmint.authorize("tool", "action", ...)`
+- In MCP: the `integration_id` declared in `mcp_protection.json` (e.g. `postgres`, `filesystem`, `github`)
+
+Tool names prevent naming collisions. If two MCP servers both offer a tool named `query`, Dmint namespaces them as `production_db.query` and `analytics_db.query`.
+
+### 2. Action
+The specific function or verb being invoked:
+- `select`, `update`, `delete`, `drop`
+- `read_file`, `write_file`, `delete_file`
+- `run_command`, `git_push`
+
+### 3. Resource
+The target object or scope of the action:
+- A specific table: `"users"`, `"orders"`
+- A filesystem path: `"/var/log/app.log"`, `"/tmp"`
+- A wildcard: `"*"` (applies to any resource)
+
+---
+
+## Resource Matching Rules
+
+When Dmint evaluates an incoming tool call against `policy.json`, it resolves resources using strict matching:
+
+1. **Exact Match**:
+   A rule with `resource: "public.users"` matches only when the tool call targets `"public.users"`.
+2. **Wildcard Match**:
+   A rule with `resource: "*"` matches any target resource for that `(tool, action)`.
+3. **No Resource Required (`NO_RESOURCE`)**:
+   For commands that have no natural target (e.g. `get_system_time`), Dmint matches rules configured with no resource or wildcard `*`.
+
+---
+
+## Capability Examples
+
+Here is how common tool actions map to Dmint capabilities:
+
+| Scenario | Tool | Action | Resource | Default Effect |
+|---|---|---|---|---|
+| Read user analytics | `postgres` | `select` | `analytics` | `allow` |
+| Update customer email | `postgres` | `update` | `customers` | `approval_required` |
+| Drop table | `postgres` | `drop` | `*` | `deny` |
+| Read project source code | `fs` | `read_file` | `/src` | `allow` |
+| Overwrite environment file | `fs` | `write_file` | `.env` | `deny` |
+| Run test suite | `bash` | `exec` | `pytest` | `allow` |
+| Remove directory | `bash` | `exec` | `rm -rf` | `deny` |
+
+---
+
+## Defining Capabilities in Code
+
+<Tabs>
+  <Tab title="Direct Python Decorator">
+    ```python
+    # Tool: "payment_gateway", Action: "charge"
+    @dmint.protected("payment_gateway.charge")
+    def charge_card(amount_cents: int, customer_id: str):
+        ...
+    ```
+  </Tab>
+
+  <Tab title="MCP Gateway Binding">
+    ```json title="mcp_protection.json"
+    {
+      "integration_id": "github",
+      "transport": "stdio",
+      "tool_bindings": {
+        "create_issue": {
+          "tool_name": "create_issue",
+          "capability": "github.create_issue",
+          "discovery": "exposed"
+        },
+        "delete_repository": {
+          "tool_name": "delete_repository",
+          "capability": "github.delete_repository",
+          "discovery": "exposed"
+        }
+      }
+    }
+    ```
+  </Tab>
+</Tabs>

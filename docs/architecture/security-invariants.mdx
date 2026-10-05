@@ -1,0 +1,73 @@
+---
+title: "Security Invariants"
+description: "The 5 non-negotiable mathematical and state invariants enforced across the Dmint ecosystem."
+icon: "lock"
+---
+
+# The 5 Security Invariants
+
+Dmint is engineered around five strict, non-negotiable security invariants. Every release of `dmint` and its unified subsystems (`core`, `cli`, `mcp`, `dashboard`) is continuously verified against this invariant matrix.
+
+---
+
+## Invariant 1: Fail-Closed Default
+
+> **Any tool invocation not explicitly permitted by a matching `ALLOW` or `APPROVAL_REQUIRED` rule in `policy.json` MUST immediately evaluate to `DENY`.**
+
+- There is no implicit or ambient `ALLOW`.
+- Unrecognized capabilities, malformed JSON inputs, or missing policy files always fail closed.
+- If a downstream MCP server adds new tools after policy compilation, the new tools are immediately denied until explicitly added to the policy.
+
+---
+
+## Invariant 2: Exact Request Binding
+
+> **An approval token MUST be cryptographically bound to the canonical RFC 8785 representation of the request, preventing parameter manipulation or scope expansion.**
+
+- Dmint canonicalizes tool name, action, resource, sorted arguments, and deployment epoch into a unified envelope.
+- Modifying a single bit of argument data produces a different SHA-256 fingerprint.
+- Approving `update_user(id=10)` cannot be used to execute `update_user(id=11)`.
+
+---
+
+## Invariant 3: Atomic Single-Use Consumption
+
+> **An approved assertion MUST transition to `CONSUMED` atomically upon execution and MUST NEVER be reusable for a second invocation.**
+
+- In Core's SQLite store, transitions are guarded by atomic conditional SQL transactions:
+  ```sql
+  UPDATE approval_records 
+  SET state = 'CONSUMED', consumed_at = ? 
+  WHERE approval_id = ? AND state = 'APPROVED';
+  ```
+- Replay attempts, whether sequential or parallel from concurrent threads, fail closed with:
+  ```text
+  ApprovalConsumedError: DMT_APPROVAL_CONSUMED
+  ```
+
+---
+
+## Invariant 4: Policy Provenance Invalidation
+
+> **Any change to `policy.json` MUST immediately invalidate all pre-existing pending or unconsumed approval assertions.**
+
+- Every approval assertion contains the `policy_digest` (SHA-256 hash of `policy.json` at the time of issuance).
+- If an administrator modifies `policy.json` (e.g. revoking a permission or altering a rule), the active policy digest changes.
+- Any attempt to submit an assertion signed under the previous digest fails closed with:
+  ```text
+  ApprovalPolicyInvalidError: DMT_APPROVAL_POLICY_INVALID
+  ```
+
+---
+
+## Invariant 5: Core Approval Store Ownership & Storage Isolation
+
+> **There is exactly ONE approval store backend active in Dmint (SQLite or PostgreSQL), and it is owned strictly by Dmint Core. External components MUST NOT query the underlying database directly.**
+
+- `dmint-dashboard`, `dmint-mcp`, and the CLI never execute raw SQL and never connect directly to database engines.
+- They interact with persistent state exclusively through Core's public API methods:
+  - `store.list_pending()`
+  - `store.approve_pending()`
+  - `store.reject_pending()`
+  - `store.consume_approved()`
+- This guarantees uniform state machine transitions, prevents race conditions and schema drift, and ensures zero unauthorized state mutations across both SQLite and PostgreSQL.
