@@ -217,7 +217,10 @@ class SQLAlchemyApprovalStore(ApprovalStore):
                         max_overflow=20,
                     )
             except Exception as exc:
-                raise ApprovalStoreConfigurationError(f"Invalid database engine configuration: {exc}") from exc
+                from ..redaction import redact_database_url
+
+                safe_msg = redact_database_url(str(exc))
+                raise ApprovalStoreConfigurationError(f"Invalid database engine configuration: {safe_msg}") from None
             self._owns_engine = True
 
         # Connectivity validation ping - fail loud immediately if unreachable or auth failure
@@ -227,7 +230,10 @@ class SQLAlchemyApprovalStore(ApprovalStore):
         except Exception as exc:
             if self._owns_engine:
                 self._engine.dispose()
-            raise ApprovalStoreConfigurationError(f"Failed to connect to database: {exc}") from exc
+            from ..redaction import redact_database_url
+
+            safe_msg = redact_database_url(str(exc))
+            raise ApprovalStoreConfigurationError(f"Failed to connect to database: {safe_msg}") from None
 
         self._is_postgres = self._engine.dialect.name == "postgresql"
         self._is_sqlite = self._engine.dialect.name == "sqlite"

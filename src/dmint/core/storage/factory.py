@@ -64,15 +64,16 @@ def create_approval_store(
     url_str = raw_url.strip()
 
     # 2. Parse and validate URL
-    from ..canonicalize import redact_database_url
+    from ..redaction import redact_database_url
 
     safe_url = redact_database_url(url_str)
     try:
         parsed = urllib.parse.urlparse(url_str)
     except Exception as exc:
+        safe_exc_msg = redact_database_url(str(exc))
         raise ApprovalStoreConfigurationError(
-            f"Invalid DMINT_DATABASE_URL: could not parse URL '{safe_url}': {exc}"
-        ) from exc
+            f"Invalid DMINT_DATABASE_URL: could not parse URL '{safe_url}': {safe_exc_msg}"
+        ) from None
 
     if not parsed.scheme or parsed.scheme.lower() not in _VALID_SCHEMES:
         raise ApprovalStoreConfigurationError(

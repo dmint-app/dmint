@@ -199,25 +199,53 @@ class TestWebhookPayloadBuilders:
         assert f"dmint approve {record.approval_id} --deployment-epoch prod-2026-q1" in teams_text
 
     def test_database_url_redaction_and_leak_prevention(self) -> None:
-        """Verify that credentials in database URLs are strictly redacted and never leaked."""
-        from dmint.core.canonicalize import redact_database_url
+        """Verify that credentials in database URLs are strictly redacted across all supported formats."""
+        from dmint.core.redaction import redact_database_url
 
+        # 1. Standard user:pass@host
         url_with_pass = "postgresql://admin:super_secret_pw@db.internal:5432/dmint"
         redacted = redact_database_url(url_with_pass)
         assert "super_secret_pw" not in redacted
         assert "postgresql://admin:[REDACTED]@db.internal:5432/dmint" == redacted
 
+        # 2. No password
         url_without_pass = "sqlite:////var/data/dmint.sqlite"
         assert redact_database_url(url_without_pass) == url_without_pass
 
-        # Test IPv6 host parsing
+        # 3. IPv6 host parsing
         url_ipv6 = "postgresql://admin:secret_pass@[::1]:5432/dmint"
         redacted_ipv6 = redact_database_url(url_ipv6)
         assert "secret_pass" not in redacted_ipv6
         assert "postgresql://admin:[REDACTED]@[::1]:5432/dmint" == redacted_ipv6
 
+        # 4. URLs with no username but a password (:secret@host)
+        url_no_user = "postgresql://:only_secret_pass@db.internal:5432/dmint"
+        redacted_no_user = redact_database_url(url_no_user)
+        assert "only_secret_pass" not in redacted_no_user
+        assert "postgresql://:[REDACTED]@db.internal:5432/dmint" == redacted_no_user
+
+        # 5. Passwords in query strings (?password=..., sslpassword=..., sslkey=...)
+        url_query = (
+            "postgresql://db.internal:5432/dmint?sslmode=require&password=query_secret&sslpassword=ssl_pw&sslkey=my_key"
+        )
+        redacted_query = redact_database_url(url_query)
+        assert "query_secret" not in redacted_query
+        assert "ssl_pw" not in redacted_query
+        assert "my_key" not in redacted_query
+        assert "password=%5BREDACTED%5D" in redacted_query or "password=[REDACTED]" in redacted_query
+        assert "sslpassword=%5BREDACTED%5D" in redacted_query or "sslpassword=[REDACTED]" in redacted_query
+        assert "sslkey=%5BREDACTED%5D" in redacted_query or "sslkey=[REDACTED]" in redacted_query
+
+        # 6. libpq key-value connection strings (host=... password=...)
+        libpq_kv = "host=db.internal port=5432 dbname=dmint user=admin password=super_kv_secret sslpassword='sec_ssl'"
+        redacted_libpq = redact_database_url(libpq_kv)
+        assert "super_kv_secret" not in redacted_libpq
+        assert "sec_ssl" not in redacted_libpq
+        assert "password=[REDACTED]" in redacted_libpq
+        assert "sslpassword=[REDACTED]" in redacted_libpq
+
     def test_factory_exceptions_do_not_leak_database_url_password(self) -> None:
-        """Factory exception messages must never contain raw passwords."""
+        """Factory exception messages must never contain raw passwords, including across chained exceptions."""
         from dmint.core.storage.factory import create_approval_store, ApprovalStoreConfigurationError
 
         unreachable_url = "postgresql://user:secret_hunter2_pass@unreachable.invalid.domain:5432/db"
@@ -228,10 +256,12 @@ class TestWebhookPayloadBuilders:
             )
         exc_str = str(exc_info.value)
         assert "secret_hunter2_pass" not in exc_str
+        # Check __cause__ exception suppression
+        assert exc_info.value.__cause__ is None or "secret_hunter2_pass" not in str(exc_info.value.__cause__)
 
     def test_dashboard_log_does_not_leak_database_url_password(self, caplog: pytest.LogCaptureFixture) -> None:
         """Dashboard startup logs must redact database credentials."""
-        from dmint.canonicalize import redact_database_url
+        from dmint.core.redaction import redact_database_url
 
         target_url = "postgresql://db_user:confidential_pw_999@localhost:5432/dmint"
         safe = redact_database_url(target_url)

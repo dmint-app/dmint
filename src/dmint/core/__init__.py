@@ -17,8 +17,9 @@ from .approvals import (
     parse_approval_state,
 )
 from .authority import ApprovalAssertion, ApprovalVerifier, LocalApprovalAuthority, VerifiedApproval
-from .canonicalize import MAX_SAFE_INTEGER, canonicalize, canonicalize_request, redact_database_url
+from .canonicalize import MAX_SAFE_INTEGER, canonicalize, canonicalize_request
 from .enforcement import AuthorizedRequest, Dmint, InvocationSnapshot
+from .redaction import redact_database_url
 from .errors import (
     ApprovalAlgorithmUnsupportedError,
     ApprovalAudienceInvalidError,

@@ -76,7 +76,7 @@ def main(argv: list[str] | None = None, prog: str | None = None) -> None:
         )
 
     target = args.database_url or args.db_path
-    from dmint.canonicalize import redact_database_url
+    from dmint.core.redaction import redact_database_url
 
     safe_target = redact_database_url(str(target)) if args.database_url else target
     log.info("Connecting to Core approval store at %s (epoch: %s)", safe_target, args.deployment_epoch)
