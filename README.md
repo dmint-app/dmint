@@ -309,6 +309,10 @@ export DMINT_TEAMS_WEBHOOK_URL="https://example.webhook.office.com/webhookb2/...
 - **Fail-Safe & Isolated**: Webhook errors or timeouts never block, weaken, or compromise runtime authorization decisions.
 - **Zero-Config Default**: Webhook dispatch is a pure no-op when URLs are unset.
 
+> [!NOTE]
+> **TODO (Approver Environment)**: Because `--database-url` credentials are strictly stripped from outgoing webhook notifications to prevent credential leakage in chat channels, approvers executing `dmint approve <id>` must ensure the `DMINT_DATABASE_URL` environment variable is configured in their execution environment if using a remote PostgreSQL store.
+
+
 ---
 
 ## Security Invariants
