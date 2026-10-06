@@ -31,6 +31,7 @@ def create_app(
     token_file: str | Path | None = None,
     allowed_hosts: Collection[str] | None = None,
     approver_id: str | None = None,
+    trusted_proxy: bool | None = None,
 ) -> FastAPI:
     """Create and configure the FastAPI application.
 
@@ -80,6 +81,13 @@ def create_app(
         or "dashboard-approver"
     )
 
+    # Trusted proxy setting: defaults to False (off)
+    is_trusted_proxy = (
+        trusted_proxy
+        if trusted_proxy is not None
+        else (os.environ.get("DMINT_DASHBOARD_TRUSTED_PROXY", "").lower() in ("1", "true", "yes"))
+    )
+
     # Store state on app
     app.state.core_client = core_client
     app.state.templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
@@ -88,11 +96,12 @@ def create_app(
     app.state.allowed_hosts = hosts
     app.state.rate_limiter = LoginRateLimiter(max_attempts=5, window_seconds=60.0)
     app.state.approver_id = configured_approver_id
+    app.state.trusted_proxy = is_trusted_proxy
 
     # Security Middleware
     @app.middleware("http")
     async def security_middleware(request: Request, call_next) -> Response:
-        # A. Host header validation (DNS rebinding defense)
+        # A. Host header validation (DNS rebinding defense) — applies to ALL requests, including Bearer
         raw_host = request.headers.get("host", "").strip()
         if not raw_host:
             resp = Response("Missing Host header", status_code=400)
@@ -109,6 +118,18 @@ def create_app(
             resp = Response("Invalid Host header (DNS rebinding protection)", status_code=400)
             _add_security_headers(resp)
             return resp
+
+        # Determine effective scheme
+        effective_scheme = (
+            request.headers.get("x-forwarded-proto", "").lower()
+            if app.state.trusted_proxy and request.headers.get("x-forwarded-proto")
+            else request.url.scheme
+        )
+        if effective_scheme not in ("http", "https"):
+            effective_scheme = request.url.scheme
+
+        # Compute full dashboard expected origin (e.g. "http://localhost:8080" or "http://testserver")
+        expected_origin = f"{effective_scheme}://{raw_host}".rstrip("/").lower()
 
         # B. Origin / Referer validation on state-changing POST requests
         auth_header = request.headers.get("authorization", "")
@@ -132,9 +153,10 @@ def create_app(
                 return resp
 
             if origin:
+                # Compare full origin (scheme + host + port)
                 parsed_origin = urllib.parse.urlparse(origin)
-                origin_host = (parsed_origin.hostname or "").lower()
-                if origin_host not in app.state.allowed_hosts:
+                norm_origin = f"{parsed_origin.scheme}://{parsed_origin.netloc}".rstrip("/").lower()
+                if norm_origin != expected_origin:
                     resp = JSONResponse(
                         {"error": "invalid_origin", "detail": "Cross-origin request rejected."},
                         status_code=403,
@@ -143,8 +165,8 @@ def create_app(
                     return resp
             elif referer:
                 parsed_ref = urllib.parse.urlparse(referer)
-                ref_host = (parsed_ref.hostname or "").lower()
-                if ref_host not in app.state.allowed_hosts:
+                ref_origin = f"{parsed_ref.scheme}://{parsed_ref.netloc}".rstrip("/").lower()
+                if ref_origin != expected_origin:
                     resp = JSONResponse(
                         {"error": "invalid_referer", "detail": "Cross-origin request rejected."},
                         status_code=403,
@@ -159,14 +181,22 @@ def create_app(
             session = None
             if session_cookie and session_cookie in app.state.sessions:
                 sess_data = app.state.sessions[session_cookie]
-                # Check session expiration (12 hours)
                 import time
 
-                if sess_data.get("expires_at", 0) > time.time():
-                    session = sess_data
-                else:
-                    # Expired session
+                now = time.time()
+                # Check both hard expiration (12h) and idle expiration (30m)
+                is_expired = False
+                if sess_data.get("expires_at", 0) <= now:
+                    is_expired = True
+                elif sess_data.get("last_active", 0) + (30 * 60) <= now:
+                    is_expired = True
+
+                if is_expired:
                     app.state.sessions.pop(session_cookie, None)
+                else:
+                    # Update activity timestamp on active session
+                    sess_data["last_active"] = now
+                    session = sess_data
 
             if is_bearer:
                 session = {"identity": "bearer-api", "csrf_token": "api"}

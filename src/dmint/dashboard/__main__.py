@@ -72,6 +72,12 @@ def main(argv: list[str] | None = None, prog: str | None = None) -> None:
         default=os.environ.get("DMINT_APPROVER_ID"),
         help="Configured approver ID recorded in Core when approving/rejecting (or set DMINT_APPROVER_ID)",
     )
+    parser.add_argument(
+        "--trusted-proxy",
+        action="store_true",
+        default=os.environ.get("DMINT_DASHBOARD_TRUSTED_PROXY", "").lower() in ("1", "true", "yes"),
+        help="Trust X-Forwarded-Proto header from reverse proxy (default: off)",
+    )
     args = parser.parse_args(argv)
 
     # Security check: refuse ANY non-loopback bind without explicit permission flag
@@ -147,6 +153,7 @@ def main(argv: list[str] | None = None, prog: str | None = None) -> None:
         token_file=token_file,
         allowed_hosts=[args.host],
         approver_id=approver_id,
+        trusted_proxy=args.trusted_proxy,
     )
 
     token_banner = (

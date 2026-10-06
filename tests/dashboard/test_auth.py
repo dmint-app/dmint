@@ -387,3 +387,106 @@ class TestDashboardAuthenticationAndSecurity:
         resp_valid = client.post("/logout", data={"csrf_token": valid_csrf}, follow_redirects=False)
         assert resp_valid.status_code == 303
         assert session_id not in app.state.sessions
+
+    def test_cross_port_origin_rejected(self, client_obj, pending_record) -> None:
+        """Origin on port 3000 must be rejected when dashboard is on port 8080 (full origin matching)."""
+        app = create_app(
+            client_obj,
+            auth_token="super-secret-token",
+            allowed_hosts={"localhost", "127.0.0.1", "[::1]", "testserver"},
+        )
+        client = TestClient(app, raise_server_exceptions=False)
+        client.headers["Host"] = "localhost:8080"
+        client.headers["Origin"] = "http://localhost:8080"
+
+        # Log in
+        client.post("/login", data={"token": "super-secret-token", "identity": "alice"})
+        session_id = client.cookies.get("dmint_session")
+        assert session_id is not None
+        csrf_token = app.state.sessions[session_id]["csrf_token"]
+
+        # POST with origin http://localhost:3000 (different port)
+        client.headers["Origin"] = "http://localhost:3000"
+        resp = client.post(
+            f"/approvals/{pending_record.approval_id}/approve",
+            data={"csrf_token": csrf_token},
+            follow_redirects=False,
+        )
+        assert resp.status_code == 403
+        assert resp.json().get("error") == "invalid_origin"
+
+    def test_bearer_auth_host_validation_enforced(self, client_obj) -> None:
+        """Host validation must be enforced on Bearer-authenticated requests too."""
+        app = create_app(
+            client_obj,
+            auth_token="super-secret-token",
+            allowed_hosts={"localhost", "127.0.0.1", "[::1]"},
+        )
+        client = TestClient(app, raise_server_exceptions=False)
+
+        # Valid Bearer token but malicious Host header
+        resp = client.get(
+            "/api/dashboard",
+            headers={
+                "Authorization": "Bearer super-secret-token",
+                "Host": "attacker-dns-rebind.com",
+            },
+        )
+        assert resp.status_code == 400
+        assert "Host header" in resp.text
+
+    def test_trusted_proxy_setting_behavior(self, client_obj) -> None:
+        """X-Forwarded-Proto is ignored by default unless trusted_proxy is explicitly enabled."""
+        # 1. Default (trusted_proxy=False) -> cookie secure is False over http even with x-forwarded-proto: https
+        app_default = create_app(
+            client_obj,
+            auth_token="super-secret-token",
+            allowed_hosts={"localhost", "127.0.0.1", "[::1]", "testserver"},
+            trusted_proxy=False,
+        )
+        c1 = TestClient(app_default, raise_server_exceptions=False)
+        c1.headers["Origin"] = "http://testserver"
+        c1.headers["X-Forwarded-Proto"] = "https"
+        r1 = c1.post("/login", data={"token": "super-secret-token"}, follow_redirects=False)
+        cookie1 = r1.headers.get("set-cookie", "")
+        assert "secure" not in cookie1.lower()
+
+        # 2. With trusted_proxy=True -> cookie secure is True when x-forwarded-proto: https
+        app_trusted = create_app(
+            client_obj,
+            auth_token="super-secret-token",
+            allowed_hosts={"localhost", "127.0.0.1", "[::1]", "testserver"},
+            trusted_proxy=True,
+        )
+        c2 = TestClient(app_trusted, raise_server_exceptions=False)
+        c2.headers["Origin"] = "https://testserver"
+        c2.headers["X-Forwarded-Proto"] = "https"
+        r2 = c2.post("/login", data={"token": "super-secret-token"}, follow_redirects=False)
+        cookie2 = r2.headers.get("set-cookie", "")
+        assert "secure" in cookie2.lower()
+
+    def test_idle_session_timeout(self, client_obj) -> None:
+        """Sessions inactive for more than 30 minutes must be expired."""
+        import time
+
+        app = create_app(
+            client_obj,
+            auth_token="super-secret-token",
+            allowed_hosts={"localhost", "127.0.0.1", "[::1]", "testserver"},
+        )
+        client = TestClient(app, raise_server_exceptions=False)
+        client.headers["Origin"] = "http://testserver"
+
+        # Login
+        client.post("/login", data={"token": "super-secret-token", "identity": "alice"})
+        s_id = client.cookies.get("dmint_session")
+        assert s_id in app.state.sessions
+
+        # Advance last_active past 30 minutes (e.g. 31 minutes ago)
+        app.state.sessions[s_id]["last_active"] = time.time() - (31 * 60)
+
+        # Attempt to access dashboard
+        resp = client.get("/", follow_redirects=False)
+        assert resp.status_code == 303
+        assert "/login" in resp.headers["location"]
+        assert s_id not in app.state.sessions

@@ -178,6 +178,7 @@ def build_router() -> APIRouter:
         session_id = secrets.token_urlsafe(32)
         csrf_token = secrets.token_urlsafe(32)
 
+        now = time.time()
         # Use configured approver_id as identity (or user-supplied if specified)
         default_identity = getattr(request.app.state, "approver_id", "dashboard-approver")
         clean_identity = identity.strip() or default_identity
@@ -185,15 +186,19 @@ def build_router() -> APIRouter:
             "session_id": session_id,
             "csrf_token": csrf_token,
             "identity": clean_identity,
-            "expires_at": time.time() + (12 * 3600),  # 12-hour expiration
+            "expires_at": now + (12 * 3600),  # 12-hour hard limit
+            "last_active": now,  # 30-minute idle limit tracker
         }
 
         next_url = request.query_params.get("next") or "/"
         if not next_url.startswith("/") or next_url.startswith("//"):
             next_url = "/"
 
-        # Cookie security: HTTPS detection (via direct scheme or proxy headers)
-        is_https = request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
+        # Cookie security: HTTPS detection (via direct scheme or explicitly trusted proxy headers)
+        trusted_proxy = getattr(request.app.state, "trusted_proxy", False)
+        is_https = request.url.scheme == "https" or (
+            trusted_proxy and request.headers.get("x-forwarded-proto") == "https"
+        )
 
         response = RedirectResponse(next_url, status_code=303)
         response.set_cookie(
