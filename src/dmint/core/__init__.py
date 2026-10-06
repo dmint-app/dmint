@@ -19,6 +19,18 @@ from .approvals import (
 from .authority import ApprovalAssertion, ApprovalVerifier, LocalApprovalAuthority, VerifiedApproval
 from .canonicalize import MAX_SAFE_INTEGER, canonicalize, canonicalize_request
 from .enforcement import AuthorizedRequest, Dmint, InvocationSnapshot
+from .keys import (
+    KeyExistsError,
+    KeyLoadError,
+    KeyPermissionError,
+    load_private_key,
+    load_private_key_from_file,
+    public_key_from_hex,
+    public_key_from_pem,
+    public_key_hex,
+    public_key_pem,
+    write_private_key_atomic,
+)
 from .redaction import redact_database_url
 from .errors import (
     ApprovalAlgorithmUnsupportedError,
@@ -178,4 +190,15 @@ __all__ = [
     "build_denial_payload",
     "dispatch_approval_webhook",
     "dispatch_denial_webhook",
+    # Key management
+    "KeyExistsError",
+    "KeyLoadError",
+    "KeyPermissionError",
+    "load_private_key",
+    "load_private_key_from_file",
+    "public_key_from_hex",
+    "public_key_from_pem",
+    "public_key_hex",
+    "public_key_pem",
+    "write_private_key_atomic",
 ]

@@ -79,3 +79,70 @@ Planned future enhancements for Dmint Dashboard identity management include:
    Integration with enterprise identity providers (Okta, GitHub, Google Workspace) and FIDO2 / WebAuthn hardware tokens for high-assurance cryptographic attestation of approval decisions.
 3. **Multi-Party Quorum Approvals**:
    Requiring M-of-N distinct human approver signatures before sensitive high-impact capabilities (e.g. production DB migrations, financial transfers) can transition to `APPROVED`.
+
+---
+
+## 5. Ed25519 Key Management & Approval Signing
+
+Dmint uses Ed25519 signing keys to cryptographically bind each approval assertion to an exact request. The private key signs approvals; the gateway needs only the public key to verify them.
+
+### Key Isolation Boundary
+
+> [!CAUTION]
+> **The private key must be readable ONLY by the approver process — never by the agent process.**
+>
+> If the agent process can read the private key, it can self-sign approvals and bypass the entire human oversight gate.
+
+The private key file and the agent process must be in separate security contexts (different OS users, containers, or VMs). The gateway only ever sees public keys.
+
+### Creating a Signing Key
+
+```bash
+# Generate a new Ed25519 signing key (creates ~/.config/dmint/signing.key with mode 0600):
+dmint init-keys --issuer-id my-authority
+
+# Export the public key for pasting into the gateway's trusted_issuers:
+dmint export-public-key --issuer-id my-authority
+```
+
+Key file permissions enforced:
+- The key file must be `0600` or `0400` (no group/other access).
+- The parent directory must not be group-writable or world-writable.
+- Dmint refuses to load a key file with looser permissions.
+- Key file creation is atomic — there is no window where it is world-readable.
+
+### Gateway `trusted_issuers` Configuration
+
+Add the exported public key to `mcp_protection.json`:
+
+```json
+{
+  "trusted_issuers": [
+    {
+      "issuer_id": "my-authority",
+      "public_key_hex": "<64-char hex from dmint export-public-key>"
+    }
+  ],
+  "approval_audience": "dmint/dashboard/v1"
+}
+```
+
+The gateway builds its `ApprovalVerifier` from this config at startup. Multiple issuers can coexist to support key rotation.
+
+> [!NOTE]
+> Approvers need `DMINT_DATABASE_URL` (or `DMINT_DB_PATH`) set to the same approval store used by the gateway so they can look up and approve pending requests.
+
+### Key Rotation Procedure
+
+Rotation replaces one signing key with another while maintaining continuity of service:
+
+1. **Generate new key**: `dmint init-keys --key-file new.key --issuer-id my-authority-v2`
+2. **Export public key**: `dmint export-public-key --key-file new.key --issuer-id my-authority-v2`
+3. **Add new issuer** to gateway `trusted_issuers` (keep old issuer too).
+4. **Deploy updated gateway** config — it now trusts both keys simultaneously.
+5. **Switch authority** process to use the new key file.
+6. **Wait** for all pending assertions signed with the old key to expire or be consumed.
+7. **Remove old issuer** from `trusted_issuers` and redeploy gateway.
+
+Assertions signed with a revoked key are automatically rejected by the gateway once the issuer is removed from `trusted_issuers`.
+

@@ -131,7 +131,28 @@ class MCPGateway:
         else:
             self._approval_store = None
 
-        self._approval_verifier = approval_verifier
+        # Build ApprovalVerifier from config.trusted_issuers when not injected.
+        # The gateway needs ONLY public keys — never a private key.
+        if approval_verifier is not None:
+            self._approval_verifier: ApprovalVerifier | None = approval_verifier
+        elif config.trusted_issuers:
+            from dmint.core.keys import public_key_from_hex
+
+            trusted_map = {}
+            for issuer_cfg in config.trusted_issuers:
+                try:
+                    pub = public_key_from_hex(issuer_cfg.public_key_hex)
+                except (ValueError, Exception) as exc:
+                    raise MCPConfigurationError(
+                        f"invalid public key for trusted issuer '{issuer_cfg.issuer_id}': {exc}"
+                    ) from exc
+                trusted_map[issuer_cfg.issuer_id] = pub
+            self._approval_verifier = ApprovalVerifier(
+                trusted_issuers=trusted_map,
+                audience=config.approval_audience,
+            )
+        else:
+            self._approval_verifier = None
         self._integrations: dict[str, GatewayIntegration] = {}
 
         for integ_cfg in config.integrations:

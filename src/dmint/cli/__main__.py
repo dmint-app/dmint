@@ -10,6 +10,7 @@ from dmint.cli.compile_policy import main_compile
 from dmint.cli.create_policy import main_create
 from dmint.cli.dashboard import main_dashboard
 from dmint.cli.install_skill import main_install_skill
+from dmint.cli.keys import main_export_public_key, main_init_keys
 from dmint.cli.verify_policy import main_verify
 from dmint.cli.version import __version__
 
@@ -89,6 +90,10 @@ Recommended Workflow:
   install-skill       Install Dmint AI coding agent skill into workspace (.agents/skills/) or global config
   dashboard           Launch the local human approval dashboard (connects to Core SQLite)
 
+Key Management Commands:
+  init-keys           Generate and persist a new Ed25519 signing key (0600, atomic)
+  export-public-key   Print the public key (hex + PEM) and issuer ID for the gateway trusted_issuers
+
 Approval Commands (Terminal Management):
   pending             List all approvals currently in PENDING state
   approve             Approve a pending tool execution request with optional audit note
@@ -131,6 +136,16 @@ Compatibility Commands:
     subparsers.add_parser(
         "dashboard",
         help="Launch the local human approval dashboard (connects to Core SQLite)",
+        add_help=False,
+    )
+    subparsers.add_parser(
+        "init-keys",
+        help="Generate and persist a new Ed25519 signing key (0600, atomic)",
+        add_help=False,
+    )
+    subparsers.add_parser(
+        "export-public-key",
+        help="Print the public key (hex + PEM) and issuer ID for the gateway trusted_issuers",
         add_help=False,
     )
     subparsers.add_parser(
@@ -182,6 +197,10 @@ Compatibility Commands:
         return main_install_skill(cmd_args)
     elif cmd == "dashboard":
         return main_dashboard(cmd_args)
+    elif cmd == "init-keys":
+        return main_init_keys(cmd_args)
+    elif cmd == "export-public-key":
+        return main_export_public_key(cmd_args)
     elif cmd == "pending":
         return main_pending(cmd_args)
     elif cmd == "approve":

@@ -1,0 +1,427 @@
+"""Tests for dmint.core.keys — Ed25519 key management, permission checks, atomic writes."""
+
+from __future__ import annotations
+
+import os
+import platform
+import stat
+import tempfile
+from pathlib import Path
+from unittest.mock import patch
+
+import pytest
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
+
+from dmint.core.keys import (
+    KeyExistsError,
+    KeyLoadError,
+    KeyPermissionError,
+    check_key_file_permissions,
+    load_private_key,
+    load_private_key_from_file,
+    public_key_from_hex,
+    public_key_from_pem,
+    public_key_hex,
+    public_key_pem,
+    write_private_key_atomic,
+)
+
+IS_POSIX = platform.system() != "Windows"
+posix_only = pytest.mark.skipif(not IS_POSIX, reason="POSIX-only permission tests")
+
+
+# ─── Helpers ──────────────────────────────────────────────────────────────────
+
+
+def _gen_key() -> Ed25519PrivateKey:
+    return Ed25519PrivateKey.generate()
+
+
+def _write_hex_key(path: Path, private_key: Ed25519PrivateKey, mode: int = 0o600) -> None:
+    from cryptography.hazmat.primitives.serialization import Encoding, NoEncryption, PrivateFormat
+
+    raw = private_key.private_bytes(
+        encoding=Encoding.Raw, format=PrivateFormat.Raw, encryption_algorithm=NoEncryption()
+    )
+    path.write_text(raw.hex() + "\n", encoding="ascii")
+    if IS_POSIX:
+        path.chmod(mode)
+
+
+# ─── public_key_hex / public_key_pem round-trips ─────────────────────────────
+
+
+class TestPublicKeyExport:
+    def test_hex_is_64_chars(self) -> None:
+        key = _gen_key()
+        hex_str = public_key_hex(key.public_key())
+        assert len(hex_str) == 64
+        assert hex_str == hex_str.lower()
+
+    def test_pem_starts_with_header(self) -> None:
+        key = _gen_key()
+        pem_str = public_key_pem(key.public_key())
+        assert pem_str.startswith("-----BEGIN PUBLIC KEY-----")
+
+    def test_hex_roundtrip(self) -> None:
+        key = _gen_key()
+        pub = key.public_key()
+        hex_str = public_key_hex(pub)
+        recovered = public_key_from_hex(hex_str)
+        assert isinstance(recovered, Ed25519PublicKey)
+        assert public_key_hex(recovered) == hex_str
+
+    def test_pem_roundtrip(self) -> None:
+        key = _gen_key()
+        pub = key.public_key()
+        pem_str = public_key_pem(pub)
+        recovered = public_key_from_pem(pem_str)
+        assert isinstance(recovered, Ed25519PublicKey)
+        assert public_key_hex(recovered) == public_key_hex(pub)
+
+    def test_hex_too_short_raises(self) -> None:
+        with pytest.raises(ValueError, match="64-character"):
+            public_key_from_hex("aabb")
+
+    def test_hex_bad_chars_raises(self) -> None:
+        with pytest.raises(ValueError):
+            public_key_from_hex("z" * 64)
+
+    def test_pem_invalid_raises(self) -> None:
+        with pytest.raises(ValueError, match="invalid PEM"):
+            public_key_from_pem("not a pem")
+
+
+# ─── write_private_key_atomic ─────────────────────────────────────────────────
+
+
+class TestWritePrivateKeyAtomic:
+    def test_creates_file(self, tmp_path: Path) -> None:
+        key = _gen_key()
+        dest = tmp_path / "signing.key"
+        write_private_key_atomic(dest, key)
+        assert dest.exists()
+
+    @posix_only
+    def test_creates_with_0600(self, tmp_path: Path) -> None:
+        key = _gen_key()
+        dest = tmp_path / "signing.key"
+        write_private_key_atomic(dest, key)
+        mode = stat.S_IMODE(dest.stat().st_mode)
+        assert mode == 0o600, f"Expected 0600, got {oct(mode)}"
+
+    def test_content_is_valid_hex(self, tmp_path: Path) -> None:
+        key = _gen_key()
+        dest = tmp_path / "signing.key"
+        write_private_key_atomic(dest, key)
+        content = dest.read_text(encoding="ascii").strip()
+        assert len(content) == 64
+        bytes.fromhex(content)  # must not raise
+
+    def test_refuses_overwrite_without_force(self, tmp_path: Path) -> None:
+        key = _gen_key()
+        dest = tmp_path / "signing.key"
+        write_private_key_atomic(dest, key)
+        with pytest.raises(KeyExistsError, match="already exists"):
+            write_private_key_atomic(dest, key, force=False)
+
+    def test_allows_overwrite_with_force(self, tmp_path: Path) -> None:
+        key1 = _gen_key()
+        key2 = _gen_key()
+        dest = tmp_path / "signing.key"
+        write_private_key_atomic(dest, key1)
+        write_private_key_atomic(dest, key2, force=True)
+        content = dest.read_text(encoding="ascii").strip()
+        from cryptography.hazmat.primitives.serialization import Encoding, NoEncryption, PrivateFormat
+
+        raw2 = key2.private_bytes(encoding=Encoding.Raw, format=PrivateFormat.Raw, encryption_algorithm=NoEncryption())
+        assert content == raw2.hex()
+
+    def test_creates_parent_dirs(self, tmp_path: Path) -> None:
+        key = _gen_key()
+        dest = tmp_path / "nested" / "deep" / "signing.key"
+        write_private_key_atomic(dest, key)
+        assert dest.exists()
+
+    def test_round_trip_key_matches(self, tmp_path: Path) -> None:
+        key = _gen_key()
+        dest = tmp_path / "signing.key"
+        write_private_key_atomic(dest, key)
+        loaded = load_private_key_from_file(dest)
+        assert public_key_hex(loaded.public_key()) == public_key_hex(key.public_key())
+
+
+# ─── check_key_file_permissions ───────────────────────────────────────────────
+
+
+@posix_only
+class TestCheckKeyFilePermissions:
+    def test_0600_passes(self, tmp_path: Path) -> None:
+        key = _gen_key()
+        dest = tmp_path / "signing.key"
+        _write_hex_key(dest, key, mode=0o600)
+        check_key_file_permissions(dest)  # must not raise
+
+    def test_0400_passes(self, tmp_path: Path) -> None:
+        key = _gen_key()
+        dest = tmp_path / "signing.key"
+        _write_hex_key(dest, key, mode=0o400)
+        check_key_file_permissions(dest)  # must not raise
+
+    def test_0644_raises(self, tmp_path: Path) -> None:
+        key = _gen_key()
+        dest = tmp_path / "signing.key"
+        _write_hex_key(dest, key, mode=0o644)
+        with pytest.raises(KeyPermissionError, match="unsafe permissions"):
+            check_key_file_permissions(dest)
+
+    def test_0660_raises(self, tmp_path: Path) -> None:
+        key = _gen_key()
+        dest = tmp_path / "signing.key"
+        _write_hex_key(dest, key, mode=0o660)
+        with pytest.raises(KeyPermissionError, match="unsafe permissions"):
+            check_key_file_permissions(dest)
+
+    def test_0755_raises(self, tmp_path: Path) -> None:
+        key = _gen_key()
+        dest = tmp_path / "signing.key"
+        _write_hex_key(dest, key, mode=0o755)
+        with pytest.raises(KeyPermissionError, match="unsafe permissions"):
+            check_key_file_permissions(dest)
+
+    def test_missing_file_raises_file_not_found(self, tmp_path: Path) -> None:
+        with pytest.raises(FileNotFoundError):
+            check_key_file_permissions(tmp_path / "missing.key")
+
+    def test_parent_dir_group_writable_raises(self, tmp_path: Path) -> None:
+        # Create a subdirectory that is group-writable
+        subdir = tmp_path / "gwdir"
+        subdir.mkdir(mode=0o775)
+        key = _gen_key()
+        dest = subdir / "signing.key"
+        _write_hex_key(dest, key, mode=0o600)
+        with pytest.raises(KeyPermissionError, match="parent directory"):
+            check_key_file_permissions(dest)
+
+    def test_parent_dir_world_writable_raises(self, tmp_path: Path) -> None:
+        subdir = tmp_path / "wwdir"
+        subdir.mkdir(mode=0o777)
+        key = _gen_key()
+        dest = subdir / "signing.key"
+        _write_hex_key(dest, key, mode=0o600)
+        with pytest.raises(KeyPermissionError, match="parent directory"):
+            check_key_file_permissions(dest)
+
+    def test_parent_dir_0700_passes(self, tmp_path: Path) -> None:
+        subdir = tmp_path / "private"
+        subdir.mkdir(mode=0o700)
+        key = _gen_key()
+        dest = subdir / "signing.key"
+        _write_hex_key(dest, key, mode=0o600)
+        check_key_file_permissions(dest)  # must not raise
+
+
+# ─── load_private_key_from_file ───────────────────────────────────────────────
+
+
+class TestLoadPrivateKeyFromFile:
+    def test_loads_valid_key(self, tmp_path: Path) -> None:
+        key = _gen_key()
+        dest = tmp_path / "signing.key"
+        write_private_key_atomic(dest, key)
+        loaded = load_private_key_from_file(dest)
+        assert isinstance(loaded, Ed25519PrivateKey)
+
+    def test_missing_file_raises_key_load_error(self, tmp_path: Path) -> None:
+        with pytest.raises(KeyLoadError, match="does not exist"):
+            load_private_key_from_file(tmp_path / "missing.key")
+
+    @posix_only
+    def test_loose_permissions_raises_key_load_error(self, tmp_path: Path) -> None:
+        key = _gen_key()
+        dest = tmp_path / "signing.key"
+        _write_hex_key(dest, key, mode=0o644)
+        with pytest.raises(KeyLoadError, match="unsafe permissions"):
+            load_private_key_from_file(dest)
+
+    def test_bad_hex_content_raises_key_load_error(self, tmp_path: Path) -> None:
+        dest = tmp_path / "signing.key"
+        dest.write_text("not_hex_at_all_12345\n", encoding="ascii")
+        if IS_POSIX:
+            dest.chmod(0o600)
+        with pytest.raises(KeyLoadError):
+            load_private_key_from_file(dest)
+
+    def test_wrong_length_raises_key_load_error(self, tmp_path: Path) -> None:
+        dest = tmp_path / "signing.key"
+        dest.write_text("deadbeef\n", encoding="ascii")
+        if IS_POSIX:
+            dest.chmod(0o600)
+        with pytest.raises(KeyLoadError, match="64 hex characters"):
+            load_private_key_from_file(dest)
+
+    def test_no_key_material_in_exception(self, tmp_path: Path) -> None:
+        """Exception messages must never contain private key hex material."""
+        key = _gen_key()
+        dest = tmp_path / "signing.key"
+        _write_hex_key(dest, key, mode=0o644 if IS_POSIX else 0o600)
+        try:
+            load_private_key_from_file(dest)
+        except KeyLoadError as exc:
+            # The exception must not contain any hex resembling the key
+            from cryptography.hazmat.primitives.serialization import Encoding, NoEncryption, PrivateFormat
+
+            raw = key.private_bytes(
+                encoding=Encoding.Raw, format=PrivateFormat.Raw, encryption_algorithm=NoEncryption()
+            )
+            key_hex = raw.hex()
+            assert key_hex not in str(exc)
+        else:
+            pytest.fail("Expected KeyLoadError was not raised")
+
+
+# ─── load_private_key (file vs env fallback) ──────────────────────────────────
+
+
+class TestLoadPrivateKey:
+    def test_loads_from_explicit_file(self, tmp_path: Path) -> None:
+        key = _gen_key()
+        dest = tmp_path / "signing.key"
+        write_private_key_atomic(dest, key)
+        loaded = load_private_key(key_file=dest)
+        assert public_key_hex(loaded.public_key()) == public_key_hex(key.public_key())
+
+    def test_loads_from_env_var(self, tmp_path: Path) -> None:
+        key = _gen_key()
+        from cryptography.hazmat.primitives.serialization import Encoding, NoEncryption, PrivateFormat
+
+        raw = key.private_bytes(encoding=Encoding.Raw, format=PrivateFormat.Raw, encryption_algorithm=NoEncryption())
+        with patch.dict(os.environ, {"DMINT_PRIVATE_KEY": raw.hex()}, clear=False):
+            loaded = load_private_key()
+        assert public_key_hex(loaded.public_key()) == public_key_hex(key.public_key())
+
+    def test_file_preferred_over_env_var(self, tmp_path: Path) -> None:
+        key_file = _gen_key()
+        key_env = _gen_key()
+        dest = tmp_path / "signing.key"
+        write_private_key_atomic(dest, key_file)
+
+        from cryptography.hazmat.primitives.serialization import Encoding, NoEncryption, PrivateFormat
+
+        raw_env = key_env.private_bytes(
+            encoding=Encoding.Raw, format=PrivateFormat.Raw, encryption_algorithm=NoEncryption()
+        )
+        with patch.dict(
+            os.environ,
+            {"DMINT_KEY_FILE": str(dest), "DMINT_PRIVATE_KEY": raw_env.hex()},
+            clear=False,
+        ):
+            loaded = load_private_key()
+        # Must have loaded the file key, not the env-var key
+        assert public_key_hex(loaded.public_key()) == public_key_hex(key_file.public_key())
+        assert public_key_hex(loaded.public_key()) != public_key_hex(key_env.public_key())
+
+    def test_no_source_raises(self) -> None:
+        env_clean = {k: v for k, v in os.environ.items() if k not in ("DMINT_PRIVATE_KEY", "DMINT_KEY_FILE")}
+        with patch.dict(os.environ, env_clean, clear=True):
+            with pytest.raises(KeyLoadError, match="no private key source"):
+                load_private_key()
+
+
+# ─── No key material in repr/str ─────────────────────────────────────────────
+
+
+class TestLocalAuthorityRepr:
+    def test_repr_does_not_contain_key_material(self) -> None:
+        from dmint.core.authority import LocalApprovalAuthority
+        from cryptography.hazmat.primitives.serialization import Encoding, NoEncryption, PrivateFormat
+
+        key = _gen_key()
+        authority = LocalApprovalAuthority(
+            issuer_id="test-issuer",
+            audience="test-aud",
+            private_key=key,
+        )
+        raw = key.private_bytes(encoding=Encoding.Raw, format=PrivateFormat.Raw, encryption_algorithm=NoEncryption())
+        key_hex = raw.hex()
+
+        assert key_hex not in repr(authority)
+        assert key_hex not in str(authority)
+        assert "private_key" not in repr(authority).lower()
+        assert "test-issuer" in repr(authority)
+
+    def test_repr_format(self) -> None:
+        from dmint.core.authority import LocalApprovalAuthority
+
+        authority = LocalApprovalAuthority(
+            issuer_id="my-issuer",
+            audience="my-aud",
+        )
+        r = repr(authority)
+        assert "LocalApprovalAuthority" in r
+        assert "my-issuer" in r
+        assert "my-aud" in r
+
+
+# ─── LocalApprovalAuthority key loading ──────────────────────────────────────
+
+
+class TestLocalAuthorityKeyLoading:
+    def test_loads_from_explicit_key_file(self, tmp_path: Path) -> None:
+        from dmint.core.authority import LocalApprovalAuthority
+
+        key = _gen_key()
+        key_file = tmp_path / "signing.key"
+        write_private_key_atomic(key_file, key)
+
+        auth = LocalApprovalAuthority(
+            issuer_id="test-issuer",
+            audience="test-aud",
+            key_file=key_file,
+        )
+        assert public_key_hex(auth.public_key) == public_key_hex(key.public_key())
+
+    def test_loads_from_dmint_key_file_env(self, tmp_path: Path) -> None:
+        from dmint.core.authority import LocalApprovalAuthority
+
+        key = _gen_key()
+        key_file = tmp_path / "signing.key"
+        write_private_key_atomic(key_file, key)
+
+        with patch.dict(os.environ, {"DMINT_KEY_FILE": str(key_file)}, clear=False):
+            auth = LocalApprovalAuthority(
+                issuer_id="test-issuer",
+                audience="test-aud",
+            )
+        assert public_key_hex(auth.public_key) == public_key_hex(key.public_key())
+
+    def test_loads_from_dmint_private_key_env(self) -> None:
+        from dmint.core.authority import LocalApprovalAuthority
+        from cryptography.hazmat.primitives.serialization import Encoding, NoEncryption, PrivateFormat
+
+        key = _gen_key()
+        raw = key.private_bytes(encoding=Encoding.Raw, format=PrivateFormat.Raw, encryption_algorithm=NoEncryption())
+
+        env_clean = {k: v for k, v in os.environ.items() if k != "DMINT_KEY_FILE"}
+        env_clean["DMINT_PRIVATE_KEY"] = raw.hex()
+        with patch.dict(os.environ, env_clean, clear=True):
+            auth = LocalApprovalAuthority(
+                issuer_id="test-issuer",
+                audience="test-aud",
+            )
+        assert public_key_hex(auth.public_key) == public_key_hex(key.public_key())
+
+    @posix_only
+    def test_refuses_loose_key_file_permissions(self, tmp_path: Path) -> None:
+        from dmint.core.authority import LocalApprovalAuthority
+
+        key = _gen_key()
+        key_file = tmp_path / "signing.key"
+        _write_hex_key(key_file, key, mode=0o644)
+
+        with pytest.raises(KeyLoadError, match="unsafe permissions"):
+            LocalApprovalAuthority(
+                issuer_id="test-issuer",
+                audience="test-aud",
+                key_file=key_file,
+            )

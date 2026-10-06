@@ -5,11 +5,13 @@ from __future__ import annotations
 import base64
 import binascii
 import json
+import os
 import re
 import secrets
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
@@ -431,12 +433,27 @@ class LocalApprovalAuthority:
         issuer_id: str,
         audience: str,
         private_key: Ed25519PrivateKey | None = None,
+        key_file: Path | str | None = None,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
         _text(issuer_id, "issuer_id")
         _text(audience, "audience")
         if private_key is None:
-            private_key = Ed25519PrivateKey.generate()
+            if key_file is not None:
+                from .keys import load_private_key_from_file
+
+                private_key = load_private_key_from_file(key_file)
+            elif os.environ.get("DMINT_KEY_FILE") or os.environ.get("DMINT_PRIVATE_KEY"):
+                from .keys import load_private_key
+
+                private_key = load_private_key()
+            else:
+                from .keys import DEFAULT_KEY_FILE, load_private_key_from_file
+
+                if DEFAULT_KEY_FILE.exists():
+                    private_key = load_private_key_from_file(DEFAULT_KEY_FILE)
+                else:
+                    private_key = Ed25519PrivateKey.generate()
         if not isinstance(private_key, Ed25519PrivateKey):
             raise TypeError("private_key must be an Ed25519PrivateKey")
         object.__setattr__(self, "_issuer_id", issuer_id)
@@ -453,6 +470,14 @@ class LocalApprovalAuthority:
         if getattr(self, "_sealed", False):
             raise AttributeError("approval authority is immutable")
         object.__setattr__(self, name, value)
+
+    def __repr__(self) -> str:
+        """Never include private key material in repr."""
+        return f"LocalApprovalAuthority(issuer_id={self._issuer_id!r}, audience={self._audience!r})"
+
+    def __str__(self) -> str:
+        """Never include private key material in str."""
+        return self.__repr__()
 
     @property
     def issuer_id(self) -> str:

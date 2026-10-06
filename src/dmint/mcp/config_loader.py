@@ -18,15 +18,27 @@ from .errors import MCPConfigurationError
 MAX_MCP_INTEGRATIONS = 50
 INTEGRATION_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
 SECRET_SUBSTRINGS = ("bearer ", "sk-", "api_key=", "token=", "password=")
+# Fields whose values are public keys (hex/PEM) — not secrets despite being long.
+_PUBLIC_KEY_FIELDS = frozenset({"public_key_hex", "public_key_pem", "public_key"})
+
+_DEFAULT_APPROVAL_AUDIENCE = "dmint/dashboard/v1"
 
 
 def _assert_no_secrets(data: Any) -> None:
     """Scan configuration recursively to ensure no embedded secrets or credentials exist."""
     if isinstance(data, dict):
         for k, v in data.items():
-            if any(s in k.lower() for s in ("token", "secret", "password", "key", "credential")):
+            if any(s in k.lower() for s in ("token", "secret", "password", "credential")):
                 if isinstance(v, str) and v and not v.startswith("[") and not v.startswith("$"):
                     # Only raise if value looks like an actual hardcoded secret rather than a placeholder/env var
+                    if any(pat in v.lower() for pat in SECRET_SUBSTRINGS) or len(v) > 20:
+                        raise MCPConfigurationError(
+                            f"Security violation: field '{k}' appears to contain a hardcoded credential. "
+                            f"Protection configuration files must never contain secrets."
+                        )
+            # "key" fields: allow public_key_hex/pem (they ARE public), but block private keys
+            elif "key" in k.lower() and k.lower() not in _PUBLIC_KEY_FIELDS:
+                if isinstance(v, str) and v and not v.startswith("[") and not v.startswith("$"):
                     if any(pat in v.lower() for pat in SECRET_SUBSTRINGS) or len(v) > 20:
                         raise MCPConfigurationError(
                             f"Security violation: field '{k}' appears to contain a hardcoded credential. "
@@ -44,6 +56,14 @@ def _assert_no_secrets(data: Any) -> None:
 
 
 @dataclass(frozen=True)
+class TrustedIssuerConfig:
+    """A single trusted issuer entry for the approval verifier."""
+
+    issuer_id: str
+    public_key_hex: str  # 64-char lowercase hex (32 raw bytes)
+
+
+@dataclass(frozen=True)
 class MCPGatewayConfig:
     """Immutable runtime configuration for the Dmint MCP Gateway."""
 
@@ -57,6 +77,8 @@ class MCPGatewayConfig:
     agent_id: str = "mcp-agent"
     context: TrustedContext = TrustedContext({})
     server_name: str = "dmint-mcp-gateway"
+    trusted_issuers: tuple[TrustedIssuerConfig, ...] = ()
+    approval_audience: str = _DEFAULT_APPROVAL_AUDIENCE
 
     def get_integration(self, integration_id: str) -> MCPIntegrationConfig | None:
         """Lookup an integration configuration by ID."""
@@ -375,6 +397,43 @@ def parse_protection_config(
 
     server_name = data.get("server_name", "dmint-mcp-gateway")
 
+    # 4. Parse trusted_issuers (optional; required to use APPROVAL_REQUIRED flow).
+    raw_trusted_issuers = data.get("trusted_issuers", [])
+    if not isinstance(raw_trusted_issuers, list):
+        raise MCPConfigurationError("trusted_issuers must be a list")
+    parsed_issuers: list[TrustedIssuerConfig] = []
+    seen_issuer_ids: set[str] = set()
+    for idx, entry in enumerate(raw_trusted_issuers):
+        if not isinstance(entry, dict):
+            raise MCPConfigurationError(f"trusted_issuers[{idx}] must be a dictionary")
+        issuer_id = entry.get("issuer_id")
+        if not issuer_id or not isinstance(issuer_id, str) or not issuer_id.strip():
+            raise MCPConfigurationError(f"trusted_issuers[{idx}] missing valid 'issuer_id'")
+        issuer_id = issuer_id.strip()
+        if issuer_id in seen_issuer_ids:
+            raise MCPConfigurationError(f"duplicate issuer_id '{issuer_id}' in trusted_issuers")
+        seen_issuer_ids.add(issuer_id)
+
+        pub_hex = entry.get("public_key_hex")
+        if not pub_hex or not isinstance(pub_hex, str):
+            raise MCPConfigurationError(f"trusted_issuers[{idx}] ('{issuer_id}') missing valid 'public_key_hex'")
+        pub_hex = pub_hex.strip().lower()
+        if len(pub_hex) != 64:
+            raise MCPConfigurationError(
+                f"trusted_issuers[{idx}] ('{issuer_id}') public_key_hex must be 64 hex characters"
+            )
+        try:
+            bytes.fromhex(pub_hex)
+        except ValueError:
+            raise MCPConfigurationError(
+                f"trusted_issuers[{idx}] ('{issuer_id}') public_key_hex is not valid hex"
+            ) from None
+        parsed_issuers.append(TrustedIssuerConfig(issuer_id=issuer_id, public_key_hex=pub_hex))
+
+    approval_audience = data.get("approval_audience", _DEFAULT_APPROVAL_AUDIENCE)
+    if not isinstance(approval_audience, str) or not approval_audience.strip():
+        raise MCPConfigurationError("approval_audience must be a non-empty string")
+
     return MCPGatewayConfig(
         policy=policy,
         policy_file=str(policy_file) if policy_file else None,
@@ -386,6 +445,8 @@ def parse_protection_config(
         agent_id=agent_id,
         context=trusted_context,
         server_name=server_name,
+        trusted_issuers=tuple(parsed_issuers),
+        approval_audience=approval_audience,
     )
 
 

@@ -79,13 +79,15 @@ def _get_store(
 def _get_authority(
     *,
     authority_issuer: str | None = None,
+    key_file: Path | str | None = None,
     clock: Callable[[], datetime] | None = None,
 ) -> LocalApprovalAuthority:
     """Instantiate a local approval authority for signing assertions."""
     issuer = authority_issuer or os.environ.get("DMINT_AUTHORITY_ISSUER") or "dmint-cli"
     return LocalApprovalAuthority(
         issuer_id=issuer,
-        audience="dmint/cli/v1",
+        audience=os.environ.get("DMINT_AUTHORITY_AUDIENCE", "dmint/cli/v1"),
+        key_file=key_file,
         clock=clock,
     )
 
@@ -232,6 +234,11 @@ def main_approve(args: list[str] | None = None) -> int:
     parser.add_argument("--policy", default=None, help="Path to policy file for re-verification")
     parser.add_argument("--approver-id", default=None, help="Approver principal ID (or set DMINT_APPROVER_ID)")
     parser.add_argument("--authority-issuer", default=None, help="Authority issuer ID")
+    parser.add_argument(
+        "--key-file",
+        default=os.environ.get("DMINT_KEY_FILE"),
+        help="Path to Ed25519 signing key file (or set DMINT_KEY_FILE)",
+    )
     try:
         parsed = parser.parse_args(args)
     except SystemExit as exc:
@@ -291,7 +298,10 @@ def main_approve(args: list[str] | None = None) -> int:
                     )
                     return 1
 
-            authority = _get_authority(authority_issuer=parsed.authority_issuer)
+            authority = _get_authority(
+                authority_issuer=parsed.authority_issuer,
+                key_file=parsed.key_file,
+            )
             approver_id = _get_approver_id(parsed.approver_id)
 
             store.approve_pending(

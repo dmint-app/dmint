@@ -68,6 +68,11 @@ def main(argv: list[str] | None = None, prog: str | None = None) -> None:
         help="Issuer ID for the dashboard LocalApprovalAuthority",
     )
     parser.add_argument(
+        "--key-file",
+        default=os.environ.get("DMINT_KEY_FILE"),
+        help="Path to signing key file (or set DMINT_KEY_FILE)",
+    )
+    parser.add_argument(
         "--approver-id",
         default=os.environ.get("DMINT_APPROVER_ID"),
         help="Configured approver ID recorded in Core when approving/rejecting (or set DMINT_APPROVER_ID)",
@@ -136,6 +141,7 @@ def main(argv: list[str] | None = None, prog: str | None = None) -> None:
     authority = LocalApprovalAuthority(
         issuer_id=args.authority_issuer,
         audience="dmint/dashboard/v1",
+        key_file=args.key_file,
     )
     client = CoreClient(store=store, authority=authority, approver_id=approver_id)
 
