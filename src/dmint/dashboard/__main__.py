@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import secrets
 import sys
 
 logging.basicConfig(
@@ -17,7 +18,7 @@ log = logging.getLogger("dmint_dashboard")
 def main(argv: list[str] | None = None, prog: str | None = None) -> None:
     parser = argparse.ArgumentParser(
         prog=prog or "dmint-dashboard",
-        description="Dmint local human approval dashboard (no authentication — local/demo only)",
+        description="Dmint local human approval dashboard (authenticated & CSRF protected)",
     )
     parser.add_argument(
         "--host",
@@ -25,10 +26,21 @@ def main(argv: list[str] | None = None, prog: str | None = None) -> None:
         help="Bind host (default: 127.0.0.1)",
     )
     parser.add_argument(
+        "--allow-public-bind",
+        action="store_true",
+        default=os.environ.get("DMINT_DASHBOARD_ALLOW_PUBLIC_BIND", "").lower() in ("1", "true", "yes"),
+        help="Explicitly permit binding to 0.0.0.0 / all interfaces (insecure without network controls)",
+    )
+    parser.add_argument(
         "--port",
         type=int,
         default=int(os.environ.get("DMINT_DASHBOARD_PORT", "8080")),
         help="Bind port (default: 8080)",
+    )
+    parser.add_argument(
+        "--auth-token",
+        default=os.environ.get("DMINT_DASHBOARD_TOKEN") or os.environ.get("DMINT_DASHBOARD_PASSWORD"),
+        help="Dashboard authentication token / password (or set DMINT_DASHBOARD_TOKEN)",
     )
     parser.add_argument(
         "--db-path",
@@ -52,10 +64,17 @@ def main(argv: list[str] | None = None, prog: str | None = None) -> None:
     )
     parser.add_argument(
         "--approver-id",
-        default=os.environ.get("DMINT_APPROVER_ID", "dashboard-human"),
-        help="Human subject ID recorded in Core when approving/rejecting",
+        default=os.environ.get("DMINT_APPROVER_ID", "dashboard-approver"),
+        help="Default human subject ID recorded in Core when approving/rejecting",
     )
     args = parser.parse_args(argv)
+
+    # Security check: refuse to bind to 0.0.0.0 without explicit permission flag
+    if args.host.strip() in ("0.0.0.0", "::") and not args.allow_public_bind:
+        parser.error(
+            "Binding to 0.0.0.0 or :: is refused by default to prevent unauthorized network exposure. "
+            "Pass --allow-public-bind flag explicitly if exposing the dashboard to the network."
+        )
 
     if not args.db_path and not args.database_url:
         parser.error(
@@ -90,18 +109,34 @@ def main(argv: list[str] | None = None, prog: str | None = None) -> None:
         audience="dmint/dashboard/v1",
     )
     client = CoreClient(store=store, authority=authority, approver_id=args.approver_id)
-    app = create_app(client)
+
+    # Authentication Token setup
+    token = args.auth_token
+    token_was_generated = False
+    if not token:
+        token = secrets.token_urlsafe(32)
+        token_was_generated = True
+
+    app = create_app(client, auth_token=token, allowed_hosts=[args.host])
+
+    token_banner = (
+        f"  🔑 One-Time Login Token: {token}\n"
+        if token_was_generated
+        else "  🔑 Authentication: Enabled (configured via DMINT_DASHBOARD_TOKEN / flag)\n"
+    )
 
     log.info(
         "\n"
-        "  ╔══════════════════════════════════════════════════════╗\n"
-        "  ║           Dmint Dashboard V1                         ║\n"
-        "  ║                                                      ║\n"
-        "  ║  WARNING: No authentication — local/demo use only.  ║\n"
-        "  ╚══════════════════════════════════════════════════════╝\n"
+        "  ╔══════════════════════════════════════════════════════════════╗\n"
+        "  ║                   Dmint Security Dashboard                   ║\n"
+        "  ║                                                              ║\n"
+        "  ║  Deterministic authorization for AI agent tool calls.        ║\n"
+        "  ╚══════════════════════════════════════════════════════════════╝\n"
         "\n"
-        "  Dashboard: http://%s:%d/\n"
-        "  Health:    http://%s:%d/health\n",
+        "%s"
+        "  Dashboard URL: http://%s:%d/\n"
+        "  Health Check:  http://%s:%d/health\n",
+        token_banner,
         args.host,
         args.port,
         args.host,

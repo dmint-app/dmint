@@ -86,6 +86,8 @@ class DashboardCommandTests(unittest.TestCase):
                     "127.0.0.1",
                     "--port",
                     str(port),
+                    "--auth-token",
+                    "cli-test-token",
                 ],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
@@ -109,8 +111,20 @@ class DashboardCommandTests(unittest.TestCase):
 
                 self.assertTrue(ready, "Dashboard server did not become healthy within 5 seconds")
 
-                # Verify /api/dashboard
-                with urllib.request.urlopen(dashboard_api_url, timeout=1.0) as resp:
+                # Verify unauthenticated request to /api/dashboard is rejected with HTTP 401
+                import urllib.error
+
+                req_unauth = urllib.request.Request(dashboard_api_url)
+                with self.assertRaises(urllib.error.HTTPError) as ctx:
+                    urllib.request.urlopen(req_unauth, timeout=1.0)
+                self.assertEqual(ctx.exception.code, 401)
+
+                # Verify authenticated request to /api/dashboard succeeds with 200
+                req_auth = urllib.request.Request(
+                    dashboard_api_url,
+                    headers={"Authorization": "Bearer cli-test-token"},
+                )
+                with urllib.request.urlopen(req_auth, timeout=1.0) as resp:
                     self.assertEqual(resp.status, 200)
                     data = json.loads(resp.read().decode("utf-8"))
                     self.assertIn("pending", data)

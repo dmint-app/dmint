@@ -40,10 +40,7 @@ def _redact_query_params(url_part: str) -> str:
     query_pairs = urllib.parse.parse_qsl(query, keep_blank_values=True)
     if not any(k.lower() in SENSITIVE_PARAM_NAMES for k, _ in query_pairs):
         return url_part
-    redacted_pairs = [
-        (k, "[REDACTED]" if k.lower() in SENSITIVE_PARAM_NAMES else v)
-        for k, v in query_pairs
-    ]
+    redacted_pairs = [(k, "[REDACTED]" if k.lower() in SENSITIVE_PARAM_NAMES else v) for k, v in query_pairs]
     return f"{base}?{urllib.parse.urlencode(redacted_pairs)}"
 
 
@@ -106,9 +103,7 @@ def _redact_single_uri(raw_uri: str) -> str:
             query = urllib.parse.urlencode(redacted_pairs)
 
         return (
-            urllib.parse.urlunparse(
-                (parsed.scheme, netloc, parsed.path, parsed.params, query, parsed.fragment)
-            )
+            urllib.parse.urlunparse((parsed.scheme, netloc, parsed.path, parsed.params, query, parsed.fragment))
             + trailing
         )
     except Exception:

@@ -8,10 +8,11 @@ from __future__ import annotations
 
 import json
 import logging
+import secrets
 from typing import Any
 
 from fastapi import APIRouter, Form, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
 from dmint import ApprovalState
 from dmint.approvals import ApprovalRecord
@@ -56,6 +57,11 @@ def build_router() -> APIRouter:
         # Propagate flash messages from query params.
         ctx.setdefault("flash_message", request.query_params.get("msg", ""))
         ctx.setdefault("flash_type", request.query_params.get("msg_type", "info"))
+        # Inject CSRF token and authenticated session identity if available
+        session = getattr(request.state, "session", None)
+        if session:
+            ctx.setdefault("csrf_token", session.get("csrf_token", ""))
+            ctx.setdefault("current_user", session.get("identity", ""))
         return _templates(request).TemplateResponse(
             request=request, name=template, context=ctx, status_code=status_code
         )
@@ -112,6 +118,70 @@ def build_router() -> APIRouter:
             "CANCELLED": "secondary",
             "POLICY_INVALIDATED": "dark",
         }.get(state, "secondary")
+
+    # ------------------------------------------------------------------
+    # Authentication routes: GET /login, POST /login, POST /logout
+    # ------------------------------------------------------------------
+
+    @router.get("/login", response_class=HTMLResponse)
+    def login_page(request: Request) -> Response:
+        session = getattr(request.state, "session", None)
+        if session:
+            return RedirectResponse("/", status_code=303)
+        return _render(request, "login.html", {"next": request.query_params.get("next", "")})
+
+    @router.post("/login")
+    def login_submit(
+        request: Request,
+        token: str = Form(default=""),
+        identity: str = Form(default=""),
+    ) -> Response:
+        expected = request.app.state.auth_token
+        clean_token = token.strip()
+        if not clean_token or not secrets.compare_digest(clean_token, expected):
+            return _render(
+                request,
+                "login.html",
+                {
+                    "error": "Invalid authentication token. Please check startup logs or DMINT_DASHBOARD_TOKEN.",
+                    "next": request.query_params.get("next", ""),
+                },
+                status_code=401,
+            )
+
+        # Create authenticated session
+        session_id = secrets.token_urlsafe(32)
+        csrf_token = secrets.token_urlsafe(32)
+        clean_identity = identity.strip() or f"approver-{session_id[:8]}"
+        request.app.state.sessions[session_id] = {
+            "session_id": session_id,
+            "csrf_token": csrf_token,
+            "identity": clean_identity,
+        }
+
+        next_url = request.query_params.get("next") or "/"
+        if not next_url.startswith("/") or next_url.startswith("//"):
+            next_url = "/"
+
+        response = RedirectResponse(next_url, status_code=303)
+        response.set_cookie(
+            key="dmint_session",
+            value=session_id,
+            httponly=True,
+            samesite="strict",
+            secure=False,
+            path="/",
+        )
+        return response
+
+    @router.post("/logout")
+    def logout(request: Request) -> Response:
+        session_id = request.cookies.get("dmint_session")
+        if session_id and session_id in request.app.state.sessions:
+            del request.app.state.sessions[session_id]
+        response = RedirectResponse("/login", status_code=303)
+        response.delete_cookie(key="dmint_session", path="/")
+        return response
 
     # ------------------------------------------------------------------
     # GET /health
@@ -274,11 +344,25 @@ def build_router() -> APIRouter:
     # ------------------------------------------------------------------
 
     @router.post("/approvals/{approval_id}/approve")
-    def approve_approval(request: Request, approval_id: str) -> RedirectResponse:
+    def approve_approval(
+        request: Request,
+        approval_id: str,
+        csrf_token: str = Form(default=""),
+    ) -> Response:
+        session = getattr(request.state, "session", None)
+        if not session:
+            return JSONResponse({"error": "unauthorized", "detail": "Authentication required."}, status_code=401)
+
+        token_to_check = csrf_token or request.headers.get("x-csrf-token", "")
+        expected_csrf = session.get("csrf_token", "")
+        if not token_to_check or not secrets.compare_digest(token_to_check, expected_csrf):
+            return JSONResponse({"error": "invalid_csrf_token", "detail": "CSRF validation failed."}, status_code=403)
+
         client = _client(request)
+        actor = session.get("identity")
         detail_url = f"/approvals/{approval_id}"
         try:
-            client.approve(approval_id)
+            client.approve(approval_id, approved_by=actor)
         except ApprovalNotFoundError:
             return _redirect_with_msg(detail_url, msg="Approval not found.", msg_type="danger")
         except ApprovalExpiredError:
@@ -306,8 +390,19 @@ def build_router() -> APIRouter:
         request: Request,
         approval_id: str,
         reason: str = Form(default=""),
-    ) -> RedirectResponse:
+        csrf_token: str = Form(default=""),
+    ) -> Response:
+        session = getattr(request.state, "session", None)
+        if not session:
+            return JSONResponse({"error": "unauthorized", "detail": "Authentication required."}, status_code=401)
+
+        token_to_check = csrf_token or request.headers.get("x-csrf-token", "")
+        expected_csrf = session.get("csrf_token", "")
+        if not token_to_check or not secrets.compare_digest(token_to_check, expected_csrf):
+            return JSONResponse({"error": "invalid_csrf_token", "detail": "CSRF validation failed."}, status_code=403)
+
         client = _client(request)
+        actor = session.get("identity")
         detail_url = f"/approvals/{approval_id}"
 
         # Sanitise reason at the HTTP layer; Core enforces its own limit.
@@ -316,7 +411,7 @@ def build_router() -> APIRouter:
             clean_reason = clean_reason[:_MAX_REASON_LENGTH]
 
         try:
-            client.reject(approval_id, reason=clean_reason)
+            client.reject(approval_id, reason=clean_reason, rejected_by=actor)
         except ApprovalNotFoundError:
             return _redirect_with_msg(detail_url, msg="Approval not found.", msg_type="danger")
         except ApprovalExpiredError:

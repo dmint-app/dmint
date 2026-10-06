@@ -34,6 +34,13 @@ from dmint.dashboard.core_client import CoreClient, ThreadSafeApprovalStore
 from tests.dashboard.conftest import make_record, make_dmint, NOW
 
 
+def _authenticate_client(http: TestClient, app, identity: str = "test-user") -> None:
+    http.post("/login", data={"token": app.state.auth_token, "identity": identity})
+    session_id = http.cookies.get("dmint_session")
+    if session_id and session_id in app.state.sessions:
+        http.headers["X-CSRF-Token"] = app.state.sessions[session_id]["csrf_token"]
+
+
 # ---------------------------------------------------------------------------
 # Full pipeline: create pending → dashboard reads → approve
 # ---------------------------------------------------------------------------
@@ -55,6 +62,7 @@ class TestIntegrationApproveFlow:
         client = CoreClient(store=store, authority=authority, approver_id="integration-human")
         app = create_app(client)
         http = TestClient(app, raise_server_exceptions=False)
+        _authenticate_client(http, app, identity="integration-human")
 
         # Step 1: Create pending approval using Core
         dmint = make_dmint()
@@ -95,6 +103,7 @@ class TestIntegrationApproveFlow:
         client = CoreClient(store=store, authority=authority, approver_id="reject-human")
         app = create_app(client)
         http = TestClient(app, raise_server_exceptions=False)
+        _authenticate_client(http, app, identity="reject-human")
 
         dmint = make_dmint()
         record = make_record(dmint, user_id=202)
@@ -131,6 +140,7 @@ class TestIntegrationAuditFlow:
         client = CoreClient(store=store, authority=authority)
         app = create_app(client)
         http = TestClient(app, raise_server_exceptions=False)
+        _authenticate_client(http, app, identity="audit-human")
 
         dmint = make_dmint()
 
@@ -173,17 +183,16 @@ class TestIntegrationConcurrency:
         barrier = threading.Barrier(2)
 
         def send_approve():
-            c = TestClient(
-                create_app(
-                    CoreClient(
-                        store=ThreadSafeApprovalStore(db, deployment_epoch="concurrent-epoch", clock=lambda: NOW),
-                        authority=LocalApprovalAuthority(
-                            issuer_id="concurrent-dashboard", audience="dmint/dashboard/v1", clock=lambda: NOW
-                        ),
-                    )
-                ),
-                raise_server_exceptions=False,
+            app_inst = create_app(
+                CoreClient(
+                    store=ThreadSafeApprovalStore(db, deployment_epoch="concurrent-epoch", clock=lambda: NOW),
+                    authority=LocalApprovalAuthority(
+                        issuer_id="concurrent-dashboard", audience="dmint/dashboard/v1", clock=lambda: NOW
+                    ),
+                )
             )
+            c = TestClient(app_inst, raise_server_exceptions=False)
+            _authenticate_client(c, app_inst, identity="concurrent-human")
             barrier.wait()
             r = c.post(f"/approvals/{record.approval_id}/approve", follow_redirects=True)
             results.append(r.status_code)

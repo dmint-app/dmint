@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Dmint — Authentication{% endblock %}
+
+{% block content %}
+<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:55vh;padding:2rem 1rem;">
+  <div class="d-card" style="width:100%;max-width:420px;padding:2rem;box-shadow:var(--shadow-lg);">
+    <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:1.5rem;">
+      <img src="/static/logo.svg" alt="Dmint" width="32" height="32">
+      <div>
+        <h1 style="font-size:1.25rem;font-weight:600;color:var(--text);margin:0;">Dashboard Login</h1>
+        <p style="font-size:0.8125rem;color:var(--text-secondary);margin:0;">Deterministic Security Authorization</p>
+      </div>
+    </div>
+
+    {% if error %}
+    <div class="d-alert d-alert-danger" style="margin-bottom:1.25rem;">
+      {{ error }}
+    </div>
+    {% endif %}
+
+    <form method="post" action="/login{% if next %}?next={{ next }}{% endif %}">
+      <div style="margin-bottom:1.25rem;">
+        <label class="d-form-label" for="tokenInput">Authentication Token</label>
+        <input class="d-input" id="tokenInput" name="token" type="password" required autofocus
+               placeholder="Paste startup token or DMINT_DASHBOARD_TOKEN"
+               autocomplete="current-password" style="width:100%;">
+        <div class="d-form-hint">Generated at server startup or via DMINT_DASHBOARD_TOKEN.</div>
+      </div>
+
+      <div style="margin-bottom:1.5rem;">
+        <label class="d-form-label" for="identityInput">Approver Identity (optional)</label>
+        <input class="d-input" id="identityInput" name="identity" type="text"
+               placeholder="e.g. security-lead (default: approver-session)"
+               style="width:100%;">
+        <div class="d-form-hint">Recorded in Core audit logs on approval decisions.</div>
+      </div>
+
+      <button type="submit" class="d-btn d-btn-primary" style="width:100%;justify-content:center;padding:0.625rem;">
+        Sign In
+      </button>
+    </form>
+  </div>
+</div>
+{% endblock %}

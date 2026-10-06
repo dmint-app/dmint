@@ -207,6 +207,7 @@
     <div class="d-modal-footer">
       <button type="button" class="d-btn d-btn-ghost" data-modal-close="approveModal">Cancel</button>
       <form method="post" action="/approvals/{{ record.approval_id }}/approve" style="display:inline;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <button type="submit" class="d-btn d-btn-primary">Confirm approval</button>
       </form>
     </div>
@@ -217,6 +218,7 @@
 <div class="d-modal-backdrop" id="rejectModal" role="dialog" aria-modal="true" aria-labelledby="rejectModalTitle">
   <div class="d-modal">
     <form method="post" action="/approvals/{{ record.approval_id }}/reject">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <div class="d-modal-header">
         <h2 id="rejectModalTitle">Reject request</h2>
         <button type="button" class="d-modal-close" data-modal-close="rejectModal" aria-label="Close">

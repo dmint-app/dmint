@@ -136,6 +136,7 @@ class TestSmoke:
             client = CoreClient(store=store, authority=authority)
             app = create_app(client)
             tc = TestClient(app)
+            tc.post("/login", data={"token": app.state.auth_token})
             resp = tc.get("/health")
             assert resp.status_code == 200
             assert resp.json()["status"] == "ok"
@@ -155,6 +156,7 @@ class TestSmoke:
             client = CoreClient(store=store, authority=authority)
             app = create_app(client)
             tc = TestClient(app)
+            tc.post("/login", data={"token": app.state.auth_token})
             resp = tc.get("/")
             assert resp.status_code == 200
             assert b"Dmint" in resp.content
@@ -174,6 +176,7 @@ class TestSmoke:
             client = CoreClient(store=store, authority=authority)
             app = create_app(client)
             tc = TestClient(app)
+            tc.post("/login", data={"token": app.state.auth_token})
             resp = tc.get("/audit")
             assert resp.status_code == 200
             assert b"Audit" in resp.content

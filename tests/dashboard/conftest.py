@@ -122,9 +122,16 @@ def dmint_inst():
 
 @pytest.fixture()
 def test_client(client_obj):
-    """Starlette TestClient for route tests."""
-    app = create_app(client_obj)
-    return TestClient(app, raise_server_exceptions=False)
+    """Starlette TestClient for route tests, authenticated with session and CSRF headers."""
+    app = create_app(client_obj, auth_token="test-dashboard-token")
+    client = TestClient(app, raise_server_exceptions=False)
+    # Authenticate session
+    client.post("/login", data={"token": "test-dashboard-token", "identity": "test-human"})
+    session_id = client.cookies.get("dmint_session")
+    if session_id and session_id in app.state.sessions:
+        csrf_token = app.state.sessions[session_id]["csrf_token"]
+        client.headers["X-CSRF-Token"] = csrf_token
+    return client
 
 
 @pytest.fixture()

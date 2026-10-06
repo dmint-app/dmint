@@ -111,21 +111,35 @@ class CoreClient:
     # Decision APIs — delegate entirely to Core
     # ------------------------------------------------------------------
 
-    def approve(self, approval_id: str, *, reason: str | None = None) -> ApprovalRecord:
+    def approve(
+        self,
+        approval_id: str,
+        *,
+        reason: str | None = None,
+        approved_by: str | None = None,
+    ) -> ApprovalRecord:
         """Approve a PENDING record.  Core owns the full state transition."""
+        actor = approved_by.strip() if approved_by and approved_by.strip() else self._approver_id
         return self._store.approve_pending(
             approval_id,
             authority=self._authority,
-            approved_by=self._approver_id,
+            approved_by=actor,
             reason=reason or None,
         )
 
-    def reject(self, approval_id: str, *, reason: str | None = None) -> ApprovalRecord:
+    def reject(
+        self,
+        approval_id: str,
+        *,
+        reason: str | None = None,
+        rejected_by: str | None = None,
+    ) -> ApprovalRecord:
         """Reject a PENDING record.  Core owns the full state transition."""
+        actor = rejected_by.strip() if rejected_by and rejected_by.strip() else self._approver_id
         return self._store.reject_pending(
             approval_id,
             authority=self._authority,
-            rejected_by=self._approver_id,
+            rejected_by=actor,
             reason=reason or None,
         )
 

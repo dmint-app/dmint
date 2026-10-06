@@ -252,10 +252,7 @@ class TestWebhookPayloadBuilders:
         redacted_driver_percent = redact_database_url(driver_err_percent)
         assert "p%40ss%2Fword" not in redacted_driver_percent
         assert "p@ss/word" not in redacted_driver_percent
-        assert (
-            "postgresql://admin:[REDACTED]@db.internal:5432/dmint: Connection refused"
-            in redacted_driver_percent
-        )
+        assert "postgresql://admin:[REDACTED]@db.internal:5432/dmint: Connection refused" in redacted_driver_percent
 
         # 8. Password containing literal '@' or '/' (in raw connection URI or libpq string)
         raw_at_slash_uri = "postgresql://user:p@ss/word@db.internal:5432/dmint"
@@ -264,20 +261,13 @@ class TestWebhookPayloadBuilders:
         assert "postgresql://user:[REDACTED]@db.internal:5432/dmint" == redacted_raw
 
         # Free-text driver error with raw @ and /
-        driver_err_raw = (
-            "OperationalError: failed connecting to postgresql://user:p@ss/word@db.internal:5432/dmint: connection refused"
-        )
+        driver_err_raw = "OperationalError: failed connecting to postgresql://user:p@ss/word@db.internal:5432/dmint: connection refused"
         redacted_driver_raw = redact_database_url(driver_err_raw)
         assert "p@ss/word" not in redacted_driver_raw
-        assert (
-            "postgresql://user:[REDACTED]@db.internal:5432/dmint: connection refused"
-            in redacted_driver_raw
-        )
+        assert "postgresql://user:[REDACTED]@db.internal:5432/dmint: connection refused" in redacted_driver_raw
 
         # Free-text driver error with libpq containing @ and /
-        driver_err_libpq = (
-            "psycopg2.OperationalError: connection to server at host=db.internal user=admin password=p@ss/word dbname=dmint failed: FATAL: auth failed"
-        )
+        driver_err_libpq = "psycopg2.OperationalError: connection to server at host=db.internal user=admin password=p@ss/word dbname=dmint failed: FATAL: auth failed"
         redacted_driver_libpq = redact_database_url(driver_err_libpq)
         assert "p@ss/word" not in redacted_driver_libpq
         assert "password=[REDACTED]" in redacted_driver_libpq
