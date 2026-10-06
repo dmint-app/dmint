@@ -118,7 +118,7 @@ class TestSmoke:
             store = SQLiteApprovalStore(db, deployment_epoch="smoke")
             authority = LocalApprovalAuthority(issuer_id="smoke-dashboard", audience="dmint/dashboard/v1")
             client = CoreClient(store=store, authority=authority)
-            app = create_app(client)
+            app = create_app(client, allowed_hosts={"localhost", "127.0.0.1", "[::1]", "testserver"})
             assert app is not None
             store.close()
 
@@ -134,8 +134,9 @@ class TestSmoke:
             store = SQLiteApprovalStore(db, deployment_epoch="smoke-health")
             authority = LocalApprovalAuthority(issuer_id="smoke-health", audience="dmint/dashboard/v1")
             client = CoreClient(store=store, authority=authority)
-            app = create_app(client)
+            app = create_app(client, allowed_hosts={"localhost", "127.0.0.1", "[::1]", "testserver"})
             tc = TestClient(app)
+            tc.headers["Origin"] = "http://testserver"
             tc.post("/login", data={"token": app.state.auth_token})
             resp = tc.get("/health")
             assert resp.status_code == 200
@@ -154,8 +155,9 @@ class TestSmoke:
             store = SQLiteApprovalStore(db, deployment_epoch="smoke-home")
             authority = LocalApprovalAuthority(issuer_id="smoke-home", audience="dmint/dashboard/v1")
             client = CoreClient(store=store, authority=authority)
-            app = create_app(client)
+            app = create_app(client, allowed_hosts={"localhost", "127.0.0.1", "[::1]", "testserver"})
             tc = TestClient(app)
+            tc.headers["Origin"] = "http://testserver"
             tc.post("/login", data={"token": app.state.auth_token})
             resp = tc.get("/")
             assert resp.status_code == 200
@@ -174,8 +176,9 @@ class TestSmoke:
             store = SQLiteApprovalStore(db, deployment_epoch="smoke-audit")
             authority = LocalApprovalAuthority(issuer_id="smoke-audit", audience="dmint/dashboard/v1")
             client = CoreClient(store=store, authority=authority)
-            app = create_app(client)
+            app = create_app(client, allowed_hosts={"localhost", "127.0.0.1", "[::1]", "testserver"})
             tc = TestClient(app)
+            tc.headers["Origin"] = "http://testserver"
             tc.post("/login", data={"token": app.state.auth_token})
             resp = tc.get("/audit")
             assert resp.status_code == 200

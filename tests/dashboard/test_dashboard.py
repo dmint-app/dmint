@@ -35,6 +35,7 @@ from tests.dashboard.conftest import make_record, make_dmint, NOW
 
 
 def _authenticate_client(http: TestClient, app, identity: str = "test-user") -> None:
+    http.headers["Origin"] = "http://testserver"
     http.post("/login", data={"token": app.state.auth_token, "identity": identity})
     session_id = http.cookies.get("dmint_session")
     if session_id and session_id in app.state.sessions:
@@ -60,7 +61,7 @@ class TestIntegrationApproveFlow:
             issuer_id="integration-dashboard", audience="dmint/dashboard/v1", clock=lambda: NOW
         )
         client = CoreClient(store=store, authority=authority, approver_id="integration-human")
-        app = create_app(client)
+        app = create_app(client, allowed_hosts={"localhost", "127.0.0.1", "[::1]", "testserver"})
         http = TestClient(app, raise_server_exceptions=False)
         _authenticate_client(http, app, identity="integration-human")
 
@@ -101,7 +102,7 @@ class TestIntegrationApproveFlow:
             issuer_id="reject-dashboard", audience="dmint/dashboard/v1", clock=lambda: NOW
         )
         client = CoreClient(store=store, authority=authority, approver_id="reject-human")
-        app = create_app(client)
+        app = create_app(client, allowed_hosts={"localhost", "127.0.0.1", "[::1]", "testserver"})
         http = TestClient(app, raise_server_exceptions=False)
         _authenticate_client(http, app, identity="reject-human")
 
@@ -138,7 +139,7 @@ class TestIntegrationAuditFlow:
             issuer_id="audit-dashboard", audience="dmint/dashboard/v1", clock=lambda: NOW
         )
         client = CoreClient(store=store, authority=authority)
-        app = create_app(client)
+        app = create_app(client, allowed_hosts={"localhost", "127.0.0.1", "[::1]", "testserver"})
         http = TestClient(app, raise_server_exceptions=False)
         _authenticate_client(http, app, identity="audit-human")
 
@@ -173,7 +174,7 @@ class TestIntegrationConcurrency:
             issuer_id="concurrent-dashboard", audience="dmint/dashboard/v1", clock=lambda: NOW
         )
         client = CoreClient(store=store, authority=authority)
-        app = create_app(client)
+        app = create_app(client, allowed_hosts={"localhost", "127.0.0.1", "[::1]", "testserver"})
 
         dmint = make_dmint()
         record = make_record(dmint, user_id=1)
@@ -189,7 +190,8 @@ class TestIntegrationConcurrency:
                     authority=LocalApprovalAuthority(
                         issuer_id="concurrent-dashboard", audience="dmint/dashboard/v1", clock=lambda: NOW
                     ),
-                )
+                ),
+                allowed_hosts={"localhost", "127.0.0.1", "[::1]", "testserver"},
             )
             c = TestClient(app_inst, raise_server_exceptions=False)
             _authenticate_client(c, app_inst, identity="concurrent-human")

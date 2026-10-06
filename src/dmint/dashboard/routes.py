@@ -136,9 +136,24 @@ def build_router() -> APIRouter:
         token: str = Form(default=""),
         identity: str = Form(default=""),
     ) -> Response:
+        client_ip = request.client.host if request.client else "unknown"
+        rate_limiter = getattr(request.app.state, "rate_limiter", None)
+        if rate_limiter and rate_limiter.is_rate_limited(client_ip):
+            return _render(
+                request,
+                "login.html",
+                {
+                    "error": "Too many failed login attempts. Please wait 60 seconds before trying again.",
+                    "next": request.query_params.get("next", ""),
+                },
+                status_code=429,
+            )
+
         expected = request.app.state.auth_token
         clean_token = token.strip()
         if not clean_token or not secrets.compare_digest(clean_token, expected):
+            if rate_limiter:
+                rate_limiter.record_failure(client_ip)
             return _render(
                 request,
                 "login.html",
@@ -149,19 +164,36 @@ def build_router() -> APIRouter:
                 status_code=401,
             )
 
-        # Create authenticated session
+        if rate_limiter:
+            rate_limiter.reset(client_ip)
+
+        # Invalidate old session if one existed on login (session fixation defense / session regeneration)
+        old_cookie = request.cookies.get("dmint_session")
+        if old_cookie and old_cookie in request.app.state.sessions:
+            request.app.state.sessions.pop(old_cookie, None)
+
+        # Create new regenerated authenticated session
+        import time
+
         session_id = secrets.token_urlsafe(32)
         csrf_token = secrets.token_urlsafe(32)
-        clean_identity = identity.strip() or f"approver-{session_id[:8]}"
+
+        # Use configured approver_id as identity (or user-supplied if specified)
+        default_identity = getattr(request.app.state, "approver_id", "dashboard-approver")
+        clean_identity = identity.strip() or default_identity
         request.app.state.sessions[session_id] = {
             "session_id": session_id,
             "csrf_token": csrf_token,
             "identity": clean_identity,
+            "expires_at": time.time() + (12 * 3600),  # 12-hour expiration
         }
 
         next_url = request.query_params.get("next") or "/"
         if not next_url.startswith("/") or next_url.startswith("//"):
             next_url = "/"
+
+        # Cookie security: HTTPS detection (via direct scheme or proxy headers)
+        is_https = request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
 
         response = RedirectResponse(next_url, status_code=303)
         response.set_cookie(
@@ -169,13 +201,22 @@ def build_router() -> APIRouter:
             value=session_id,
             httponly=True,
             samesite="strict",
-            secure=False,
+            secure=is_https,
             path="/",
         )
         return response
 
     @router.post("/logout")
-    def logout(request: Request) -> Response:
+    def logout(request: Request, csrf_token: str = Form(default="")) -> Response:
+        session = getattr(request.state, "session", None)
+        token_to_check = csrf_token or request.headers.get("x-csrf-token", "")
+        if session:
+            expected_csrf = session.get("csrf_token", "")
+            if not token_to_check or not secrets.compare_digest(token_to_check, expected_csrf):
+                return JSONResponse(
+                    {"error": "invalid_csrf_token", "detail": "CSRF validation failed on logout."}, status_code=403
+                )
+
         session_id = request.cookies.get("dmint_session")
         if session_id and session_id in request.app.state.sessions:
             del request.app.state.sessions[session_id]

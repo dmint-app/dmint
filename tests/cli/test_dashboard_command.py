@@ -88,6 +88,8 @@ class DashboardCommandTests(unittest.TestCase):
                     str(port),
                     "--auth-token",
                     "cli-test-token",
+                    "--approver-id",
+                    "cli-test-approver",
                 ],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,

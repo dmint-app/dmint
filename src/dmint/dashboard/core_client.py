@@ -82,6 +82,11 @@ class CoreClient:
         """Return the underlying ApprovalStore."""
         return self._store
 
+    @property
+    def approver_id(self) -> str:
+        """Return the configured approver ID."""
+        return self._approver_id
+
     # ------------------------------------------------------------------
     # Query APIs
     # ------------------------------------------------------------------

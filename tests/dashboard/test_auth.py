@@ -26,8 +26,13 @@ class TestDashboardAuthenticationAndSecurity:
 
     def test_unauthenticated_approve_rejected(self, client_obj, pending_record) -> None:
         """Unauthenticated POST to approve must be rejected immediately."""
-        app = create_app(client_obj, auth_token="super-secret-token")
+        app = create_app(
+            client_obj,
+            auth_token="super-secret-token",
+            allowed_hosts={"localhost", "127.0.0.1", "[::1]", "testserver"},
+        )
         client = TestClient(app, raise_server_exceptions=False)
+        client.headers["Origin"] = "http://testserver"
 
         # Attempt to approve without any session cookie or credentials
         resp = client.post(
@@ -47,7 +52,11 @@ class TestDashboardAuthenticationAndSecurity:
 
     def test_unauthenticated_page_redirects_to_login(self, client_obj) -> None:
         """Unauthenticated browser navigation must redirect to /login."""
-        app = create_app(client_obj, auth_token="super-secret-token")
+        app = create_app(
+            client_obj,
+            auth_token="super-secret-token",
+            allowed_hosts={"localhost", "127.0.0.1", "[::1]", "testserver"},
+        )
         client = TestClient(app, raise_server_exceptions=False)
 
         resp = client.get("/", follow_redirects=False)
@@ -56,7 +65,11 @@ class TestDashboardAuthenticationAndSecurity:
 
     def test_unauthenticated_api_returns_401(self, client_obj) -> None:
         """Unauthenticated API requests must return HTTP 401 JSON error."""
-        app = create_app(client_obj, auth_token="super-secret-token")
+        app = create_app(
+            client_obj,
+            auth_token="super-secret-token",
+            allowed_hosts={"localhost", "127.0.0.1", "[::1]", "testserver"},
+        )
         client = TestClient(app, raise_server_exceptions=False)
 
         resp = client.get("/api/dashboard", follow_redirects=False)
@@ -65,8 +78,13 @@ class TestDashboardAuthenticationAndSecurity:
 
     def test_missing_csrf_rejected(self, client_obj, pending_record) -> None:
         """Authenticated POST without a CSRF token must be rejected with HTTP 403."""
-        app = create_app(client_obj, auth_token="super-secret-token")
+        app = create_app(
+            client_obj,
+            auth_token="super-secret-token",
+            allowed_hosts={"localhost", "127.0.0.1", "[::1]", "testserver"},
+        )
         client = TestClient(app, raise_server_exceptions=False)
+        client.headers["Origin"] = "http://testserver"
 
         # 1. Log in successfully
         login_resp = client.post(
@@ -92,10 +110,15 @@ class TestDashboardAuthenticationAndSecurity:
 
     def test_wrong_origin_rejected(self, client_obj, pending_record) -> None:
         """State-changing POST with an untrusted Origin header must be rejected with HTTP 403."""
-        app = create_app(client_obj, auth_token="super-secret-token")
+        app = create_app(
+            client_obj,
+            auth_token="super-secret-token",
+            allowed_hosts={"localhost", "127.0.0.1", "[::1]", "testserver"},
+        )
         client = TestClient(app, raise_server_exceptions=False)
 
         # Log in
+        client.headers["Origin"] = "http://testserver"
         client.post("/login", data={"token": "super-secret-token", "identity": "alice"})
 
         # Get CSRF token from app session
@@ -120,7 +143,11 @@ class TestDashboardAuthenticationAndSecurity:
 
     def test_wrong_host_rejected(self, client_obj) -> None:
         """Requests with an untrusted Host header must be rejected with HTTP 400 (DNS rebinding defense)."""
-        app = create_app(client_obj, auth_token="super-secret-token")
+        app = create_app(
+            client_obj,
+            auth_token="super-secret-token",
+            allowed_hosts={"localhost", "127.0.0.1", "[::1]", "testserver"},
+        )
         client = TestClient(app, raise_server_exceptions=False)
 
         resp = client.get("/login", headers={"Host": "attacker-dns-rebind.com"})
@@ -129,8 +156,13 @@ class TestDashboardAuthenticationAndSecurity:
 
     def test_valid_flow_works(self, client_obj, pending_record) -> None:
         """Complete valid flow: unauthenticated redirect -> login -> CSRF retrieval -> approved with session identity."""
-        app = create_app(client_obj, auth_token="my-valid-passphrase")
+        app = create_app(
+            client_obj,
+            auth_token="my-valid-passphrase",
+            allowed_hosts={"localhost", "127.0.0.1", "[::1]", "testserver"},
+        )
         client = TestClient(app, raise_server_exceptions=False)
+        client.headers["Origin"] = "http://testserver"
 
         # 1. Unauthenticated root redirects to /login
         r1 = client.get("/", follow_redirects=False)
@@ -180,7 +212,7 @@ class TestDashboardAuthenticationAndSecurity:
         from dmint.dashboard.__main__ import main
 
         with pytest.raises(SystemExit) as exc:
-            main(["--host", "0.0.0.0", "--db-path", "/dev/null"])
+            main(["--host", "0.0.0.0", "--db-path", "/dev/null", "--approver-id", "test-approver"])
         assert exc.value.code != 0
 
     def test_bind_0000_allowed_with_flag(self, monkeypatch, tmp_path) -> None:
@@ -198,5 +230,160 @@ class TestDashboardAuthenticationAndSecurity:
         monkeypatch.setattr(uvicorn, "run", fake_run)
         db_file = tmp_path / "test.sqlite"
 
-        main(["--host", "0.0.0.0", "--allow-public-bind", "--db-path", str(db_file)])
+        main(["--host", "0.0.0.0", "--allow-public-bind", "--db-path", str(db_file), "--approver-id", "test-approver"])
         assert run_called is True
+
+    def test_bind_non_loopback_ip_refused_without_flag(self) -> None:
+        """CLI main must refuse any non-loopback IP (e.g. 192.168.1.5) without --allow-public-bind."""
+        from dmint.dashboard.__main__ import main
+
+        with pytest.raises(SystemExit) as exc:
+            main(["--host", "192.168.1.5", "--db-path", "/dev/null", "--approver-id", "test-approver"])
+        assert exc.value.code != 0
+
+    def test_approver_id_required_in_cli(self) -> None:
+        """CLI main must refuse to start without --approver-id or DMINT_APPROVER_ID."""
+        from dmint.dashboard.__main__ import main
+
+        with pytest.raises(SystemExit) as exc:
+            main(["--host", "127.0.0.1", "--db-path", "/dev/null"])
+        assert exc.value.code != 0
+
+    def test_post_missing_origin_and_referer_rejected(self, client_obj, pending_record) -> None:
+        """State-changing POST with BOTH Origin and Referer missing must be rejected (403)."""
+        app = create_app(
+            client_obj,
+            auth_token="super-secret-token",
+            allowed_hosts={"localhost", "127.0.0.1", "[::1]", "testserver"},
+        )
+        client = TestClient(app, raise_server_exceptions=False)
+        # Login with Origin set
+        client.headers["Origin"] = "http://testserver"
+        client.post("/login", data={"token": "super-secret-token", "identity": "alice"})
+        session_id = client.cookies.get("dmint_session")
+        assert session_id is not None
+        csrf_token = app.state.sessions[session_id]["csrf_token"]
+
+        # Now remove Origin and Referer
+        del client.headers["Origin"]
+        if "Referer" in client.headers:
+            del client.headers["Referer"]
+
+        resp = client.post(
+            f"/approvals/{pending_record.approval_id}/approve",
+            data={"csrf_token": csrf_token},
+            follow_redirects=False,
+        )
+        assert resp.status_code == 403
+        assert resp.json().get("error") == "missing_origin_referer"
+
+    def test_token_file_permissions(self, tmp_path) -> None:
+        """Token file requires 0600 (or 0400) permissions on POSIX systems; looser permissions rejected."""
+        import os
+        from dmint.dashboard.auth import InsecureTokenFileError, load_token_from_file
+
+        token_file = tmp_path / "secret.token"
+        token_file.write_text("my-file-token\n", encoding="utf-8")
+
+        # 0600: must succeed
+        token_file.chmod(0o600)
+        assert load_token_from_file(token_file) == "my-file-token"
+
+        if os.name == "posix":
+            # 0644 (world readable): must raise InsecureTokenFileError
+            token_file.chmod(0o644)
+            with pytest.raises(InsecureTokenFileError):
+                load_token_from_file(token_file)
+
+            # 0777 (world read/write/exec): must raise InsecureTokenFileError
+            token_file.chmod(0o777)
+            with pytest.raises(InsecureTokenFileError):
+                load_token_from_file(token_file)
+
+    def test_login_rate_limiting(self, client_obj) -> None:
+        """Login rate limiting triggers HTTP 429 after 5 failed login attempts."""
+        app = create_app(
+            client_obj,
+            auth_token="super-secret-token",
+            allowed_hosts={"localhost", "127.0.0.1", "[::1]", "testserver"},
+        )
+        client = TestClient(app, raise_server_exceptions=False)
+        client.headers["Origin"] = "http://testserver"
+
+        for _ in range(5):
+            r = client.post("/login", data={"token": "wrong-token"})
+            assert r.status_code == 401
+
+        # 6th attempt should be rate limited (429)
+        r6 = client.post("/login", data={"token": "wrong-token"})
+        assert r6.status_code == 429
+        assert "Too many failed login attempts" in r6.text
+
+    def test_session_regeneration_and_expiry(self, client_obj) -> None:
+        """Session ID is regenerated on login, and expired sessions are rejected."""
+        import time
+
+        app = create_app(
+            client_obj,
+            auth_token="super-secret-token",
+            allowed_hosts={"localhost", "127.0.0.1", "[::1]", "testserver"},
+        )
+        client = TestClient(app, raise_server_exceptions=False)
+        client.headers["Origin"] = "http://testserver"
+
+        # Login 1
+        client.post("/login", data={"token": "super-secret-token", "identity": "alice"})
+        s1 = client.cookies.get("dmint_session")
+        assert s1 is not None
+
+        # Login 2: session ID must be regenerated
+        client.post("/login", data={"token": "super-secret-token", "identity": "alice"})
+        s2 = client.cookies.get("dmint_session")
+        assert s2 is not None
+        assert s1 != s2
+        assert s1 not in app.state.sessions
+
+        # Expire session artificially
+        app.state.sessions[s2]["expires_at"] = time.time() - 10
+        resp = client.get("/", follow_redirects=False)
+        assert resp.status_code == 303
+        assert "/login" in resp.headers["location"]
+
+    def test_security_headers_present(self, client_obj) -> None:
+        """All HTTP responses must carry X-Frame-Options, CSP, and Cache-Control headers."""
+        app = create_app(
+            client_obj,
+            auth_token="super-secret-token",
+            allowed_hosts={"localhost", "127.0.0.1", "[::1]", "testserver"},
+        )
+        client = TestClient(app, raise_server_exceptions=False)
+
+        resp = client.get("/login")
+        assert resp.headers["X-Frame-Options"] == "DENY"
+        assert resp.headers["Content-Security-Policy"] == "frame-ancestors 'none'"
+        assert resp.headers["Cache-Control"] == "no-store"
+
+    def test_csrf_on_logout(self, client_obj) -> None:
+        """POST /logout without valid CSRF token is rejected with 403."""
+        app = create_app(
+            client_obj,
+            auth_token="super-secret-token",
+            allowed_hosts={"localhost", "127.0.0.1", "[::1]", "testserver"},
+        )
+        client = TestClient(app, raise_server_exceptions=False)
+        client.headers["Origin"] = "http://testserver"
+
+        # Login
+        client.post("/login", data={"token": "super-secret-token", "identity": "alice"})
+        session_id = client.cookies.get("dmint_session")
+        assert session_id in app.state.sessions
+
+        # Logout with missing CSRF
+        resp = client.post("/logout", data={}, follow_redirects=False)
+        assert resp.status_code == 403
+
+        # Logout with valid CSRF
+        valid_csrf = app.state.sessions[session_id]["csrf_token"]
+        resp_valid = client.post("/logout", data={"csrf_token": valid_csrf}, follow_redirects=False)
+        assert resp_valid.status_code == 303
+        assert session_id not in app.state.sessions

@@ -43,6 +43,11 @@ def main(argv: list[str] | None = None, prog: str | None = None) -> None:
         help="Dashboard authentication token / password (or set DMINT_DASHBOARD_TOKEN)",
     )
     parser.add_argument(
+        "--token-file",
+        default=os.environ.get("DMINT_DASHBOARD_TOKEN_FILE"),
+        help="Path to file containing auth token (enforces 0600 permissions, or set DMINT_DASHBOARD_TOKEN_FILE)",
+    )
+    parser.add_argument(
         "--db-path",
         default=os.environ.get("DMINT_DB_PATH"),
         help="Path to Core-owned SQLite database (or set DMINT_DB_PATH)",
@@ -64,15 +69,27 @@ def main(argv: list[str] | None = None, prog: str | None = None) -> None:
     )
     parser.add_argument(
         "--approver-id",
-        default=os.environ.get("DMINT_APPROVER_ID", "dashboard-approver"),
-        help="Default human subject ID recorded in Core when approving/rejecting",
+        default=os.environ.get("DMINT_APPROVER_ID"),
+        help="Configured approver ID recorded in Core when approving/rejecting (or set DMINT_APPROVER_ID)",
     )
     args = parser.parse_args(argv)
 
-    # Security check: refuse to bind to 0.0.0.0 without explicit permission flag
-    if args.host.strip() in ("0.0.0.0", "::") and not args.allow_public_bind:
+    # Security check: refuse ANY non-loopback bind without explicit permission flag
+    import ipaddress
+
+    def _is_loopback_host(host_str: str) -> bool:
+        clean = host_str.strip().lower()
+        if clean == "localhost":
+            return True
+        try:
+            ip = ipaddress.ip_address(clean)
+            return ip.is_loopback
+        except ValueError:
+            return False
+
+    if not _is_loopback_host(args.host) and not args.allow_public_bind:
         parser.error(
-            "Binding to 0.0.0.0 or :: is refused by default to prevent unauthorized network exposure. "
+            f"Binding to non-loopback interface '{args.host}' is refused by default to prevent unauthorized network exposure. "
             "Pass --allow-public-bind flag explicitly if exposing the dashboard to the network."
         )
 
@@ -81,6 +98,12 @@ def main(argv: list[str] | None = None, prog: str | None = None) -> None:
             "DMINT_DB_PATH / DMINT_DATABASE_URL environment variable or --db-path / --database-url argument is required.\n"
             "  Example: dmint-dashboard --db-path /var/dmint/approvals.sqlite3 "
             "--deployment-epoch my-deployment"
+        )
+
+    approver_id = args.approver_id or os.environ.get("DMINT_APPROVER_ID")
+    if not approver_id:
+        parser.error(
+            "Configured approver ID is required. Pass --approver-id <id> or set DMINT_APPROVER_ID environment variable."
         )
 
     # Import Core here so startup errors are surfaced clearly.
@@ -108,16 +131,23 @@ def main(argv: list[str] | None = None, prog: str | None = None) -> None:
         issuer_id=args.authority_issuer,
         audience="dmint/dashboard/v1",
     )
-    client = CoreClient(store=store, authority=authority, approver_id=args.approver_id)
+    client = CoreClient(store=store, authority=authority, approver_id=approver_id)
 
     # Authentication Token setup
     token = args.auth_token
+    token_file = args.token_file
     token_was_generated = False
-    if not token:
+    if not token and not token_file and not os.environ.get("DMINT_DASHBOARD_TOKEN_FILE"):
         token = secrets.token_urlsafe(32)
         token_was_generated = True
 
-    app = create_app(client, auth_token=token, allowed_hosts=[args.host])
+    app = create_app(
+        client,
+        auth_token=token,
+        token_file=token_file,
+        allowed_hosts=[args.host],
+        approver_id=approver_id,
+    )
 
     token_banner = (
         f"  🔑 One-Time Login Token: {token}\n"
