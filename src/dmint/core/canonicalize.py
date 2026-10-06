@@ -159,3 +159,37 @@ def redact_sensitive_data(
     if isinstance(value, (list, tuple)):
         return [redact_sensitive_data(item, redact_keys) for item in value]
     return value
+
+
+def redact_database_url(url: str | None) -> str:
+    """Safely redact embedded credentials in a database URL using urllib.parse."""
+    if not url or not isinstance(url, str):
+        return ""
+    clean_url = url.strip()
+    try:
+        import urllib.parse
+
+        parsed = urllib.parse.urlparse(clean_url)
+        if parsed.password:
+            # Reconstruct netloc with redacted password
+            userinfo = parsed.username or ""
+            userinfo += ":[REDACTED]"
+            host_port = ""
+            if parsed.hostname:
+                if ":" in parsed.hostname:  # IPv6
+                    host_port = f"[{parsed.hostname}]"
+                else:
+                    host_port = parsed.hostname
+            if parsed.port:
+                host_port += f":{parsed.port}"
+            netloc = f"{userinfo}@{host_port}" if userinfo else host_port
+            return urllib.parse.urlunparse(
+                (parsed.scheme, netloc, parsed.path, parsed.params, parsed.query, parsed.fragment)
+            )
+        elif parsed.username:
+            # Reconstruct netloc with username only
+            return clean_url
+        return clean_url
+    except Exception:
+        # If parsing completely fails, avoid leaking potential credentials
+        return "[REDACTED_URL]"

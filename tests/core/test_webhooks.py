@@ -166,38 +166,77 @@ class TestWebhookPayloadBuilders:
 
     def test_build_payloads_with_epoch_and_database_url(self) -> None:
         record = _make_sample_record(tool="db", action="migrate", resource="prod_db")
+        secret_url = "postgresql://user:secret_pass_123@db:5432/prod"
         slack = build_slack_payload(
             record,
-            database_url="postgresql://user:pass@db:5432/prod",
+            database_url=secret_url,
             deployment_epoch="prod-2026-q1",
         )
         slack_action = slack["blocks"][2]["text"]["text"]
-        assert (
-            f"dmint approve {record.approval_id} --deployment-epoch prod-2026-q1 --database-url postgresql://user:pass@db:5432/prod"
-            in slack_action
-        )
+        # Secret credentials must never appear in payload
+        assert "secret_pass_123" not in slack_action
+        assert "--database-url" not in slack_action
+        assert f"dmint approve {record.approval_id} --deployment-epoch prod-2026-q1" in slack_action
 
         discord = build_discord_payload(
             record,
-            database_url="postgresql://user:pass@db:5432/prod",
+            database_url=secret_url,
             deployment_epoch="prod-2026-q1",
         )
         discord_cmd = discord["embeds"][0]["fields"][4]["value"]
-        assert (
-            f"dmint approve {record.approval_id} --deployment-epoch prod-2026-q1 --database-url postgresql://user:pass@db:5432/prod"
-            in discord_cmd
-        )
+        assert "secret_pass_123" not in discord_cmd
+        assert "--database-url" not in discord_cmd
+        assert f"dmint approve {record.approval_id} --deployment-epoch prod-2026-q1" in discord_cmd
 
         teams = build_teams_payload(
             record,
-            database_url="postgresql://user:pass@db:5432/prod",
+            database_url=secret_url,
             deployment_epoch="prod-2026-q1",
         )
         teams_text = teams["sections"][0]["text"]
-        assert (
-            f"dmint approve {record.approval_id} --deployment-epoch prod-2026-q1 --database-url postgresql://user:pass@db:5432/prod"
-            in teams_text
-        )
+        assert "secret_pass_123" not in teams_text
+        assert "--database-url" not in teams_text
+        assert f"dmint approve {record.approval_id} --deployment-epoch prod-2026-q1" in teams_text
+
+    def test_database_url_redaction_and_leak_prevention(self) -> None:
+        """Verify that credentials in database URLs are strictly redacted and never leaked."""
+        from dmint.core.canonicalize import redact_database_url
+
+        url_with_pass = "postgresql://admin:super_secret_pw@db.internal:5432/dmint"
+        redacted = redact_database_url(url_with_pass)
+        assert "super_secret_pw" not in redacted
+        assert "postgresql://admin:[REDACTED]@db.internal:5432/dmint" == redacted
+
+        url_without_pass = "sqlite:////var/data/dmint.sqlite"
+        assert redact_database_url(url_without_pass) == url_without_pass
+
+        # Test IPv6 host parsing
+        url_ipv6 = "postgresql://admin:secret_pass@[::1]:5432/dmint"
+        redacted_ipv6 = redact_database_url(url_ipv6)
+        assert "secret_pass" not in redacted_ipv6
+        assert "postgresql://admin:[REDACTED]@[::1]:5432/dmint" == redacted_ipv6
+
+    def test_factory_exceptions_do_not_leak_database_url_password(self) -> None:
+        """Factory exception messages must never contain raw passwords."""
+        from dmint.core.storage.factory import create_approval_store, ApprovalStoreConfigurationError
+
+        unreachable_url = "postgresql://user:secret_hunter2_pass@unreachable.invalid.domain:5432/db"
+        with pytest.raises(ApprovalStoreConfigurationError) as exc_info:
+            create_approval_store(
+                database_url=unreachable_url,
+                deployment_epoch="test",
+            )
+        exc_str = str(exc_info.value)
+        assert "secret_hunter2_pass" not in exc_str
+
+    def test_dashboard_log_does_not_leak_database_url_password(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Dashboard startup logs must redact database credentials."""
+        from dmint.canonicalize import redact_database_url
+
+        target_url = "postgresql://db_user:confidential_pw_999@localhost:5432/dmint"
+        safe = redact_database_url(target_url)
+        assert "confidential_pw_999" not in safe
+        assert "postgresql://db_user:[REDACTED]@localhost:5432/dmint" == safe
 
     def test_build_denial_payload(self) -> None:
         req = ToolRequest(

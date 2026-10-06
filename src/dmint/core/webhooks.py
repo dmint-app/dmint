@@ -45,8 +45,8 @@ def _format_approve_cmd(
     cmd_parts = ["dmint", "approve", approval_id]
     if deployment_epoch and deployment_epoch != "default":
         cmd_parts.extend(["--deployment-epoch", deployment_epoch])
-    if database_url:
-        cmd_parts.extend(["--database-url", database_url])
+    # Database URLs with potential credentials must never be included in webhook messages.
+    # Approvers should configure the DMINT_DATABASE_URL environment variable.
     return " ".join(cmd_parts)
 
 

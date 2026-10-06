@@ -17,7 +17,7 @@ from .approvals import (
     parse_approval_state,
 )
 from .authority import ApprovalAssertion, ApprovalVerifier, LocalApprovalAuthority, VerifiedApproval
-from .canonicalize import MAX_SAFE_INTEGER, canonicalize, canonicalize_request
+from .canonicalize import MAX_SAFE_INTEGER, canonicalize, canonicalize_request, redact_database_url
 from .enforcement import AuthorizedRequest, Dmint, InvocationSnapshot
 from .errors import (
     ApprovalAlgorithmUnsupportedError,
@@ -161,6 +161,7 @@ __all__ = [
     "VerifiedApproval",
     "canonicalize",
     "canonicalize_request",
+    "redact_database_url",
     "canonical_request_binding",
     "request_fingerprint",
     "request_binding_envelope",

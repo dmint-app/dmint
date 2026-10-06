@@ -64,11 +64,14 @@ def create_approval_store(
     url_str = raw_url.strip()
 
     # 2. Parse and validate URL
+    from ..canonicalize import redact_database_url
+
+    safe_url = redact_database_url(url_str)
     try:
         parsed = urllib.parse.urlparse(url_str)
     except Exception as exc:
         raise ApprovalStoreConfigurationError(
-            f"Invalid DMINT_DATABASE_URL: could not parse URL '{url_str}': {exc}"
+            f"Invalid DMINT_DATABASE_URL: could not parse URL '{safe_url}': {exc}"
         ) from exc
 
     if not parsed.scheme or parsed.scheme.lower() not in _VALID_SCHEMES:
@@ -81,7 +84,7 @@ def create_approval_store(
     if scheme in ("postgresql", "postgres") or scheme.startswith("postgresql+"):
         if not parsed.netloc and not parsed.hostname:
             raise ApprovalStoreConfigurationError(
-                f"Malformed PostgreSQL DMINT_DATABASE_URL: missing host in '{url_str}'"
+                f"Malformed PostgreSQL DMINT_DATABASE_URL: missing host in '{safe_url}'"
             )
 
     # 3. Instantiate SQLAlchemyApprovalStore (validates connection during init, fails loud on failure)
