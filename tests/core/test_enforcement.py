@@ -4,10 +4,12 @@ from unittest.mock import patch
 
 from dmint import (
     ANY_RESOURCE,
+    Decision,
     Dmint,
     NO_RESOURCE,
     Policy,
     Rule,
+    ToolRequest,
     TrustedContext,
 )
 from dmint.errors import AuthorizationError, RequestValidationError
@@ -34,6 +36,7 @@ class EnforcementTests(unittest.TestCase):
 
     def test_denied_request_never_executes(self):
         calls = []
+        # Default-deny on empty policy raises DMT_DEFAULT_DENIED
         dmint = Dmint(Policy(), agent_id="agent-a", context=TrustedContext({}))
 
         @dmint.protected("database.delete", resource=lambda arguments: f"users/{arguments['user_id']}")
@@ -42,7 +45,20 @@ class EnforcementTests(unittest.TestCase):
 
         with self.assertRaises(AuthorizationError) as raised:
             delete_user(123)
-        self.assertEqual(raised.exception.code, "DMT_POLICY_DENIED")
+        self.assertEqual(raised.exception.code, "DMT_DEFAULT_DENIED")
+        self.assertEqual(calls, [])
+
+        # Rule-based explicit deny raises DMT_POLICY_DENIED
+        deny_policy = Policy((Rule.deny("database", "delete", resource="users/123"),))
+        dmint_explicit = Dmint(deny_policy, agent_id="agent-a", context=TrustedContext({}))
+
+        @dmint_explicit.protected("database.delete", resource=lambda arguments: f"users/{arguments['user_id']}")
+        def delete_user_explicit(user_id):
+            calls.append(user_id)
+
+        with self.assertRaises(AuthorizationError) as raised_explicit:
+            delete_user_explicit(123)
+        self.assertEqual(raised_explicit.exception.code, "DMT_POLICY_DENIED")
         self.assertEqual(calls, [])
 
     def test_resource_substitution_is_denied_before_execution(self):
@@ -78,15 +94,19 @@ class EnforcementTests(unittest.TestCase):
 
     def test_authorization_exception_fails_closed(self):
         calls = []
-        dmint = Dmint(Policy((Rule.allow("database", "read"),)), agent_id="agent-a", context=TrustedContext({}))
+
+        class FailingPolicy(Policy):
+            def evaluate_detailed(self, request: ToolRequest) -> tuple[Decision, str | None]:
+                raise RuntimeError("policy failure")
+
+        dmint = Dmint(FailingPolicy(), agent_id="agent-a", context=TrustedContext({}))
 
         @dmint.protected("database.read")
         def read_user(user_id):
             calls.append(user_id)
 
-        with patch.object(Policy, "evaluate", side_effect=RuntimeError("policy failure")):
-            with self.assertRaises(AuthorizationError) as raised:
-                read_user(123)
+        with self.assertRaises(AuthorizationError) as raised:
+            read_user(123)
         self.assertEqual(raised.exception.code, "DMT_AUTHORIZATION_ERROR")
         self.assertEqual(calls, [])
 

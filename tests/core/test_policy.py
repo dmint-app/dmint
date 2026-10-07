@@ -182,7 +182,7 @@ class PolicyTests(unittest.TestCase):
             ("fs", "read", "/var/log/app.log", Decision.ALLOW, None),
             ("admin", "restart", "cluster-1", Decision.APPROVAL_REQUIRED, "DMT_APPROVAL_REQUIRED"),
             ("admin", "nuke", "all", Decision.DENY, "DMT_POLICY_DENIED"),
-            ("unknown", "action", "res", Decision.DENY, "DMT_POLICY_DENIED"),
+            ("unknown", "action", "res", Decision.DENY, "DMT_DEFAULT_DENIED"),
         ]
 
         def worker(idx: int) -> None:
@@ -283,3 +283,87 @@ class PolicyTests(unittest.TestCase):
         )
         with self.assertRaises(PolicyError):
             Policy.from_json(bad_json)
+
+    def test_non_string_resources_fail_closed_with_dmt_resource_invalid(self):
+        """Any non-string resource must fail closed with DMT_RESOURCE_INVALID for rules with kind not any/none."""
+        policy = Policy(
+            [
+                Rule.allow("fs", "read", resource="/var/log/*.log", resource_kind="path"),
+                Rule.deny("fs", "read", resource="/etc/passwd", resource_kind="path"),
+            ]
+        )
+        non_string_values = [
+            None,
+            123,
+            3.14,
+            True,
+            False,
+            ["/var/log/app.log"],
+            {"path": "/var/log/app.log"},
+        ]
+        for val in non_string_values:
+            req = make_request(tool="fs", action="read", resource="/var/log/app.log")
+            object.__setattr__(req, "resource", val)
+            decision, code = policy.evaluate_detailed(req)
+            self.assertEqual(decision, Decision.DENY, f"Expected DENY for non-string resource {val!r}")
+            self.assertEqual(code, "DMT_RESOURCE_INVALID", f"Expected DMT_RESOURCE_INVALID for {val!r}")
+
+    def test_distinct_default_deny_and_policy_deny_codes(self):
+        """Verify distinct error codes for default-deny (DMT_DEFAULT_DENIED) vs rule-based deny (DMT_POLICY_DENIED)."""
+        empty_policy = Policy()
+        req = make_request(tool="fs", action="read", resource="/var/log/app.log")
+        dec_def, code_def = empty_policy.evaluate_detailed(req)
+        self.assertEqual(dec_def, Decision.DENY)
+        self.assertEqual(code_def, "DMT_DEFAULT_DENIED")
+
+        deny_policy = Policy([Rule.deny("fs", "read", resource="/var/log/app.log", resource_kind="path")])
+        dec_pol, code_pol = deny_policy.evaluate_detailed(req)
+        self.assertEqual(dec_pol, Decision.DENY)
+        self.assertEqual(code_pol, "DMT_POLICY_DENIED")
+
+    def test_unknown_resource_kind_rejected(self):
+        """Unknown resource_kind values must be rejected with PolicyError."""
+        for bad_kind in ("regex", "custom", "glob", "FOO"):
+            with self.assertRaises(PolicyError):
+                Rule.allow("fs", "read", resource="/var/*", resource_kind=bad_kind)
+
+            bad_json = {
+                "rules": [
+                    {
+                        "effect": "allow",
+                        "tool": "fs",
+                        "action": "read",
+                        "resource": "/var/*",
+                        "resource_kind": bad_kind,
+                    }
+                ]
+            }
+            with self.assertRaises(PolicyError):
+                Policy.from_dict(bad_json)
+
+    def test_case_sensitive_rejected_on_unsupported_kinds(self):
+        """case_sensitive=False must be rejected on kinds where it has no meaning."""
+        for unsupported_kind in ("host", "url", "identifier"):
+            with self.assertRaises(PolicyError):
+                Rule.allow("net", "call", resource="test", resource_kind=unsupported_kind, case_sensitive=False)
+
+            bad_json = {
+                "rules": [
+                    {
+                        "effect": "allow",
+                        "tool": "net",
+                        "action": "call",
+                        "resource": "test",
+                        "resource_kind": unsupported_kind,
+                        "case_sensitive": False,
+                    }
+                ]
+            }
+            with self.assertRaises(PolicyError):
+                Policy.from_dict(bad_json)
+
+        # path and exact must accept case_sensitive=False
+        rule_path = Rule.allow("fs", "read", resource="/test", resource_kind="path", case_sensitive=False)
+        self.assertFalse(rule_path.case_sensitive)
+        rule_exact = Rule.allow("fs", "read", resource="test", resource_kind="exact", case_sensitive=False)
+        self.assertFalse(rule_exact.case_sensitive)

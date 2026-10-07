@@ -76,6 +76,9 @@ class Condition:
         return False
 
 
+_VALID_RESOURCE_KINDS: set[str] = {"exact", "path", "url", "host", "identifier"}
+
+
 @dataclass(frozen=True)
 class Rule:
     """A deterministic authorization rule matching exact capability selectors and trusted conditions.
@@ -132,10 +135,15 @@ class Rule:
                 object.__setattr__(self, "resource_kind", "exact")
         else:
             validate_text(self.resource_kind, "rule resource_kind")
-            object.__setattr__(self, "resource_kind", self.resource_kind.lower())
+            normalized_kind = self.resource_kind.lower()
+            if normalized_kind not in _VALID_RESOURCE_KINDS and normalized_kind not in ("any", "none"):
+                raise PolicyError(f"unknown resource_kind: {self.resource_kind}")
+            object.__setattr__(self, "resource_kind", normalized_kind)
 
         if type(self.case_sensitive) is not bool:
             raise PolicyError("case_sensitive must be a boolean")
+        if not self.case_sensitive and self.resource_kind not in ("path", "exact"):
+            raise PolicyError(f"case_sensitive is not supported for resource_kind '{self.resource_kind}'")
 
         if not isinstance(self.conditions, Sequence) or isinstance(self.conditions, (str, bytes)):
             raise PolicyError("rule conditions must be a sequence")
@@ -320,9 +328,23 @@ class Policy:
         else:
             resource = NO_RESOURCE
 
-        case_sensitive = value.get("case_sensitive", True)
-        if type(case_sensitive) is not bool:
-            raise PolicyError("case_sensitive must be a boolean")
+        resource_kind: str | None = None
+        if "resource_kind" in value:
+            kind_val = value["resource_kind"]
+            if not isinstance(kind_val, str) or kind_val.lower() not in _VALID_RESOURCE_KINDS:
+                raise PolicyError(f"unknown resource_kind: {kind_val}")
+            resource_kind = kind_val.lower()
+
+        if "case_sensitive" in value:
+            case_val = value["case_sensitive"]
+            if type(case_val) is not bool:
+                raise PolicyError("case_sensitive must be a boolean")
+            effective_kind = resource_kind or ("exact" if "resource" in value and value["resource"] != "*" else "exact")
+            if not case_val and effective_kind not in ("path", "exact"):
+                raise PolicyError(f"case_sensitive is not supported for resource_kind '{effective_kind}'")
+            case_sensitive = case_val
+        else:
+            case_sensitive = True
 
         return Rule(
             effect,
@@ -330,7 +352,7 @@ class Policy:
             value["action"],
             value.get("agent_id"),
             resource,
-            value.get("resource_kind"),
+            resource_kind,
             case_sensitive=case_sensitive,
             conditions=tuple(conditions),
         )
@@ -398,8 +420,6 @@ class Policy:
         decision, _ = self.evaluate_detailed(request)
         return decision
 
-    _default_evaluate = evaluate
-
     def evaluate_detailed(self, request: ToolRequest) -> tuple[Decision, str | None]:
         """Evaluate without side effects: fail closed on unnormalizable resources,
 
@@ -409,12 +429,6 @@ class Policy:
         """
         if type(request) is not ToolRequest:
             raise PolicyError("expected a ToolRequest")
-
-        # If evaluate was patched or overridden on the class or instance, honor it
-        eval_func = getattr(self.evaluate, "__func__", self.evaluate)
-        if eval_func is not Policy._default_evaluate:
-            dec = self.evaluate(request)
-            return dec, "DMT_POLICY_DENIED" if dec is Decision.DENY else None
 
         # 1. Candidate rules for this tool + action (and agent_id if applicable)
         candidate_rules = [
@@ -426,16 +440,18 @@ class Policy:
         ]
 
         # 2. Validate request resource against the explicit kind of EVERY candidate rule
+        # Non-string resource for kind other than any/none => fail closed with DMT_RESOURCE_INVALID
         # ANY failure => immediately fail closed with DMT_RESOURCE_INVALID
-        if isinstance(request.resource, str):
-            for rule in candidate_rules:
-                kind = (rule.resource_kind or "exact").lower()
-                if kind in ("any", "none"):
-                    continue
-                try:
-                    validate_resource_syntax(request.resource, kind=kind)
-                except ResourceMatchingError:
-                    return Decision.DENY, "DMT_RESOURCE_INVALID"
+        for rule in candidate_rules:
+            kind = (rule.resource_kind or "exact").lower()
+            if kind in ("any", "none"):
+                continue
+            if not isinstance(request.resource, str):
+                return Decision.DENY, "DMT_RESOURCE_INVALID"
+            try:
+                validate_resource_syntax(request.resource, kind=kind)
+            except ResourceMatchingError:
+                return Decision.DENY, "DMT_RESOURCE_INVALID"
 
         # 3. Deterministic rule evaluation among matching rules
         matches = [rule for rule in candidate_rules if rule.matches(request)]
@@ -445,7 +461,7 @@ class Policy:
             return Decision.APPROVAL_REQUIRED, "DMT_APPROVAL_REQUIRED"
         if any(rule.effect is Decision.ALLOW for rule in matches):
             return Decision.ALLOW, None
-        return Decision.DENY, "DMT_POLICY_DENIED"
+        return Decision.DENY, "DMT_DEFAULT_DENIED"
 
 
 _POLICY_DIGEST_DOMAIN = b"dmint/policy-digest/v1\x00"

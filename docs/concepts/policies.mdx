@@ -67,20 +67,42 @@ Every rule must declare one of three effects:
 
 ---
 
-## Evaluation Invariants
+## Evaluation Order & Invariants
 
-When evaluating an incoming request:
+When evaluating an incoming `ToolRequest`, Dmint executes a deterministic 5-stage evaluation pipeline:
 
-### 1. Fail-Closed Default
-If an agent requests an action that does not match any rule in `policy.json`, Dmint **fails closed**:
 ```text
-Decision: DENY
-Reason: No matching rule found for tool='redis', action='flushall', resource='*'
+1. Candidate Filter → 2. Resource Validation → 3. Rule Matching → 4. Decision Precedence → 5. Fail-Closed Default
 ```
-There is no ambient or implicit permission. Everything must be explicitly declared.
 
-### 2. Precedence & Evaluation Order
-Rules are evaluated deterministically using standard Dmint security precedence: `DENY` takes precedence over `APPROVAL_REQUIRED`, which takes precedence over `ALLOW`.
+1. **Candidate Rule Filtering**:
+   Identifies all rules in `policy.json` matching the requested `tool` and `action` (and `agent_id` if specified).
+2. **Resource Syntax Validation (Fail-Closed Pre-Check)**:
+   For every candidate rule identified in Stage 1, the request resource is validated against that rule's explicit `resource_kind`:
+   - Non-string resources (`None`, `int`, `float`, `bool`, `list`, `dict`) fail closed with `DMT_RESOURCE_INVALID` if any candidate rule expects a resource (`kind not in ("any", "none")`).
+   - If resource normalization fails for **any** candidate rule's kind (e.g. root escape `/../`, NUL byte `\x00`, backslash `\`, encoded traversal `%2f`/`%2e%2e`, URL userinfo tricks), evaluation halts immediately with `DENY` and code `DMT_RESOURCE_INVALID`.
+3. **Rule Matching**:
+   For candidate rules that passed syntax validation, evaluates whether the request matches the rule's resource pattern and trusted context `conditions`.
+4. **Deterministic Decision Precedence**:
+   Among matching rules:
+   - If any matching rule has effect `DENY`, the decision is `DENY` with code `DMT_POLICY_DENIED`.
+   - Else if any matching rule has effect `APPROVAL_REQUIRED`, the decision is `APPROVAL_REQUIRED` with code `DMT_APPROVAL_REQUIRED`.
+   - Else if any matching rule has effect `ALLOW`, the decision is `ALLOW` (code `None`).
+5. **Fail-Closed Default Deny**:
+   If no rules matched the request, evaluation falls through to the fail-closed default: `DENY` with code `DMT_DEFAULT_DENIED`.
+
+<Warning>
+**Note on Mixed-Kind Candidate Rules**:
+Because Stage 2 validates the request resource against the declared kind of *every* candidate rule for the requested `tool` + `action`, configuring mixed resource kinds under the same capability can cause unexpected rejections.
+
+For example, consider a policy with two rules for `network.request`:
+- Rule A: `allow network.request` on `api.github.com` (`resource_kind: "host"`)
+- Rule B: `deny network.request` on `https://internal.lan/admin` (`resource_kind: "url"`)
+
+If an agent sends a tool request with `resource: "api.github.com"`, Stage 2 validates `"api.github.com"` against both Rule A's kind (`host`) and Rule B's kind (`url`). Because `"api.github.com"` lacks an HTTP scheme, URL validation fails, causing Dmint to return `DENY DMT_RESOURCE_INVALID`—even though Rule A would have allowed the request!
+
+To avoid this surprise, ensure all rules for a given capability use consistent resource kinds, or use distinct capabilities (e.g. `http.request` with `url` vs `dns.lookup` with `host`).
+</Warning>
 
 ---
 
