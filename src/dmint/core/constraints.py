@@ -12,6 +12,8 @@ from decimal import Decimal, InvalidOperation
 import functools
 import math
 import re
+import sre_constants
+import sre_parse
 from typing import Any
 
 from .errors import PolicyError
@@ -20,6 +22,8 @@ MAX_PATTERN_LENGTH = 256
 MAX_STRING_INPUT_LENGTH = 4096
 MAX_SAFE_INTEGER = 9007199254740991  # 2^53 - 1 per RFC 8785
 MIN_SAFE_INTEGER = -9007199254740991
+MAX_CONSTRAINT_DEPTH = 32
+MAX_CONTAINER_SIZE = 1000
 
 _TOP_LEVEL_KEYS = {"type", "required", "additionalProperties", "properties"}
 _PROPERTY_KEYS = {
@@ -40,6 +44,11 @@ _PROPERTY_KEYS = {
     "properties",
 }
 _SUPPORTED_TYPES = {"string", "number", "integer", "boolean", "array", "object"}
+
+_NUMERIC_CONSTRAINT_KEYS = {"minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum"}
+_STRING_CONSTRAINT_KEYS = {"minLength", "maxLength", "pattern"}
+_ARRAY_CONSTRAINT_KEYS = {"minItems", "maxItems", "items"}
+_OBJECT_CONSTRAINT_KEYS = {"required", "additionalProperties", "properties"}
 
 
 def safe_compare(val: int | float, bound: int | float) -> int:
@@ -75,13 +84,61 @@ def _is_valid_number(val: Any) -> bool:
 
 
 def _is_valid_integer(val: Any) -> bool:
-    """Check if value is an integer (strictly excluding bool)."""
+    """Check if value is a valid integer (strictly int, strictly excluding bool and float)."""
     if type(val) is bool:
         return False
-    return isinstance(val, int)
+    return type(val) is int
 
 
-_NESTED_QUANTIFIERS = re.compile(r"\([^)]*[*+][^)]*\)[*+]")
+def validate_pattern_safety(pattern: str) -> None:
+    """Validate regex pattern safety using sre_parse AST analysis.
+
+    Rejects patterns that pose catastrophic backtracking (ReDoS) risk:
+    - No nested repeats (repeat inside repeat)
+    - No unbounded repeats inside groups
+    - No alternation inside repeats
+    - No excessive consecutive unbounded repeats
+    - No backreferences
+    - No lookarounds
+    """
+    try:
+        parsed = sre_parse.parse(pattern)
+    except Exception as exc:
+        raise PolicyError(f"invalid regex pattern syntax: {exc}") from exc
+
+    def check_seq(seq: Any, inside_repeat: bool = False, inside_group: bool = False) -> None:
+        consecutive_repeats = 0
+        for op, av in seq:
+            if op in (sre_constants.MAX_REPEAT, sre_constants.MIN_REPEAT):
+                _min_r, max_r, sub = av
+                is_unbounded = max_r == sre_constants.MAXREPEAT
+                if inside_repeat:
+                    raise PolicyError("nested repeat is not allowed (catastrophic backtracking risk)")
+                if inside_group and is_unbounded:
+                    raise PolicyError("unbounded repeat inside group is not allowed (catastrophic backtracking risk)")
+                consecutive_repeats += 1
+                if consecutive_repeats > 2:
+                    raise PolicyError("excessive consecutive repeats in sequence are not allowed (ReDoS risk)")
+                check_seq(sub, inside_repeat=True, inside_group=inside_group)
+            elif op == sre_constants.SUBPATTERN:
+                consecutive_repeats = 0
+                _group_num, _syn_flags, _val_flags, sub = av
+                check_seq(sub, inside_repeat=inside_repeat, inside_group=True)
+            elif op == sre_constants.BRANCH:
+                consecutive_repeats = 0
+                if inside_repeat:
+                    raise PolicyError("alternation inside repeat is not allowed (catastrophic backtracking risk)")
+                for alt in av[1]:
+                    check_seq(alt, inside_repeat=inside_repeat, inside_group=inside_group)
+            elif op in (sre_constants.GROUPREF, sre_constants.GROUPREF_EXISTS, sre_constants.GROUPREF_IGNORE):
+                raise PolicyError("backreferences are not allowed")
+            elif op in (sre_constants.ASSERT, sre_constants.ASSERT_NOT):
+                raise PolicyError("lookaround assertions are not allowed")
+            else:
+                if op != sre_constants.AT:
+                    consecutive_repeats = 0
+
+    check_seq(parsed.data)
 
 
 @functools.lru_cache(maxsize=512)
@@ -90,11 +147,15 @@ def _compile_anchored_pattern(pattern: str) -> re.Pattern[str]:
     return re.compile(pattern)
 
 
-def validate_constraints_schema(schema: Any) -> None:
+def validate_constraints_schema(schema: Any, depth: int = 0) -> None:
     """Validate constraints schema definition at policy loading time.
 
-    Rejects unknown keys, unsupported types, invalid bounds, and excessive regexes with PolicyError.
+    Rejects unknown keys, unsupported types, invalid bounds, empty enums, and ReDoS regexes with PolicyError.
+    Recursively validates nested properties and items.
     """
+    if depth > MAX_CONSTRAINT_DEPTH:
+        raise PolicyError("constraints schema exceeds maximum allowed nesting depth")
+
     if not isinstance(schema, Mapping):
         raise PolicyError("constraints must be an object mapping")
 
@@ -180,10 +241,7 @@ def validate_constraints_schema(schema: Any) -> None:
                     raise PolicyError(
                         f"pattern on argument '{prop_name}' exceeds maximum allowed length of {MAX_PATTERN_LENGTH}"
                     )
-                if _NESTED_QUANTIFIERS.search(pat):
-                    raise PolicyError(
-                        f"pattern on argument '{prop_name}' contains nested quantifiers with catastrophic backtracking risk"
-                    )
+                validate_pattern_safety(pat)
                 try:
                     _compile_anchored_pattern(pat)
                 except re.error as exc:
@@ -192,8 +250,13 @@ def validate_constraints_schema(schema: Any) -> None:
             # Validate enum
             if "enum" in prop_spec:
                 enum_vals = prop_spec["enum"]
-                if not isinstance(enum_vals, Sequence) or isinstance(enum_vals, (str, bytes)) or not enum_vals:
+                if not isinstance(enum_vals, Sequence) or isinstance(enum_vals, (str, bytes)) or len(enum_vals) == 0:
                     raise PolicyError(f"'enum' on argument '{prop_name}' must be a non-empty array of values")
+                if type(enum_vals) is tuple:
+                    raise PolicyError(f"'enum' on argument '{prop_name}' cannot be a tuple (use a JSON array)")
+                for val_cand in enum_vals:
+                    if type(val_cand) is tuple:
+                        raise PolicyError(f"'enum' candidate in '{prop_name}' cannot be a tuple")
 
             # Validate array item bounds
             for item_len_key in ("minItems", "maxItems"):
@@ -205,15 +268,39 @@ def validate_constraints_schema(schema: Any) -> None:
             if "items" in prop_spec:
                 if not isinstance(prop_spec["items"], Mapping):
                     raise PolicyError(f"'items' on argument '{prop_name}' must be a mapping")
-                validate_constraints_schema({"properties": {"item": prop_spec["items"]}})
+                validate_constraints_schema(
+                    {"type": "object", "properties": {"item": prop_spec["items"]}},
+                    depth=depth + 1,
+                )
+
+            # Validate nested object properties
+            if "properties" in prop_spec:
+                if not isinstance(prop_spec["properties"], Mapping):
+                    raise PolicyError(f"'properties' on argument '{prop_name}' must be a mapping")
+                validate_constraints_schema(
+                    {
+                        "type": "object",
+                        "properties": prop_spec["properties"],
+                        "required": prop_spec.get("required", []),
+                        "additionalProperties": prop_spec.get("additionalProperties", True),
+                    },
+                    depth=depth + 1,
+                )
 
 
-def evaluate_constraints(constraints: Mapping[str, Any], arguments: Mapping[str, Any]) -> tuple[bool, str | None]:
+def evaluate_constraints(
+    constraints: Mapping[str, Any],
+    arguments: Mapping[str, Any],
+    depth: int = 0,
+) -> tuple[bool, str | None]:
     """Evaluate request arguments against rule constraints.
 
     Pure deterministic function: zero side effects, zero object mutation.
     Returns (True, None) if all constraints pass, or (False, reason) on any violation.
     """
+    if depth > MAX_CONSTRAINT_DEPTH:
+        return False, "argument evaluation exceeded maximum nesting depth"
+
     if not isinstance(arguments, Mapping):
         return False, "arguments must be a mapping"
 
@@ -237,12 +324,18 @@ def evaluate_constraints(constraints: Mapping[str, Any], arguments: Mapping[str,
             continue
         val = arguments[field_name]
 
-        # Type validation
+        # Inferred type requirements when 'type' is omitted
+        has_numeric_constraints = bool(set(rule_spec) & _NUMERIC_CONSTRAINT_KEYS)
+        has_string_constraints = bool(set(rule_spec) & _STRING_CONSTRAINT_KEYS)
+        has_array_constraints = bool(set(rule_spec) & _ARRAY_CONSTRAINT_KEYS)
+        has_object_constraints = bool(set(rule_spec) & _OBJECT_CONSTRAINT_KEYS)
+
+        # Check explicit type or inferred type requirement
         expected_type = rule_spec.get("type")
-        if expected_type == "string":
+        if expected_type == "string" or (expected_type is None and has_string_constraints):
             if type(val) is not str:
                 return False, f"argument '{field_name}' must be a string"
-        elif expected_type == "number":
+        elif expected_type == "number" or (expected_type is None and has_numeric_constraints):
             if not _is_valid_number(val):
                 return False, f"argument '{field_name}' must be a valid number"
         elif expected_type == "integer":
@@ -253,12 +346,20 @@ def evaluate_constraints(constraints: Mapping[str, Any], arguments: Mapping[str,
         elif expected_type == "boolean":
             if type(val) is not bool:
                 return False, f"argument '{field_name}' must be a boolean"
-        elif expected_type == "array":
+        elif expected_type == "array" or (expected_type is None and has_array_constraints):
             if not isinstance(val, (list, tuple)):
                 return False, f"argument '{field_name}' must be an array"
-        elif expected_type == "object":
+        elif expected_type == "object" or (expected_type is None and has_object_constraints):
             if not isinstance(val, Mapping):
                 return False, f"argument '{field_name}' must be an object"
+
+        # Depth/size cap check for containers
+        if isinstance(val, (list, tuple)):
+            if len(val) > MAX_CONTAINER_SIZE:
+                return False, f"argument '{field_name}' array exceeds maximum container size of {MAX_CONTAINER_SIZE}"
+        elif isinstance(val, Mapping):
+            if len(val) > MAX_CONTAINER_SIZE:
+                return False, f"argument '{field_name}' object exceeds maximum container size of {MAX_CONTAINER_SIZE}"
 
         # Numeric bounds
         if _is_valid_number(val):
@@ -288,9 +389,16 @@ def evaluate_constraints(constraints: Mapping[str, Any], arguments: Mapping[str,
                 if not pattern.fullmatch(val):
                     return False, f"argument '{field_name}' does not match pattern '{rule_spec['pattern']}'"
 
-        # Enum check
+        # Enum check with strict type-and-value equality (e.g. True does not match 1)
         if "enum" in rule_spec:
-            if val not in rule_spec["enum"]:
+            if type(val) is tuple:
+                return False, f"argument '{field_name}' contains tuple which is not allowed"
+            matched_enum = False
+            for enum_candidate in rule_spec["enum"]:
+                if type(val) is type(enum_candidate) and val == enum_candidate:
+                    matched_enum = True
+                    break
+            if not matched_enum:
                 return False, f"argument '{field_name}' must be one of {rule_spec['enum']}"
 
         # Array length & items
@@ -305,8 +413,20 @@ def evaluate_constraints(constraints: Mapping[str, Any], arguments: Mapping[str,
                     elem_ok, elem_err = evaluate_constraints(
                         {"properties": {"item": item_spec}},
                         {"item": elem},
+                        depth=depth + 1,
                     )
                     if not elem_ok:
                         return False, f"element {idx} of argument '{field_name}' failed constraint: {elem_err}"
+
+        # Nested object properties
+        if isinstance(val, Mapping) and ("properties" in rule_spec or "required" in rule_spec):
+            nested_schema = {
+                "properties": rule_spec.get("properties", {}),
+                "required": rule_spec.get("required", []),
+                "additionalProperties": rule_spec.get("additionalProperties", True),
+            }
+            sub_ok, sub_err = evaluate_constraints(nested_schema, val, depth=depth + 1)
+            if not sub_ok:
+                return False, f"nested object in '{field_name}' failed constraint: {sub_err}"
 
     return True, None

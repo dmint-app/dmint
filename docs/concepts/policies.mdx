@@ -198,13 +198,14 @@ Dmint rules support deterministic argument constraints evaluated by the pure pol
 
 ### Integer and Float Rules
 - **Boolean Rejection**: In Python and JSON engines, booleans (`True`, `False`) are subclasses of integers. Dmint's numeric validator strictly rejects booleans where numbers or integers are expected.
+- **Strict Integer Types**: For fields marked with `"type": "integer"`, whole floating-point numbers like `1.0` or `100.0` are strictly rejected. Integer fields require explicit, exact integers (`type(val) is int`). Float types with integer values must not masquerade as integers.
 - **NaN and Infinity**: `NaN`, `Infinity`, and `-Infinity` are strictly rejected.
 - **Safe Integer Limits**: Integers must reside within RFC 8785 safe 53-bit range (`-9,007,199,254,740,991` to `9,007,199,254,740,991` / `2^53 - 1`). Larger IDs must be passed as strings.
 - **Safe Numeric Comparison**: Float and integer bounds are evaluated using exact arbitrary-precision decimal representations (`Decimal`) without floating-point rounding errors.
 
 ### Pattern Constraints
 - **Anchored Matching**: All string patterns are strictly anchored full-string matches (`fullmatch`). Partial substring matching is rejected.
-- **ReDoS Protection**: Pattern length is capped at 256 characters, input length is capped at 4096 characters, and nested quantifiers with catastrophic backtracking risk are rejected at policy load time.
+- **ReDoS Protection**: Pattern length is capped at 256 characters, input length is capped at 4096 characters, and patterns are validated via AST inspection (`sre_parse`) to reject nested repeats, alternation inside repeats, and lookarounds at policy load time.
 
 ### Examples
 
@@ -227,8 +228,12 @@ Restrict customer refunds to a maximum amount and approved currencies:
 }
 ```
 
-#### 2. Read-Only SQL Guard
-Permit database queries only if they strictly begin with `SELECT`, preventing destructive DDL or DML statements:
+#### 2. SQL Weak Input Filter (Warning: Not an Authorization Boundary)
+<Warning>
+**Regex cannot enforce read-only SQL**: Read-only database access MUST be enforced by a read-only database role, connection permissions, and parameterized queries. Regex pattern filters cannot enforce SQL security and easily accept multi-statement injections (such as `SELECT 1; DROP TABLE users`). Pattern matching on SQL queries serves only as a shallow syntactic pre-filter, never a security boundary.
+</Warning>
+
+A syntactic filter requiring queries to begin with `SELECT`:
 ```json
 {
   "effect": "allow",

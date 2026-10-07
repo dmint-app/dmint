@@ -181,7 +181,7 @@ Each element in the `rules` array defines an authorization rule for an agent act
                     "minLength": { "type": "integer", "minimum": 0 },
                     "maxLength": { "type": "integer", "minimum": 0 },
                     "pattern": { "type": "string" },
-                    "enum": { "type": "array" },
+                    "enum": { "type": "array", "minItems": 1 },
                     "minItems": { "type": "integer", "minimum": 0 },
                     "maxItems": { "type": "integer", "minimum": 0 },
                     "items": { "type": "object" },

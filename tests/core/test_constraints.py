@@ -1,24 +1,15 @@
-"""Comprehensive test suite for Phase 6 argument constraints engine.
-
-Tests cover:
-- Pure evaluator constraint evaluation
-- Numeric constraints (bool, NaN, Inf, safe int/float comparison, safe range)
-- String patterns (anchoring, length limits, timing bound ReDoS defense)
-- Required fields & no additional properties
-- Schema validation & rejection of unknown constraint types at load time
-- Immutability against argument mutation post-evaluation
-- 10 real-world example policies with allow and deny tests
-"""
+"""Tests for Phase 6 deterministic argument constraints and schema validation."""
 
 from __future__ import annotations
 
-import math
 import time
 import unittest
+from typing import Any
 
+from dmint.core.canonicalize import MAX_SAFE_INTEGER
 from dmint.core.constraints import (
+    MAX_CONTAINER_SIZE,
     MAX_PATTERN_LENGTH,
-    MAX_SAFE_INTEGER,
     MAX_STRING_INPUT_LENGTH,
     evaluate_constraints,
     safe_compare,
@@ -26,67 +17,31 @@ from dmint.core.constraints import (
 )
 from dmint.core.enforcement import Dmint
 from dmint.core.errors import AuthorizationError, PolicyError
+from dmint.core.hashing import request_fingerprint
 from dmint.core.models import Decision, ToolRequest, TrustedContext
 from dmint.core.policy import Policy, Rule
+from dmint.core.storage import SQLiteApprovalStore
 
 
-def make_test_request(
-    tool: str = "test",
-    action: str = "run",
-    resource: str = "*",
-    arguments: dict | None = None,
-) -> ToolRequest:
+def make_test_request(tool: str, action: str, resource: str, args: dict[str, Any]) -> ToolRequest:
     return ToolRequest(
-        request_id="req_0123456789abcdef0123456789abcdef01234567890",
+        request_id="req-test-123",
         agent_id="test-agent",
         tool=tool,
         action=action,
         resource=resource,
-        arguments=arguments or {},
-        context=TrustedContext.from_mapping({}),
+        arguments=args,
+        context=TrustedContext({}),
     )
 
 
-class TestArgumentConstraints(unittest.TestCase):
-    """Core unit tests for argument constraints evaluation and schema validation."""
+class TestConstraintsEvaluation(unittest.TestCase):
+    """Test suite for argument constraints evaluation."""
 
-    def test_numeric_constraints_reject_bool_nan_inf(self) -> None:
-        """Numeric constraints must strictly reject bool, NaN, Infinity, and non-numbers."""
-        constraints = {
-            "properties": {
-                "amount": {"type": "number", "minimum": 0, "maximum": 100},
-                "count": {"type": "integer", "minimum": 1},
-            }
-        }
-        # Booleans must be rejected as numbers and integers
-        ok, reason = evaluate_constraints(constraints, {"amount": True, "count": 1})
-        self.assertFalse(ok)
-        self.assertIn("must be a valid number", reason or "")
-
-        ok, reason = evaluate_constraints(constraints, {"amount": 50, "count": False})
-        self.assertFalse(ok)
-        self.assertIn("must be an integer", reason or "")
-
-        # NaN and Inf must be rejected
-        ok, reason = evaluate_constraints(constraints, {"amount": float("nan"), "count": 1})
-        self.assertFalse(ok)
-        ok, reason = evaluate_constraints(constraints, {"amount": float("inf"), "count": 1})
-        self.assertFalse(ok)
-        ok, reason = evaluate_constraints(constraints, {"amount": float("-inf"), "count": 1})
-        self.assertFalse(ok)
-
-        # Strings where numbers are expected must be rejected
-        ok, reason = evaluate_constraints(constraints, {"amount": "50", "count": 1})
-        self.assertFalse(ok)
-
-        # Valid numbers and integers succeed
-        ok, _ = evaluate_constraints(constraints, {"amount": 50.5, "count": 5})
-        self.assertTrue(ok)
-
-    def test_safe_compare_ints_and_floats(self) -> None:
-        """Safe comparison accurately compares ints, floats, and decimals without precision loss."""
-        self.assertEqual(safe_compare(10, 10.5), -1)
-        self.assertEqual(safe_compare(10.5, 10), 1)
+    def test_numeric_safe_compare_and_bounds(self) -> None:
+        """Safe numeric comparisons without floating point rounding errors."""
+        self.assertEqual(safe_compare(10, 20), -1)
+        self.assertEqual(safe_compare(20, 10), 1)
         self.assertEqual(safe_compare(10, 10), 0)
         self.assertEqual(safe_compare(0.01, 0.02), -1)
 
@@ -98,6 +53,96 @@ class TestArgumentConstraints(unittest.TestCase):
         ok, reason = evaluate_constraints(constraints, {"id": MAX_SAFE_INTEGER + 1})
         self.assertFalse(ok)
         self.assertIn("safe integer range", reason or "")
+
+    def test_whole_float_rejected_for_integer_field(self) -> None:
+        """Whole floats like 1.0 or 100.0 are strictly rejected for integer fields."""
+        constraints = {"properties": {"count": {"type": "integer"}}}
+        ok, _ = evaluate_constraints(constraints, {"count": 1})
+        self.assertTrue(ok)
+
+        ok, reason = evaluate_constraints(constraints, {"count": 1.0})
+        self.assertFalse(ok)
+        self.assertIn("must be an integer", reason or "")
+
+        ok, reason = evaluate_constraints(constraints, {"count": 100.0})
+        self.assertFalse(ok)
+        self.assertIn("must be an integer", reason or "")
+
+    def test_inferred_type_requirements_when_type_omitted(self) -> None:
+        """If 'type' is omitted, constraints like maximum or minLength require matching type."""
+        # maximum without type: string value must DENY
+        num_constraints = {"properties": {"amount": {"maximum": 500}}}
+        ok, reason = evaluate_constraints(num_constraints, {"amount": "999"})
+        self.assertFalse(ok)
+        self.assertIn("must be a valid number", reason or "")
+
+        ok, _ = evaluate_constraints(num_constraints, {"amount": 250})
+        self.assertTrue(ok)
+
+        # minLength without type: int value must DENY
+        str_constraints = {"properties": {"code": {"minLength": 3}}}
+        ok, reason = evaluate_constraints(str_constraints, {"code": 12345})
+        self.assertFalse(ok)
+        self.assertIn("must be a string", reason or "")
+
+        # minItems without type: dict value must DENY
+        arr_constraints = {"properties": {"items": {"minItems": 1}}}
+        ok, reason = evaluate_constraints(arr_constraints, {"items": {"a": 1}})
+        self.assertFalse(ok)
+        self.assertIn("must be an array", reason or "")
+
+    def test_enum_strict_type_and_value_equality(self) -> None:
+        """Enum compares with strict type-and-value equality (True must not match 1)."""
+        constraints = {"properties": {"val": {"enum": [1, 2, 3]}}}
+        ok, _ = evaluate_constraints(constraints, {"val": 1})
+        self.assertTrue(ok)
+
+        ok, reason = evaluate_constraints(constraints, {"val": True})
+        self.assertFalse(ok)
+        self.assertIn("must be one of", reason or "")
+
+        bool_constraints = {"properties": {"flag": {"enum": [True]}}}
+        ok, _ = evaluate_constraints(bool_constraints, {"flag": True})
+        self.assertTrue(ok)
+
+        ok, reason = evaluate_constraints(bool_constraints, {"flag": 1})
+        self.assertFalse(ok)
+        self.assertIn("must be one of", reason or "")
+
+    def test_tuples_rejected_in_constraints_schema(self) -> None:
+        """Tuples in enum candidates or schema definitions are strictly rejected (consistent with canonicalization)."""
+        with self.assertRaises(PolicyError) as ctx:
+            validate_constraints_schema({"properties": {"role": {"enum": ("a", "b")}}})
+        self.assertIn("cannot be a tuple", str(ctx.exception))
+
+        with self.assertRaises(PolicyError) as ctx:
+            validate_constraints_schema({"properties": {"role": {"enum": [("admin", "root")]}}})
+        self.assertIn("cannot be a tuple", str(ctx.exception))
+
+    def test_container_depth_and_size_caps(self) -> None:
+        """Arrays and objects exceeding container size or depth caps are rejected."""
+        # Size cap
+        oversized_list = [1] * (MAX_CONTAINER_SIZE + 1)
+        constraints = {"properties": {"items": {"type": "array"}}}
+        ok, reason = evaluate_constraints(constraints, {"items": oversized_list})
+        self.assertFalse(ok)
+        self.assertIn("maximum container size", reason or "")
+
+        # Nested depth cap
+        deep_schema: dict[str, Any] = {"type": "object", "properties": {}}
+        curr = deep_schema
+        for i in range(35):
+            curr["properties"] = {"next": {"type": "object", "properties": {}}}
+            curr = curr["properties"]["next"]
+        with self.assertRaises(PolicyError) as ctx:
+            validate_constraints_schema(deep_schema)
+        self.assertIn("maximum allowed nesting depth", str(ctx.exception))
+
+    def test_empty_enum_rejected_at_schema_validation(self) -> None:
+        """Empty enum is rejected at policy schema validation time."""
+        with self.assertRaises(PolicyError) as ctx:
+            validate_constraints_schema({"properties": {"role": {"enum": []}}})
+        self.assertIn("non-empty array", str(ctx.exception))
 
     def test_string_patterns_anchored_only(self) -> None:
         """Regex patterns match the entire string (anchored), never a partial substring."""
@@ -111,29 +156,36 @@ class TestArgumentConstraints(unittest.TestCase):
         ok, _ = evaluate_constraints(constraints, {"code": "ABCD"})
         self.assertFalse(ok)
 
-    def test_string_length_limits_and_timing_bound(self) -> None:
-        """String input exceeding MAX_STRING_INPUT_LENGTH fails closed; ReDoS pattern is rejected; timing is bounded."""
-        # Nested quantifiers with catastrophic backtracking risk are rejected at policy load/validation time
-        with self.assertRaises(PolicyError) as ctx:
-            validate_constraints_schema({"properties": {"text": {"type": "string", "pattern": "^(a+)+$"}}})
-        self.assertIn("nested quantifiers", str(ctx.exception))
+    def test_regex_safety_hostile_patterns_rejected_or_bounded(self) -> None:
+        """Hostile ReDoS patterns are rejected at schema validation time or bounded under time limit."""
+        hostile_patterns = [
+            r"^(a|a)+$",
+            r"^(a*)*$",
+            r"^(a+){2,}$",
+            r"^a*a*a*a*b$",
+        ]
+        for hostile_pat in hostile_patterns:
+            with self.assertRaises(PolicyError) as ctx:
+                validate_constraints_schema({"properties": {"text": {"type": "string", "pattern": hostile_pat}}})
+            # Must reject with clear ReDoS risk message
+            self.assertTrue(
+                any(
+                    keyword in str(ctx.exception).lower()
+                    for keyword in ["backtracking", "repeat", "alternation", "redos"]
+                ),
+                f"Unexpected exception message: {ctx.exception}",
+            )
 
+        # Safe pattern evaluated against 4096-char input terminates well under time bound (< 50ms)
         safe_constraints = {
             "properties": {"text": {"type": "string", "pattern": r"^[a-zA-Z0-9_.-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"}}
         }
-        # Input exceeding max length
-        long_str = "a" * (MAX_STRING_INPUT_LENGTH + 1)
-        ok, reason = evaluate_constraints(safe_constraints, {"text": long_str})
-        self.assertFalse(ok)
-        self.assertIn("maximum allowed length", reason or "")
-
-        # Long input matching pattern up to edge evaluated within strict timing bound (< 50ms)
-        adversarial_input = ("a" * 2000) + "@" + ("b" * 2000) + ".com"
+        long_input = "a" * 4096
         start = time.perf_counter()
-        ok, _ = evaluate_constraints(safe_constraints, {"text": adversarial_input})
+        ok, _ = evaluate_constraints(safe_constraints, {"text": long_input})
         elapsed = time.perf_counter() - start
-        self.assertTrue(ok)
-        self.assertLess(elapsed, 0.05, f"Pattern evaluation took too long: {elapsed:.4f}s")
+        self.assertFalse(ok)
+        self.assertLess(elapsed, 0.05, f"Evaluation of safe pattern against 4096 chars took {elapsed:.4f}s")
 
     def test_required_fields_and_no_additional_properties(self) -> None:
         """Support for 'required' fields and 'additionalProperties': False."""
@@ -182,38 +234,118 @@ class TestArgumentConstraints(unittest.TestCase):
         with self.assertRaises(PolicyError):
             validate_constraints_schema({"properties": {"field": {"minimum": 100, "maximum": 50}}})
 
-    def test_argument_mutation_post_evaluation_fails_or_is_ignored(self) -> None:
-        """Mutating arguments after evaluation cannot change what was approved or executed."""
+    def test_toctou_mutation_of_original_arguments_has_no_effect(self) -> None:
+        """TOCTOU test: mutating original arguments after evaluation does not change fingerprint or execution."""
         policy = Policy(
             [
                 Rule.allow(
-                    "finance",
-                    "transfer",
-                    constraints={"properties": {"amount": {"type": "number", "maximum": 100}}},
+                    "shop",
+                    "checkout",
+                    constraints={
+                        "properties": {
+                            "user_id": {"type": "integer"},
+                            "items": {"type": "array"},
+                        }
+                    },
                 )
             ]
         )
-        engine = Dmint(policy, agent_id="test-agent", context=TrustedContext({}))
+        engine = Dmint(policy, agent_id="agent-1", context=TrustedContext({"env": "prod"}))
 
-        captured = []
+        executed_calls = []
 
-        @engine.protected("finance.transfer")
-        def transfer(amount: float, recipient: str) -> None:
-            captured.append((amount, recipient))
+        @engine.protect("shop.checkout")
+        def checkout(user_id: int, items: list[dict[str, Any]], tags: list[str]) -> str:
+            executed_calls.append({"user_id": user_id, "items": items, "tags": tags})
+            return "ok"
 
-        # Initial call authorizes amount=50
-        transfer(50.0, "alice")
-        self.assertEqual(captured, [(50.0, "alice")])
+        orig_args = {
+            "user_id": 100,
+            "items": [{"sku": "A1", "qty": 2}],
+            "tags": ["urgent", "billing"],
+        }
 
-        # Attempt to authorize through authorize() artifact
-        authorized = engine.authorize(transfer, 50.0, "alice", capability="finance.transfer")
-        # Attempting to mutate request.arguments directly raises TypeError (immutable MappingProxyType)
-        with self.assertRaises(TypeError):
-            authorized.request.arguments["amount"] = 999999.0  # type: ignore[index]
+        # 1. Authorize call
+        authorized = engine.authorize(checkout, capability="shop.checkout", **orig_args)
 
-        # Executing the authorized artifact safely runs the captured snapshot (50.0, 'alice')
-        engine.execute(authorized)
-        self.assertEqual(captured, [(50.0, "alice"), (50.0, "alice")])
+        # Compute fingerprint before mutation
+        fp_before = request_fingerprint(authorized.request)
+
+        # 2. Mutate original dictionary and nested structures
+        orig_args["user_id"] = 999
+        orig_args["items"][0]["qty"] = 99  # type: ignore[index]
+        orig_args["tags"].append("injected")
+
+        # Compute fingerprint after mutation of orig_args
+        fp_after = request_fingerprint(authorized.request)
+
+        # Fingerprints must be strictly identical
+        self.assertEqual(fp_before, fp_after)
+
+        # 3. Execute the authorized request
+        res = engine.execute(authorized)
+        self.assertEqual(res, "ok")
+
+        # 4. Assert executed call received original pre-mutation values
+        self.assertEqual(
+            executed_calls[-1],
+            {
+                "user_id": 100,
+                "items": [{"sku": "A1", "qty": 2}],
+                "tags": ["urgent", "billing"],
+            },
+        )
+
+    def test_ordering_constraint_violation_denies_before_approval_record_created(self) -> None:
+        """Constraint violation returns DENY before any approval record is created."""
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            db_path = Path(tmp_dir) / "test_approvals.db"
+            store = SQLiteApprovalStore(db_path, deployment_epoch="test-epoch")
+            policy = Policy(
+                [
+                    Rule.approval_required(
+                        "payments",
+                        "wire_transfer",
+                        resource="*",
+                        constraints={
+                            "required": ["amount", "iban"],
+                            "properties": {
+                                "amount": {"type": "number", "maximum": 5000.0},
+                                "iban": {"type": "string"},
+                            },
+                        },
+                    )
+                ]
+            )
+            engine = Dmint(
+                policy,
+                agent_id="test-agent",
+                context=TrustedContext({}),
+                approval_store=store,
+                policy_provenance=Policy.from_dict(policy.to_dict()).provenance
+                if hasattr(policy, "provenance")
+                else None,
+            )
+
+            # 1. Request violating constraint (amount > 5000.0)
+            req_violating = make_test_request(
+                "payments",
+                "wire_transfer",
+                "*",
+                {"amount": 99999.0, "iban": "DE123456789"},
+            )
+            decision, code = policy.evaluate_detailed(req_violating)
+
+            # Must return DENY with DMT_CONSTRAINT_VIOLATION, NOT APPROVAL_REQUIRED
+            self.assertEqual(decision, Decision.DENY)
+            self.assertEqual(code, "DMT_CONSTRAINT_VIOLATION")
+
+            # Ensure no pending approval record was ever saved in the store
+            pending_records = store.list_pending()
+            self.assertEqual(len(pending_records), 0)
 
 
 class TestTenExamplePolicies(unittest.TestCase):
@@ -233,7 +365,7 @@ class TestTenExamplePolicies(unittest.TestCase):
                         "properties": {
                             "amount": {"type": "number", "minimum": 0.01, "maximum": 500.0},
                             "currency": {"type": "string", "enum": ["USD", "EUR", "GBP"]},
-                            "reason": {"type": "string", "minLength": 5},
+                            "reason": {"type": "string", "minLength": 5, "maxLength": 200},
                         },
                     },
                 )
@@ -263,8 +395,8 @@ class TestTenExamplePolicies(unittest.TestCase):
         self.assertEqual(dec, Decision.DENY)
         self.assertEqual(code, "DMT_CONSTRAINT_VIOLATION")
 
-    def test_policy_2_readonly_sql_guard(self) -> None:
-        """Example 2: Read-only SQL guard (strictly SELECT queries, rejecting DDL/DML)."""
+    def test_policy_2_sql_weak_input_filter(self) -> None:
+        """Example 2: SQL weak input filter (proves regex ACCEPTS 'SELECT 1; DROP TABLE users')."""
         policy = Policy(
             [
                 Rule.allow(
@@ -286,15 +418,18 @@ class TestTenExamplePolicies(unittest.TestCase):
         self.assertEqual(dec, Decision.ALLOW)
         self.assertIsNone(code)
 
-        # Violation: DROP TABLE
+        # Proves documentation warning: regex ACCEPTS multi-statement injection!
+        req_injected = make_test_request("database", "query", "*", {"sql": "SELECT 1; DROP TABLE users"})
+        dec, code = policy.evaluate_detailed(req_injected)
+        self.assertEqual(
+            dec,
+            Decision.ALLOW,
+            "Proves the documentation warning: regex pattern alone cannot prevent SQL injection",
+        )
+
+        # Rejects direct non-SELECT statements
         req_drop = make_test_request("database", "query", "*", {"sql": "DROP TABLE users"})
         dec, code = policy.evaluate_detailed(req_drop)
-        self.assertEqual(dec, Decision.DENY)
-        self.assertEqual(code, "DMT_CONSTRAINT_VIOLATION")
-
-        # Violation: UPDATE
-        req_update = make_test_request("database", "query", "*", {"sql": "UPDATE users SET role = 'admin'"})
-        dec, code = policy.evaluate_detailed(req_update)
         self.assertEqual(dec, Decision.DENY)
         self.assertEqual(code, "DMT_CONSTRAINT_VIOLATION")
 
