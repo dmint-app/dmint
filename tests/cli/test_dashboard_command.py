@@ -73,6 +73,12 @@ class DashboardCommandTests(unittest.TestCase):
             store = SQLiteApprovalStore(str(db_path), deployment_epoch="cli-dashboard-test")
             store.close()
 
+            key_file = Path(tmpdir) / "signing.key"
+            from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+            from dmint.core.keys import write_private_key_atomic
+
+            write_private_key_atomic(key_file, Ed25519PrivateKey.generate())
+
             port = get_free_port()
             proc = subprocess.Popen(
                 [
@@ -90,6 +96,8 @@ class DashboardCommandTests(unittest.TestCase):
                     "cli-test-token",
                     "--approver-id",
                     "cli-test-approver",
+                    "--key-file",
+                    str(key_file),
                 ],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,

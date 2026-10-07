@@ -279,6 +279,62 @@ class TestLoadPrivateKeyFromFile:
         else:
             pytest.fail("Expected KeyLoadError was not raised")
 
+    @posix_only
+    def test_symlink_key_file_is_rejected(self, tmp_path: Path) -> None:
+        """Symlink key files must be rejected by O_NOFOLLOW / islink check."""
+        key = _gen_key()
+        real_key = tmp_path / "real.key"
+        write_private_key_atomic(real_key, key)
+        symlink_key = tmp_path / "symlink.key"
+        symlink_key.symlink_to(real_key)
+
+        with pytest.raises(KeyLoadError, match="symlink"):
+            load_private_key_from_file(symlink_key)
+
+    @posix_only
+    def test_wrong_owner_key_file_is_rejected(self, tmp_path: Path) -> None:
+        """Key file owned by a different UID must be rejected."""
+        key = _gen_key()
+        dest = tmp_path / "signing.key"
+        write_private_key_atomic(dest, key)
+
+        with patch("os.geteuid", return_value=os.geteuid() + 1000):
+            with pytest.raises(KeyLoadError, match="owner UID"):
+                load_private_key_from_file(dest)
+
+    def test_non_posix_fails_closed_without_opt_in(self, tmp_path: Path) -> None:
+        """On non-POSIX systems, key loading fails closed unless explicitly opted in."""
+        key = _gen_key()
+        dest = tmp_path / "signing.key"
+        _write_hex_key(dest, key, mode=0o600)
+
+        with patch("dmint.core.keys._POSIX", False):
+            env_clean = {k: v for k, v in os.environ.items() if k != "DMINT_ALLOW_INSECURE_KEY_PERMISSIONS"}
+            with patch.dict(os.environ, env_clean, clear=True):
+                with pytest.raises(KeyLoadError, match="non-POSIX"):
+                    load_private_key_from_file(dest)
+
+    def test_non_posix_succeeds_with_flag(self, tmp_path: Path) -> None:
+        """On non-POSIX systems, allow_insecure_permissions=True bypasses the check."""
+        key = _gen_key()
+        dest = tmp_path / "signing.key"
+        _write_hex_key(dest, key, mode=0o600)
+
+        with patch("dmint.core.keys._POSIX", False):
+            loaded = load_private_key_from_file(dest, allow_insecure_permissions=True)
+            assert public_key_hex(loaded.public_key()) == public_key_hex(key.public_key())
+
+    def test_non_posix_succeeds_with_env(self, tmp_path: Path) -> None:
+        """On non-POSIX systems, DMINT_ALLOW_INSECURE_KEY_PERMISSIONS=1 bypasses the check."""
+        key = _gen_key()
+        dest = tmp_path / "signing.key"
+        _write_hex_key(dest, key, mode=0o600)
+
+        with patch("dmint.core.keys._POSIX", False):
+            with patch.dict(os.environ, {"DMINT_ALLOW_INSECURE_KEY_PERMISSIONS": "1"}, clear=False):
+                loaded = load_private_key_from_file(dest)
+                assert public_key_hex(loaded.public_key()) == public_key_hex(key.public_key())
+
 
 # ─── load_private_key (file vs env fallback) ──────────────────────────────────
 
@@ -291,13 +347,30 @@ class TestLoadPrivateKey:
         loaded = load_private_key(key_file=dest)
         assert public_key_hex(loaded.public_key()) == public_key_hex(key.public_key())
 
-    def test_loads_from_env_var(self, tmp_path: Path) -> None:
+    def test_env_var_without_opt_in_raises(self) -> None:
+        """DMINT_PRIVATE_KEY inline hex without opt-in fails closed."""
         key = _gen_key()
         from cryptography.hazmat.primitives.serialization import Encoding, NoEncryption, PrivateFormat
 
         raw = key.private_bytes(encoding=Encoding.Raw, format=PrivateFormat.Raw, encryption_algorithm=NoEncryption())
-        with patch.dict(os.environ, {"DMINT_PRIVATE_KEY": raw.hex()}, clear=False):
-            loaded = load_private_key()
+        env = {k: v for k, v in os.environ.items() if k not in ("DMINT_ALLOW_INLINE_KEY", "DMINT_KEY_FILE")}
+        env["DMINT_PRIVATE_KEY"] = raw.hex()
+        with patch.dict(os.environ, env, clear=True):
+            with pytest.raises(KeyLoadError, match="inline private key material"):
+                load_private_key()
+
+    def test_env_var_with_opt_in_succeeds_and_warns(self) -> None:
+        """DMINT_PRIVATE_KEY inline hex with DMINT_ALLOW_INLINE_KEY=1 succeeds with warning."""
+        key = _gen_key()
+        from cryptography.hazmat.primitives.serialization import Encoding, NoEncryption, PrivateFormat
+
+        raw = key.private_bytes(encoding=Encoding.Raw, format=PrivateFormat.Raw, encryption_algorithm=NoEncryption())
+        env = {k: v for k, v in os.environ.items() if k != "DMINT_KEY_FILE"}
+        env["DMINT_PRIVATE_KEY"] = raw.hex()
+        env["DMINT_ALLOW_INLINE_KEY"] = "1"
+        with patch.dict(os.environ, env, clear=True):
+            with pytest.warns(UserWarning, match="inline private key material"):
+                loaded = load_private_key()
         assert public_key_hex(loaded.public_key()) == public_key_hex(key.public_key())
 
     def test_file_preferred_over_env_var(self, tmp_path: Path) -> None:
@@ -353,9 +426,11 @@ class TestLocalAuthorityRepr:
     def test_repr_format(self) -> None:
         from dmint.core.authority import LocalApprovalAuthority
 
+        key = _gen_key()
         authority = LocalApprovalAuthority(
             issuer_id="my-issuer",
             audience="my-aud",
+            private_key=key,
         )
         r = repr(authority)
         assert "LocalApprovalAuthority" in r
@@ -367,6 +442,18 @@ class TestLocalAuthorityRepr:
 
 
 class TestLocalAuthorityKeyLoading:
+    def test_fails_closed_when_no_key_source_exists(self) -> None:
+        """LocalApprovalAuthority must fail closed when no key source is provided."""
+        from dmint.core.authority import LocalApprovalAuthority
+
+        env_clean = {k: v for k, v in os.environ.items() if k not in ("DMINT_PRIVATE_KEY", "DMINT_KEY_FILE")}
+        with patch.dict(os.environ, env_clean, clear=True):
+            with pytest.raises(KeyLoadError, match="no private key source found"):
+                LocalApprovalAuthority(
+                    issuer_id="test-issuer",
+                    audience="test-aud",
+                )
+
     def test_loads_from_explicit_key_file(self, tmp_path: Path) -> None:
         from dmint.core.authority import LocalApprovalAuthority
 
@@ -395,7 +482,25 @@ class TestLocalAuthorityKeyLoading:
             )
         assert public_key_hex(auth.public_key) == public_key_hex(key.public_key())
 
-    def test_loads_from_dmint_private_key_env(self) -> None:
+    def test_loads_from_dmint_private_key_env_without_opt_in_raises(self) -> None:
+        """DMINT_PRIVATE_KEY inline hex without opt-in fails closed."""
+        from dmint.core.authority import LocalApprovalAuthority
+        from cryptography.hazmat.primitives.serialization import Encoding, NoEncryption, PrivateFormat
+
+        key = _gen_key()
+        raw = key.private_bytes(encoding=Encoding.Raw, format=PrivateFormat.Raw, encryption_algorithm=NoEncryption())
+
+        env_clean = {k: v for k, v in os.environ.items() if k not in ("DMINT_KEY_FILE", "DMINT_ALLOW_INLINE_KEY")}
+        env_clean["DMINT_PRIVATE_KEY"] = raw.hex()
+        with patch.dict(os.environ, env_clean, clear=True):
+            with pytest.raises(KeyLoadError, match="inline private keys are disabled"):
+                LocalApprovalAuthority(
+                    issuer_id="test-issuer",
+                    audience="test-aud",
+                )
+
+    def test_loads_from_dmint_private_key_env_with_opt_in(self) -> None:
+        """DMINT_PRIVATE_KEY inline hex with DMINT_ALLOW_INLINE_KEY=1 succeeds with warning."""
         from dmint.core.authority import LocalApprovalAuthority
         from cryptography.hazmat.primitives.serialization import Encoding, NoEncryption, PrivateFormat
 
@@ -404,11 +509,13 @@ class TestLocalAuthorityKeyLoading:
 
         env_clean = {k: v for k, v in os.environ.items() if k != "DMINT_KEY_FILE"}
         env_clean["DMINT_PRIVATE_KEY"] = raw.hex()
+        env_clean["DMINT_ALLOW_INLINE_KEY"] = "1"
         with patch.dict(os.environ, env_clean, clear=True):
-            auth = LocalApprovalAuthority(
-                issuer_id="test-issuer",
-                audience="test-aud",
-            )
+            with pytest.warns(UserWarning, match="inline private key material"):
+                auth = LocalApprovalAuthority(
+                    issuer_id="test-issuer",
+                    audience="test-aud",
+                )
         assert public_key_hex(auth.public_key) == public_key_hex(key.public_key())
 
     @posix_only

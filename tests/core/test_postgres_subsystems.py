@@ -15,8 +15,11 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 import os
+from pathlib import Path
+import tempfile
 import unittest
 
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 import mcp.types as types
 from sqlalchemy import create_engine, delete
 
@@ -174,6 +177,13 @@ class TestDashboardCoreClientPostgresSupport(unittest.TestCase):
 
     def setUp(self) -> None:
         self.orig_env = os.environ.get("DMINT_DATABASE_URL")
+        self.orig_key = os.environ.get("DMINT_KEY_FILE")
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.key_file = Path(self.temp_dir.name) / "test.key"
+        from dmint.core.keys import write_private_key_atomic
+
+        write_private_key_atomic(self.key_file, Ed25519PrivateKey.generate())
+        os.environ["DMINT_KEY_FILE"] = str(self.key_file)
         self.addCleanup(self._restore_env)
 
     def _restore_env(self) -> None:
@@ -181,6 +191,12 @@ class TestDashboardCoreClientPostgresSupport(unittest.TestCase):
             os.environ["DMINT_DATABASE_URL"] = self.orig_env
         else:
             os.environ.pop("DMINT_DATABASE_URL", None)
+        if self.orig_key is not None:
+            os.environ["DMINT_KEY_FILE"] = self.orig_key
+        else:
+            os.environ.pop("DMINT_KEY_FILE", None)
+        if hasattr(self, "temp_dir"):
+            self.temp_dir.cleanup()
 
     def tearDown(self) -> None:
         self._restore_env()
@@ -222,6 +238,7 @@ class TestSubsystemsCrossIntegration(unittest.IsolatedAsyncioTestCase):
         self.authority = LocalApprovalAuthority(
             issuer_id="dash-human",
             audience="gateway_epoch",
+            private_key=Ed25519PrivateKey.generate(),
         )
 
         self.policy = Policy(rules=(Rule.approval_required("mcp", "deploy", resource=AnyResource()),))

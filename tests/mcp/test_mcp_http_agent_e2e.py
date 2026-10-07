@@ -12,6 +12,7 @@ import threading
 import time
 import unittest
 
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 import httpx2
 from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamable_http_client
@@ -83,7 +84,11 @@ class TestAgentFacingHTTPEndToEnd(unittest.IsolatedAsyncioTestCase):
         cls.downstream_url = f"http://127.0.0.1:{cls.downstream_port}/mcp"
 
         # 2. Setup Dmint Gateway and Core
-        cls.authority = LocalApprovalAuthority(issuer_id=ISSUER, audience=AUDIENCE)
+        cls.authority = LocalApprovalAuthority(
+            issuer_id=ISSUER,
+            audience=AUDIENCE,
+            private_key=Ed25519PrivateKey.generate(),
+        )
         cls.verifier = ApprovalVerifier(trusted_issuers={ISSUER: cls.authority.public_key}, audience=AUDIENCE)
 
         cls.policy = Policy(

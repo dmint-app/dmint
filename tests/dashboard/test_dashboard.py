@@ -13,6 +13,7 @@ from datetime import timedelta
 from pathlib import Path
 
 import pytest
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from starlette.testclient import TestClient
 
 from dmint import (
@@ -58,7 +59,10 @@ class TestIntegrationApproveFlow:
         db = tmp_path / "integration.sqlite"
         store = ThreadSafeApprovalStore(db, deployment_epoch="integration-test", clock=lambda: NOW)
         authority = LocalApprovalAuthority(
-            issuer_id="integration-dashboard", audience="dmint/dashboard/v1", clock=lambda: NOW
+            issuer_id="integration-dashboard",
+            audience="dmint/dashboard/v1",
+            private_key=Ed25519PrivateKey.generate(),
+            clock=lambda: NOW,
         )
         client = CoreClient(store=store, authority=authority, approver_id="integration-human")
         app = create_app(client, allowed_hosts={"localhost", "127.0.0.1", "[::1]", "testserver"})
@@ -99,7 +103,10 @@ class TestIntegrationApproveFlow:
         db = tmp_path / "reject_integration.sqlite"
         store = ThreadSafeApprovalStore(db, deployment_epoch="reject-epoch", clock=lambda: NOW)
         authority = LocalApprovalAuthority(
-            issuer_id="reject-dashboard", audience="dmint/dashboard/v1", clock=lambda: NOW
+            issuer_id="reject-dashboard",
+            audience="dmint/dashboard/v1",
+            private_key=Ed25519PrivateKey.generate(),
+            clock=lambda: NOW,
         )
         client = CoreClient(store=store, authority=authority, approver_id="reject-human")
         app = create_app(client, allowed_hosts={"localhost", "127.0.0.1", "[::1]", "testserver"})
@@ -136,7 +143,10 @@ class TestIntegrationAuditFlow:
         db = tmp_path / "audit.sqlite"
         store = ThreadSafeApprovalStore(db, deployment_epoch="audit-epoch", clock=lambda: NOW)
         authority = LocalApprovalAuthority(
-            issuer_id="audit-dashboard", audience="dmint/dashboard/v1", clock=lambda: NOW
+            issuer_id="audit-dashboard",
+            audience="dmint/dashboard/v1",
+            private_key=Ed25519PrivateKey.generate(),
+            clock=lambda: NOW,
         )
         client = CoreClient(store=store, authority=authority)
         app = create_app(client, allowed_hosts={"localhost", "127.0.0.1", "[::1]", "testserver"})
@@ -171,7 +181,10 @@ class TestIntegrationConcurrency:
         db = tmp_path / "concurrent.sqlite"
         store = ThreadSafeApprovalStore(db, deployment_epoch="concurrent-epoch", clock=lambda: NOW)
         authority = LocalApprovalAuthority(
-            issuer_id="concurrent-dashboard", audience="dmint/dashboard/v1", clock=lambda: NOW
+            issuer_id="concurrent-dashboard",
+            audience="dmint/dashboard/v1",
+            private_key=Ed25519PrivateKey.generate(),
+            clock=lambda: NOW,
         )
         client = CoreClient(store=store, authority=authority)
         app = create_app(client, allowed_hosts={"localhost", "127.0.0.1", "[::1]", "testserver"})
@@ -188,7 +201,10 @@ class TestIntegrationConcurrency:
                 CoreClient(
                     store=ThreadSafeApprovalStore(db, deployment_epoch="concurrent-epoch", clock=lambda: NOW),
                     authority=LocalApprovalAuthority(
-                        issuer_id="concurrent-dashboard", audience="dmint/dashboard/v1", clock=lambda: NOW
+                        issuer_id="concurrent-dashboard",
+                        audience="dmint/dashboard/v1",
+                        private_key=Ed25519PrivateKey.generate(),
+                        clock=lambda: NOW,
                     ),
                 ),
                 allowed_hosts={"localhost", "127.0.0.1", "[::1]", "testserver"},
@@ -224,10 +240,16 @@ class TestIntegrationConcurrency:
         store.save_pending(record)
 
         results: list[ApprovalState] = []
+        key = Ed25519PrivateKey.generate()
 
         def do_approve():
             s = ThreadSafeApprovalStore(db, deployment_epoch="race-epoch", clock=lambda: NOW)
-            auth = LocalApprovalAuthority(issuer_id="race-dashboard", audience="dmint/dashboard/v1", clock=lambda: NOW)
+            auth = LocalApprovalAuthority(
+                issuer_id="race-dashboard",
+                audience="dmint/dashboard/v1",
+                private_key=key,
+                clock=lambda: NOW,
+            )
             c = CoreClient(store=s, authority=auth)
             try:
                 c.approve(record.approval_id)
@@ -239,7 +261,12 @@ class TestIntegrationConcurrency:
 
         def do_reject():
             s = ThreadSafeApprovalStore(db, deployment_epoch="race-epoch", clock=lambda: NOW)
-            auth = LocalApprovalAuthority(issuer_id="race-dashboard", audience="dmint/dashboard/v1", clock=lambda: NOW)
+            auth = LocalApprovalAuthority(
+                issuer_id="race-dashboard",
+                audience="dmint/dashboard/v1",
+                private_key=key,
+                clock=lambda: NOW,
+            )
             c = CoreClient(store=s, authority=auth)
             try:
                 c.reject(record.approval_id)

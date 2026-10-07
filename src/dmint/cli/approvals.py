@@ -10,7 +10,12 @@ from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 
-from dmint.approvals import ApprovalRecord, ApprovalState
+from dmint.approvals import (
+    ApprovalAuthority,
+    ApprovalAuthorityKind,
+    ApprovalRecord,
+    ApprovalState,
+)
 from dmint.authority import LocalApprovalAuthority
 from dmint.errors import (
     ApprovalConcurrentConsumeError,
@@ -79,14 +84,16 @@ def _get_store(
 def _get_authority(
     *,
     authority_issuer: str | None = None,
+    audience: str | None = None,
     key_file: Path | str | None = None,
     clock: Callable[[], datetime] | None = None,
 ) -> LocalApprovalAuthority:
     """Instantiate a local approval authority for signing assertions."""
     issuer = authority_issuer or os.environ.get("DMINT_AUTHORITY_ISSUER") or "dmint-cli"
+    aud = audience or os.environ.get("DMINT_AUTHORITY_AUDIENCE", "dmint/cli/v1")
     return LocalApprovalAuthority(
         issuer_id=issuer,
-        audience=os.environ.get("DMINT_AUTHORITY_AUDIENCE", "dmint/cli/v1"),
+        audience=aud,
         key_file=key_file,
         clock=clock,
     )
@@ -239,6 +246,16 @@ def main_approve(args: list[str] | None = None) -> int:
         default=os.environ.get("DMINT_KEY_FILE"),
         help="Path to Ed25519 signing key file (or set DMINT_KEY_FILE)",
     )
+    parser.add_argument(
+        "--audience",
+        default=None,
+        help="Target audience for the approval assertion (or set DMINT_AUTHORITY_AUDIENCE)",
+    )
+    parser.add_argument(
+        "--output-assertion",
+        default=None,
+        help="File path to write the signed approval assertion bytes for retry",
+    )
     try:
         parsed = parser.parse_args(args)
     except SystemExit as exc:
@@ -300,6 +317,7 @@ def main_approve(args: list[str] | None = None) -> int:
 
             authority = _get_authority(
                 authority_issuer=parsed.authority_issuer,
+                audience=parsed.audience,
                 key_file=parsed.key_file,
             )
             approver_id = _get_approver_id(parsed.approver_id)
@@ -310,6 +328,15 @@ def main_approve(args: list[str] | None = None) -> int:
                 approved_by=approver_id,
                 reason=parsed.reason,
             )
+
+            if parsed.output_assertion:
+                approver = ApprovalAuthority._from_trusted_boundary(
+                    authority.issuer_id,
+                    approver_id,
+                    ApprovalAuthorityKind.HUMAN,
+                )
+                assertion = authority.issue(record, approver)
+                Path(parsed.output_assertion).write_bytes(assertion.to_bytes())
 
             print(f"✓ Approved '{parsed.approval_id}' ({record.capability_id}) successfully.")
             if parsed.reason:

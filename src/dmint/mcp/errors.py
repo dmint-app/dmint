@@ -1,6 +1,6 @@
 """Machine-readable MCP integration errors."""
 
-from dmint.errors import DmintError
+from dmint.core.errors import DmintError
 
 
 class MCPError(DmintError):

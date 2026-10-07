@@ -20,6 +20,7 @@ import threading
 import time
 import unittest
 
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from mcp.server.mcpserver import MCPServer
 import mcp.types as types
 import uvicorn
@@ -111,7 +112,11 @@ class TestStreamableHTTPEndToEnd(unittest.IsolatedAsyncioTestCase):
         self.db_path = str(self.tmppath / "approvals.db")
 
         # Setup authority and verifier
-        self.authority = LocalApprovalAuthority(issuer_id="admin@dmint.local", audience="mcp-gateway")
+        self.authority = LocalApprovalAuthority(
+            issuer_id="admin@dmint.local",
+            audience="mcp-gateway",
+            private_key=Ed25519PrivateKey.generate(),
+        )
         self.verifier = ApprovalVerifier(
             trusted_issuers={"admin@dmint.local": self.authority.public_key},
             audience="mcp-gateway",

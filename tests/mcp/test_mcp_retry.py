@@ -8,6 +8,8 @@ from pathlib import Path
 import tempfile
 import unittest
 
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
 from dmint.approvals import ApprovalAuthority, ApprovalAuthorityKind, ApprovalRecord, ApprovalState, PolicyProvenance
 from dmint.authority import ApprovalAssertion, ApprovalVerifier, LocalApprovalAuthority
 from dmint.errors import (
@@ -89,7 +91,11 @@ class MCPRetrySecurityTests(unittest.IsolatedAsyncioTestCase):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.db_path = str(Path(self.temp_dir.name) / "approvals.db")
         self.store = SQLiteApprovalStore(self.db_path, deployment_epoch="ep_1")
-        self.authority = LocalApprovalAuthority(issuer_id=ISSUER, audience=AUDIENCE)
+        self.authority = LocalApprovalAuthority(
+            issuer_id=ISSUER,
+            audience=AUDIENCE,
+            private_key=Ed25519PrivateKey.generate(),
+        )
         self.verifier = ApprovalVerifier(trusted_issuers={ISSUER: self.authority.public_key}, audience=AUDIENCE)
         self.config = make_config()
         self.spy_client = SpyDownstreamClient(self.config)
@@ -285,7 +291,11 @@ class MCPRetrySecurityTests(unittest.IsolatedAsyncioTestCase):
         record = self.store.get(ctx.exception.approval_id)
 
         # Forged authority with different key
-        bad_authority = LocalApprovalAuthority(issuer_id=ISSUER, audience=AUDIENCE)
+        bad_authority = LocalApprovalAuthority(
+            issuer_id=ISSUER,
+            audience=AUDIENCE,
+            private_key=Ed25519PrivateKey.generate(),
+        )
         bad_approver = ApprovalAuthority._from_trusted_boundary("ui", "hacker", ApprovalAuthorityKind.HUMAN)
         bad_assertion = bad_authority.issue(record, bad_approver)
         self.store.save_approved(record.approve(bad_approver))

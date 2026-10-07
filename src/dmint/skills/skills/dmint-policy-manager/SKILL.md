@@ -64,7 +64,7 @@ dmint-mcp & dmint (runtime authorization & enforcement engine)
 
 6. **The Fundamental Enforcement Invariant:**
    > **Dmint does not secure an MCP server if the agent can bypass the protected execution path and call the original capability directly.**
-   > 
+   >
    > When helping users protect MCP servers, explain that the agent's client must connect **only** to the Dmint protection proxy (`dmint-mcp`), not directly to the raw downstream server.
 
 7. **Least Privilege by Default:**
@@ -125,7 +125,7 @@ dmint --version
   ```
 - If installation fails, stop and explain plainly:
   > *"I couldn't install the Dmint CLI tool (`dmint`) on your system. Please verify your Python environment or run `pip install dmint`, then let me know when you're ready."*
-  > 
+  >
   > **DO NOT fallback to writing JSON manually!**
 
 ---
@@ -311,7 +311,7 @@ Whenever you successfully generate or update a policy, use this friendly format:
 - `mcp_protection.json` (MCP server protection configuration)
 
 ---
-> ℹ️ **Important Note on Generated Files:**  
+> ℹ️ **Important Note on Generated Files:**
 > These files were created and cryptographically checked by `dmint-cli`. **Do not edit them by hand**, as manual changes break safety guarantees. If you ever want to change a permission, just tell me and I will update and re-verify the policy for you!
 ```
 

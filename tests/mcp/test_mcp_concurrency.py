@@ -9,6 +9,8 @@ import tempfile
 from typing import Any
 import unittest
 
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
 import mcp.types as types
 
 from dmint.approvals import ApprovalAuthority, ApprovalAuthorityKind, ApprovalRecord, ApprovalState, PolicyProvenance
@@ -72,7 +74,11 @@ class TestMCPConcurrencyAndReplay(unittest.IsolatedAsyncioTestCase):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.store_path = Path(self.temp_dir.name) / "approvals.db"
 
-        self.authority = LocalApprovalAuthority(issuer_id=ISSUER, audience=AUDIENCE)
+        self.authority = LocalApprovalAuthority(
+            issuer_id=ISSUER,
+            audience=AUDIENCE,
+            private_key=Ed25519PrivateKey.generate(),
+        )
         self.verifier = ApprovalVerifier(trusted_issuers={ISSUER: self.authority.public_key}, audience=AUDIENCE)
 
         self.policy = Policy(

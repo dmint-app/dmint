@@ -90,8 +90,8 @@ result = dmint.retry(
 
 Inside Core's SQLite store, this runs inside an atomic transaction:
 ```sql
-UPDATE approval_records 
-SET state = 'CONSUMED', consumed_at = ? 
+UPDATE approval_records
+SET state = 'CONSUMED', consumed_at = ?
 WHERE approval_id = ? AND state = 'APPROVED';
 ```
 
@@ -102,7 +102,7 @@ ApprovalConsumedError: DMT_APPROVAL_CONSUMED
 <Warning>
 **Cryptographic Integrity Checksum (`record_checksum`)**:
 
-Every row in `approval_records` is protected by a deterministic SHA-256 HMAC `record_checksum` computed across all stored columns. 
+Every row in `approval_records` is protected by a deterministic SHA-256 HMAC `record_checksum` computed across all stored columns.
 
 **Do NOT perform direct SQL updates** (e.g. `UPDATE approval_records SET state = 'CONSUMED'`). Direct database mutations fail integrity validation on the next read, raising `CorruptApprovalRecordError: stored approval integrity check failed`.
 

@@ -10,7 +10,7 @@ from types import MappingProxyType
 from typing import Any
 
 from dmint.core.canonicalize import DEFAULT_SENSITIVE_KEYS, redact_sensitive_data
-from dmint.models import validate_text
+from dmint.core.models import validate_text
 from .errors import MCPConfigurationError
 from .ssrf import validate_mcp_url
 

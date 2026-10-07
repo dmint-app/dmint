@@ -15,10 +15,10 @@ from mcp.server.stdio import stdio_server
 from mcp.shared.exceptions import MCPError as SDKMCPError
 import rfc8785
 
-from dmint.approvals import ApprovalRecord, ApprovalState, PolicyProvenance
-from dmint.authority import ApprovalAssertion, ApprovalVerifier
+from dmint.core.approvals import ApprovalRecord, ApprovalState, PolicyProvenance
+from dmint.core.verification import ApprovalAssertion, ApprovalVerifier
 from dmint.core.canonicalize import thaw_json
-from dmint.errors import (
+from dmint.core.errors import (
     ApprovalCredentialInvalidError,
     ApprovalError,
     ApprovalIntegrationMismatchError,
@@ -35,10 +35,10 @@ from .errors import (
     MCPProtocolError,
     MCPTimeoutError,
 )
-from dmint.models import Decision, ToolRequest, TrustedContext
-from dmint.policy import Policy
-from dmint.request_binding import request_binding_fingerprint
-from dmint.storage import ApprovalStore, SQLiteApprovalStore
+from dmint.core.models import Decision, ToolRequest, TrustedContext
+from dmint.core.policy import Policy
+from dmint.core.request_binding import request_binding_fingerprint
+from dmint.core.storage import ApprovalStore, SQLiteApprovalStore
 from dmint.core.webhooks import (
     WebhookNotifier,
     dispatch_approval_webhook,

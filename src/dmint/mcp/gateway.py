@@ -23,15 +23,15 @@ from mcp.server.transport_security import TransportSecuritySettings
 from starlette.applications import Starlette
 import uvicorn
 
-from dmint.approvals import ApprovalRecord, PolicyProvenance
-from dmint.authority import ApprovalAssertion, ApprovalVerifier
-from dmint.errors import (
+from dmint.core.approvals import ApprovalRecord, PolicyProvenance
+from dmint.core.verification import ApprovalAssertion, ApprovalVerifier, public_key_from_hex
+from dmint.core.errors import (
     ApprovalError,
     ApprovalRequiredError,
     AuthorizationError,
 )
-from dmint.models import ToolRequest
-from dmint.policy import Policy
+from dmint.core.models import ToolRequest
+from dmint.core.policy import Policy
 from dmint.core.storage import ApprovalStore, SQLiteApprovalStore, ThreadSafeApprovalStore
 from dmint.core.webhooks import WebhookNotifier
 from .auth import (
@@ -136,8 +136,6 @@ class MCPGateway:
         if approval_verifier is not None:
             self._approval_verifier: ApprovalVerifier | None = approval_verifier
         elif config.trusted_issuers:
-            from dmint.core.keys import public_key_from_hex
-
             trusted_map = {}
             for issuer_cfg in config.trusted_issuers:
                 try:

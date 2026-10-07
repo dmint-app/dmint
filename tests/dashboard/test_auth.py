@@ -229,8 +229,25 @@ class TestDashboardAuthenticationAndSecurity:
 
         monkeypatch.setattr(uvicorn, "run", fake_run)
         db_file = tmp_path / "test.sqlite"
+        key_file = tmp_path / "signing.key"
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+        from dmint.core.keys import write_private_key_atomic
 
-        main(["--host", "0.0.0.0", "--allow-public-bind", "--db-path", str(db_file), "--approver-id", "test-approver"])
+        write_private_key_atomic(key_file, Ed25519PrivateKey.generate())
+
+        main(
+            [
+                "--host",
+                "0.0.0.0",
+                "--allow-public-bind",
+                "--db-path",
+                str(db_file),
+                "--approver-id",
+                "test-approver",
+                "--key-file",
+                str(key_file),
+            ]
+        )
         assert run_called is True
 
     def test_bind_non_loopback_ip_refused_without_flag(self) -> None:

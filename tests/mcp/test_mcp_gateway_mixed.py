@@ -69,7 +69,11 @@ class TestMixedTransportGateway(unittest.IsolatedAsyncioTestCase):
         self.db_path = str(self.tmppath / "approvals.db")
 
         # Setup Authority and Verifier
-        self.authority = LocalApprovalAuthority(issuer_id="admin@dmint.local", audience="mcp-gateway")
+        self.authority = LocalApprovalAuthority(
+            issuer_id="admin@dmint.local",
+            audience="mcp-gateway",
+            private_key=ed25519.Ed25519PrivateKey.generate(),
+        )
         self.verifier = ApprovalVerifier(
             trusted_issuers={"admin@dmint.local": self.authority.public_key},
             audience="mcp-gateway",

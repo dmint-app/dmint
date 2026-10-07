@@ -11,8 +11,8 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.types import ASGIApp
 
-from dmint.errors import RequestValidationError
-from dmint.models import validate_text
+from dmint.core.errors import RequestValidationError
+from dmint.core.models import validate_text
 from .errors import MCPConfigurationError
 
 # ContextVar holding the authoritative bound agent_id for the current request

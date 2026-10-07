@@ -225,3 +225,21 @@ class ApprovalCredentialInvalidError(ApprovalError):
     """The supplied retry credential is malformed or invalid."""
 
     code = "DMT_APPROVAL_CREDENTIAL_INVALID"
+
+
+class KeyLoadError(RuntimeError, DmintError):
+    """Failure while loading or parsing a cryptographic key."""
+
+    code = "DMT_KEY_LOAD_ERROR"
+
+
+class KeyPermissionError(PermissionError, DmintError):
+    """Key file or directory has permissions that are too permissive."""
+
+    code = "DMT_KEY_PERMISSION_ERROR"
+
+
+class KeyExistsError(FileExistsError, DmintError):
+    """Refusing to overwrite an existing key file without --force."""
+
+    code = "DMT_KEY_EXISTS"

@@ -17,6 +17,8 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
 from dmint import (
     ANY_RESOURCE,
     ApprovalAuthorityKind,
@@ -47,7 +49,11 @@ from dmint.errors import (
 
 
 def _make_authority(issuer: str = "dashboard-authority") -> LocalApprovalAuthority:
-    return LocalApprovalAuthority(issuer_id=issuer, audience="dmint/dashboard/v1")
+    return LocalApprovalAuthority(
+        issuer_id=issuer,
+        audience="dmint/dashboard/v1",
+        private_key=Ed25519PrivateKey.generate(),
+    )
 
 
 def _make_provenance(now: datetime) -> PolicyProvenance:
@@ -812,7 +818,11 @@ class TestSecurityInvariants(_Base):
         self.assertEqual(r2_loaded.state, ApprovalState.PENDING)
 
     def test_approve_persists_issuer_identity_in_authority(self) -> None:
-        alt_authority = LocalApprovalAuthority(issuer_id="human-approver-v2", audience="dmint/dashboard/v1")
+        alt_authority = LocalApprovalAuthority(
+            issuer_id="human-approver-v2",
+            audience="dmint/dashboard/v1",
+            private_key=Ed25519PrivateKey.generate(),
+        )
         record = self.make_record(user_id=1)
         with self.open_store() as store:
             store.save_pending(record)

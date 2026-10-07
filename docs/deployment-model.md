@@ -79,6 +79,9 @@ Planned future enhancements for Dmint Dashboard identity management include:
    Integration with enterprise identity providers (Okta, GitHub, Google Workspace) and FIDO2 / WebAuthn hardware tokens for high-assurance cryptographic attestation of approval decisions.
 3. **Multi-Party Quorum Approvals**:
    Requiring M-of-N distinct human approver signatures before sensitive high-impact capabilities (e.g. production DB migrations, financial transfers) can transition to `APPROVED`.
+4. **Trusted Issuers Validity Windows (`not_before` / `not_after`)**:
+   Support optional `not_before` and `not_after` ISO-8601 timestamp constraints within gateway `trusted_issuers` configuration entries. This allows staging upcoming keys ahead of activation and automatically sunsetting retired keys without manual gateway configuration restarts.
+
 
 ---
 
@@ -108,8 +111,25 @@ dmint export-public-key --issuer-id my-authority
 Key file permissions enforced:
 - The key file must be `0600` or `0400` (no group/other access).
 - The parent directory must not be group-writable or world-writable.
+- Ownership must match the current process effective UID (`st_uid == geteuid()`).
+- File descriptors are opened with `O_NOFOLLOW` and verified with `fstat(fd)` to prevent symlink or TOCTOU race conditions.
 - Dmint refuses to load a key file with looser permissions.
 - Key file creation is atomic — there is no window where it is world-readable.
+
+### Non-POSIX Platforms & Insecure Permissions Override
+
+On non-POSIX operating systems (such as Windows), POSIX file mode bits (e.g. `0600`) cannot be reliably enforced. Dmint **fails closed by default** on non-POSIX systems:
+- Key loading and generation will raise `KeyLoadError` / `KeyPermissionError` unless an explicit opt-in is supplied.
+- To run on non-POSIX systems, operators must explicitly set `DMINT_ALLOW_INSECURE_KEY_PERMISSIONS=1` or supply `--allow-insecure-key-permissions`.
+
+### Inline Private Keys & Process Isolation
+
+Loading private keys via the `DMINT_PRIVATE_KEY` inline hex environment variable exposes sensitive cryptographic material to other processes running under the same user account via `/proc/<pid>/environ`.
+
+- Inline private keys are **disabled by default**.
+- If `DMINT_PRIVATE_KEY` is set without opt-in, Dmint fails closed with `KeyLoadError`.
+- To allow inline private keys, operators must explicitly set `DMINT_ALLOW_INLINE_KEY=1`. A runtime security warning will be emitted.
+- **Best Practice:** Always use restricted key files (`0600`) via `DMINT_KEY_FILE` or the default `~/.config/dmint/signing.key`.
 
 ### Gateway `trusted_issuers` Configuration
 
@@ -145,4 +165,3 @@ Rotation replaces one signing key with another while maintaining continuity of s
 7. **Remove old issuer** from `trusted_issuers` and redeploy gateway.
 
 Assertions signed with a revoked key are automatically rejected by the gateway once the issuer is removed from `trusted_issuers`.
-

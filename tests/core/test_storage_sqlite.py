@@ -5,6 +5,8 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
 from dmint import (
     ANY_RESOURCE,
     ApprovalAuthority,
@@ -212,7 +214,10 @@ class SQLiteApprovalStoreTests(unittest.TestCase):
 
     def test_database_rollback_replay_is_detected_and_rejected(self):
         authority = LocalApprovalAuthority(
-            issuer_id="authority-1", audience="dmint/local-runtime", clock=lambda: self.now
+            issuer_id="authority-1",
+            audience="dmint/local-runtime",
+            private_key=Ed25519PrivateKey.generate(),
+            clock=lambda: self.now,
         )
         approver = ApprovalAuthority._from_trusted_boundary("ui", "human-1", ApprovalAuthorityKind.HUMAN)
         verifier = ApprovalVerifier(
@@ -389,7 +394,10 @@ class SQLiteApprovalStoreTests(unittest.TestCase):
             "apr_12345; DELETE FROM approval_records;",
         ]
         authority = LocalApprovalAuthority(
-            issuer_id="authority-1", audience="dmint/local-runtime", clock=lambda: self.now
+            issuer_id="authority-1",
+            audience="dmint/local-runtime",
+            private_key=Ed25519PrivateKey.generate(),
+            clock=lambda: self.now,
         )
         record = self.make_record()
         with self.open_store() as store:

@@ -109,6 +109,7 @@ class TestSmoke:
 
     def test_app_creates_without_error(self):
         import tempfile
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
         from dmint import LocalApprovalAuthority, SQLiteApprovalStore
         from dmint.dashboard.app import create_app
         from dmint.dashboard.core_client import CoreClient
@@ -116,7 +117,11 @@ class TestSmoke:
         with tempfile.TemporaryDirectory() as d:
             db = Path(d) / "smoke.sqlite"
             store = SQLiteApprovalStore(db, deployment_epoch="smoke")
-            authority = LocalApprovalAuthority(issuer_id="smoke-dashboard", audience="dmint/dashboard/v1")
+            authority = LocalApprovalAuthority(
+                issuer_id="smoke-dashboard",
+                audience="dmint/dashboard/v1",
+                private_key=Ed25519PrivateKey.generate(),
+            )
             client = CoreClient(store=store, authority=authority)
             app = create_app(client, allowed_hosts={"localhost", "127.0.0.1", "[::1]", "testserver"})
             assert app is not None
@@ -124,6 +129,7 @@ class TestSmoke:
 
     def test_health_endpoint_returns_ok(self):
         import tempfile
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
         from dmint import LocalApprovalAuthority, SQLiteApprovalStore
         from dmint.dashboard.app import create_app
         from dmint.dashboard.core_client import CoreClient
@@ -132,7 +138,11 @@ class TestSmoke:
         with tempfile.TemporaryDirectory() as d:
             db = Path(d) / "smoke_health.sqlite"
             store = SQLiteApprovalStore(db, deployment_epoch="smoke-health")
-            authority = LocalApprovalAuthority(issuer_id="smoke-health", audience="dmint/dashboard/v1")
+            authority = LocalApprovalAuthority(
+                issuer_id="smoke-health",
+                audience="dmint/dashboard/v1",
+                private_key=Ed25519PrivateKey.generate(),
+            )
             client = CoreClient(store=store, authority=authority)
             app = create_app(client, allowed_hosts={"localhost", "127.0.0.1", "[::1]", "testserver"})
             tc = TestClient(app)
@@ -145,6 +155,7 @@ class TestSmoke:
 
     def test_home_page_returns_200(self):
         import tempfile
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
         from dmint import LocalApprovalAuthority, SQLiteApprovalStore
         from dmint.dashboard.app import create_app
         from dmint.dashboard.core_client import CoreClient
@@ -153,7 +164,11 @@ class TestSmoke:
         with tempfile.TemporaryDirectory() as d:
             db = Path(d) / "smoke_home.sqlite"
             store = SQLiteApprovalStore(db, deployment_epoch="smoke-home")
-            authority = LocalApprovalAuthority(issuer_id="smoke-home", audience="dmint/dashboard/v1")
+            authority = LocalApprovalAuthority(
+                issuer_id="smoke-home",
+                audience="dmint/dashboard/v1",
+                private_key=Ed25519PrivateKey.generate(),
+            )
             client = CoreClient(store=store, authority=authority)
             app = create_app(client, allowed_hosts={"localhost", "127.0.0.1", "[::1]", "testserver"})
             tc = TestClient(app)
@@ -166,6 +181,7 @@ class TestSmoke:
 
     def test_audit_page_returns_200(self):
         import tempfile
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
         from dmint import LocalApprovalAuthority, SQLiteApprovalStore
         from dmint.dashboard.app import create_app
         from dmint.dashboard.core_client import CoreClient
@@ -174,7 +190,11 @@ class TestSmoke:
         with tempfile.TemporaryDirectory() as d:
             db = Path(d) / "smoke_audit.sqlite"
             store = SQLiteApprovalStore(db, deployment_epoch="smoke-audit")
-            authority = LocalApprovalAuthority(issuer_id="smoke-audit", audience="dmint/dashboard/v1")
+            authority = LocalApprovalAuthority(
+                issuer_id="smoke-audit",
+                audience="dmint/dashboard/v1",
+                private_key=Ed25519PrivateKey.generate(),
+            )
             client = CoreClient(store=store, authority=authority)
             app = create_app(client, allowed_hosts={"localhost", "127.0.0.1", "[::1]", "testserver"})
             tc = TestClient(app)

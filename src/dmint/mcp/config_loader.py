@@ -9,9 +9,9 @@ from pathlib import Path
 import re
 from typing import Any
 
-from dmint.approvals import PolicyProvenance
-from dmint.models import TrustedContext, validate_text
-from dmint.policy import Policy, policy_digest
+from dmint.core.approvals import PolicyProvenance
+from dmint.core.models import TrustedContext, validate_text
+from dmint.core.policy import Policy, policy_digest
 from .config import DiscoveryMode, DisclosureMode, MCPIntegrationConfig, MCPToolBinding, MCPTransportType
 from .errors import MCPConfigurationError
 

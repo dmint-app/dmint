@@ -10,6 +10,7 @@ import tempfile
 import unittest
 from unittest.mock import AsyncMock, MagicMock
 
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 import mcp.types as types
 
 from dmint.approvals import (
@@ -84,7 +85,11 @@ class TestMCPGateway(unittest.IsolatedAsyncioTestCase):
         self.db_path = str(self.tmppath / "approvals.db")
 
         # Authority and verifier
-        self.authority = LocalApprovalAuthority(issuer_id="test-issuer", audience="gateway_epoch")
+        self.authority = LocalApprovalAuthority(
+            issuer_id="test-issuer",
+            audience="gateway_epoch",
+            private_key=Ed25519PrivateKey.generate(),
+        )
         self.verifier = ApprovalVerifier(
             trusted_issuers={"test-issuer": self.authority.public_key}, audience="gateway_epoch"
         )

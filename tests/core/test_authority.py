@@ -186,6 +186,7 @@ class ApprovalAuthorityTests(unittest.TestCase):
         wrong_authority = LocalApprovalAuthority(
             issuer_id=self.authority.issuer_id,
             audience=self.authority.audience,
+            private_key=Ed25519PrivateKey.generate(),
             clock=lambda: self.now,
         )
         wrong_assertion = wrong_authority.issue(self.record, self.approver)

@@ -16,6 +16,7 @@ import tempfile
 import unittest
 from unittest.mock import AsyncMock, patch
 
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 import mcp.types as types
 from dmint.approvals import (
     ApprovalAuthority,
@@ -146,7 +147,11 @@ class MCPV1ContractTests(unittest.IsolatedAsyncioTestCase):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.db_path = str(Path(self.temp_dir.name) / "v1_approvals.db")
         self.store = SQLiteApprovalStore(self.db_path, deployment_epoch="epoch_v1")
-        self.authority = LocalApprovalAuthority(issuer_id=ISSUER, audience=AUDIENCE)
+        self.authority = LocalApprovalAuthority(
+            issuer_id=ISSUER,
+            audience=AUDIENCE,
+            private_key=Ed25519PrivateKey.generate(),
+        )
         self.verifier = ApprovalVerifier(trusted_issuers={ISSUER: self.authority.public_key}, audience=AUDIENCE)
         self.config = make_config()
         self.spy_client = SpyDownstreamClient(self.config)

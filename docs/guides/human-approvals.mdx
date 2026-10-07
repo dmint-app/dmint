@@ -120,4 +120,3 @@ All terminal approval commands enforce the identical security guarantees:
 - **Exact-Request Binding**: Approvals are bound byte-for-byte to the RFC 8785 canonical hash.
 - **Policy Re-Verification**: `dmint approve` verifies the request against the current policy before signing. If the policy changed and now denies the request, approval is refused. Policy resolution follows strict precedence: `--policy <path>` $\to$ database authoritative policy (`store_policy` table) $\to$ local `./policy.json`. When using PostgreSQL, pass `--policy ./policy.json` explicitly if you want to override a cached database policy with local edits.
 - **Single-Use Consumption**: Once consumed by the agent, replaying the assertion fails closed immediately.
-

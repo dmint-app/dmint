@@ -17,6 +17,7 @@ import rfc8785
 from ..canonicalize import redact_sensitive_data, thaw_json
 
 if TYPE_CHECKING:
+    from ..authority import LocalApprovalAuthority
     from ..policy import Policy
 
 from .base import ApprovalStore
@@ -29,7 +30,7 @@ from ..approvals import (
     PolicyProvenance,
     parse_approval_state,
 )
-from ..authority import ApprovalAssertion, ApprovalVerifier, LocalApprovalAuthority
+from ..verification import ApprovalAssertion, ApprovalVerifier
 from ..errors import (
     ApprovalConcurrentConsumeError,
     ApprovalConsumedError,
@@ -780,6 +781,8 @@ class SQLiteApprovalStore(ApprovalStore):
         Raises IllegalApprovalTransitionError if the record is not PENDING.
         Raises ApprovalConcurrentConsumeError if a concurrent approval won.
         """
+        from ..authority import LocalApprovalAuthority
+
         if not isinstance(authority, LocalApprovalAuthority):
             raise MalformedApprovalError("approve_pending requires a LocalApprovalAuthority")
         if type(approved_by) is not str or not approved_by or approved_by != approved_by.strip():
@@ -844,6 +847,8 @@ class SQLiteApprovalStore(ApprovalStore):
         Raises IllegalApprovalTransitionError if the record is not PENDING.
         Raises ApprovalConcurrentConsumeError if a concurrent decision won.
         """
+        from ..authority import LocalApprovalAuthority
+
         if not isinstance(authority, LocalApprovalAuthority):
             raise MalformedApprovalError("reject_pending requires a LocalApprovalAuthority")
         if type(rejected_by) is not str or not rejected_by or rejected_by != rejected_by.strip():

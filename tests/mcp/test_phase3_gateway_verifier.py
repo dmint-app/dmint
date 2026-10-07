@@ -37,6 +37,7 @@ from dmint.core.keys import (
 )
 from dmint.errors import (
     ApprovalAudienceInvalidError,
+    ApprovalConsumedError,
     ApprovalIssuerInvalidError,
     ApprovalSignatureInvalidError,
     ApprovalRequiredError,
@@ -148,9 +149,9 @@ class TestGatewayDoesNotExposePrivateKeyLoader:
     def test_gateway_module_does_not_expose_load_private_key_from_file(self) -> None:
         import dmint.mcp.gateway as gw
 
-        assert not hasattr(gw, "load_private_key_from_file"), (
-            "gateway module must not expose load_private_key_from_file"
-        )
+        assert not hasattr(
+            gw, "load_private_key_from_file"
+        ), "gateway module must not expose load_private_key_from_file"
 
     def test_gateway_module_does_not_expose_write_private_key_atomic(self) -> None:
         import dmint.mcp.gateway as gw
@@ -161,6 +162,38 @@ class TestGatewayDoesNotExposePrivateKeyLoader:
         import dmint.mcp.gateway as gw
 
         assert not hasattr(gw, "load_private_key"), "gateway module must not expose load_private_key"
+
+    def test_gateway_module_does_not_expose_local_approval_authority(self) -> None:
+        import dmint.mcp.gateway as gw
+
+        assert not hasattr(gw, "LocalApprovalAuthority"), "gateway module must not expose LocalApprovalAuthority"
+
+    def test_gateway_does_not_import_signing_or_private_key_code(self) -> None:
+        """Isolated process test: importing dmint.mcp.gateway must NOT import signing or private-key modules."""
+        import subprocess
+        import sys
+
+        code = (
+            "import sys\n"
+            "import dmint.mcp.gateway as gw\n"
+            "# 1. Neither signing nor private-key loader modules may be in sys.modules\n"
+            "banned_modules = {'dmint.core.authority', 'dmint.core.keys'}\n"
+            "loaded_banned = banned_modules & set(sys.modules.keys())\n"
+            "assert not loaded_banned, f'Banned modules loaded by gateway: {loaded_banned}'\n"
+            "# 2. No module in sys.modules imported by gateway may expose private-key loaders or signer\n"
+            "banned_symbols = {'load_private_key', 'load_private_key_from_file', 'write_private_key_atomic', 'LocalApprovalAuthority'}\n"
+            "for mod_name, mod in list(sys.modules.items()):\n"
+            "    if mod_name.startswith('dmint.mcp'):\n"
+            "        for sym in banned_symbols:\n"
+            "            assert not hasattr(mod, sym), f'{mod_name} exposes banned symbol {sym}'\n"
+        )
+        proc = subprocess.run(
+            [sys.executable, "-c", code],
+            capture_output=True,
+            text=True,
+            env={**os.environ, "PYTHONPATH": "src"},
+        )
+        assert proc.returncode == 0, f"Subprocess failed:\n{proc.stderr}\n{proc.stdout}"
 
     def test_gateway_importable_without_private_key_on_disk_or_in_env(self) -> None:
         """Importing the gateway module must not fail when no private key is present."""
@@ -540,7 +573,158 @@ class TestE2EPersistedKeyRestartAndSingleUse(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(consumed.state, ApprovalState.CONSUMED)
 
         # Step 6: Second retry with the SAME assertion → must fail (single-use).
-        with self.assertRaises(Exception):
+        with self.assertRaises(ApprovalConsumedError):
             await proxy.retry_call(tool_name="merge_pr", arguments=args, approval_credential=assertion)
         # Must NOT have called the downstream tool a second time.
         self.assertEqual(self.client.call_count, 1, "Tool was called more than once — single-use not enforced!")
+
+
+# ─── Subprocess E2E Test ──────────────────────────────────────────────────────
+
+
+class TestSubprocessE2E(unittest.IsolatedAsyncioTestCase):
+    """Subprocess-based E2E test verifying the complete operational flow across process boundaries:
+    1. Run `dmint init-keys` in a subprocess to generate the signing key.
+    2. Run `dmint export-public-key` in a subprocess to extract the public key.
+    3. Start gateway in test with ONLY the exported public key (no private key in memory/env).
+    4. Agent calls protected tool → APPROVAL_REQUIRED.
+    5. Run `dmint approve` in a separate subprocess with the key file and --output-assertion.
+    6. Retry through gateway with the assertion → executes once.
+    7. Second retry with the same assertion → rejected with ApprovalConsumedError.
+    """
+
+    async def test_full_subprocess_e2e_flow(self) -> None:
+        import json
+        import subprocess
+        import sys
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            key_file = tmp_path / "signing.key"
+            db_path = tmp_path / "approvals.db"
+            assertion_file = tmp_path / "assertion.bin"
+            issuer_id = "subprocess-authority"
+            audience = "github-prod"
+
+            env = {
+                **os.environ,
+                "PYTHONPATH": "src",
+                "DMINT_DB_PATH": str(db_path),
+            }
+
+            # 1. Run `dmint init-keys` in subprocess
+            init_res = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "dmint.cli.__main__",
+                    "init-keys",
+                    "--key-file",
+                    str(key_file),
+                    "--issuer-id",
+                    issuer_id,
+                ],
+                capture_output=True,
+                text=True,
+                env=env,
+            )
+            self.assertEqual(init_res.returncode, 0, f"init-keys failed: {init_res.stderr}")
+            self.assertTrue(key_file.exists(), "Key file was not created")
+
+            # 2. Run `dmint export-public-key` in subprocess
+            export_res = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "dmint.cli.__main__",
+                    "export-public-key",
+                    "--key-file",
+                    str(key_file),
+                    "--issuer-id",
+                    issuer_id,
+                    "--format",
+                    "json",
+                ],
+                capture_output=True,
+                text=True,
+                env=env,
+            )
+            self.assertEqual(export_res.returncode, 0, f"export-public-key failed: {export_res.stderr}")
+            exported_data = json.loads(export_res.stdout)
+            pubkey_hex = exported_data["public_key_hex"]
+            self.assertEqual(len(pubkey_hex), 64)
+
+            # 3. Gateway configured with public key ONLY
+            # (No private key anywhere in this process or memory)
+            pubkey = public_key_from_hex(pubkey_hex)
+            verifier = ApprovalVerifier(
+                trusted_issuers={issuer_id: pubkey},
+                audience=audience,
+            )
+            store = SQLiteApprovalStore(str(db_path), deployment_epoch="default")
+            policy = _make_policy()
+            config = _make_integration_config()
+            client = SpyDownstreamClient(config)
+            proxy = _make_proxy(config, client, store, policy, verifier)
+
+            # 4. Request tool -> APPROVAL_REQUIRED
+            args = {"pr_id": "42"}
+            with self.assertRaises(ApprovalRequiredError) as ctx:
+                await proxy.gate.route_call(
+                    integration_id="github-prod",
+                    tool_name="merge_pr",
+                    arguments=args,
+                )
+            approval_id = ctx.exception.approval_id
+
+            # 5. `dmint approve` in a separate process
+            approve_res = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "dmint.cli.__main__",
+                    "approve",
+                    approval_id,
+                    "--db-path",
+                    str(db_path),
+                    "--key-file",
+                    str(key_file),
+                    "--authority-issuer",
+                    issuer_id,
+                    "--audience",
+                    audience,
+                    "--approver-id",
+                    "operator-alice",
+                    "--output-assertion",
+                    str(assertion_file),
+                ],
+                capture_output=True,
+                text=True,
+                env=env,
+            )
+            self.assertEqual(
+                approve_res.returncode,
+                0,
+                f"approve failed:\nstdout={approve_res.stdout}\nstderr={approve_res.stderr}",
+            )
+            self.assertTrue(assertion_file.exists(), "Assertion file was not written")
+            assertion_bytes = assertion_file.read_bytes()
+
+            # 6. Retry through gateway -> executes once
+            result = await proxy.retry_call(
+                tool_name="merge_pr",
+                arguments=args,
+                approval_credential=assertion_bytes,
+            )
+            self.assertIn("executed", result)
+            self.assertEqual(client.call_count, 1)
+
+            # 7. Replay rejected with ApprovalConsumedError
+            with self.assertRaises(ApprovalConsumedError):
+                await proxy.retry_call(
+                    tool_name="merge_pr",
+                    arguments=args,
+                    approval_credential=assertion_bytes,
+                )
+            self.assertEqual(client.call_count, 1, "Downstream tool called more than once on replay")
+            store.close()

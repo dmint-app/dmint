@@ -64,7 +64,7 @@ If you discover or suspect a security vulnerability in Dmint, please report it p
    - Go to the **Security** tab of the [`dmint-app/dmint`](https://github.com/dmint-app/dmint) repository.
    - Click **Report a vulnerability** to open a confidential advisory draft.
 2. **Email Disclosure**:
-   - Send full technical details to: **`security@dmint.app`** 
+   - Send full technical details to: **`security@dmint.app`**
 
 ### What to Include in Your Report
 To help us triage and resolve the issue quickly, please provide:

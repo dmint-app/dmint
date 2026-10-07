@@ -36,8 +36,8 @@ Dmint is engineered around five strict, non-negotiable security invariants. Ever
 
 - In Core's SQLite store, transitions are guarded by atomic conditional SQL transactions:
   ```sql
-  UPDATE approval_records 
-  SET state = 'CONSUMED', consumed_at = ? 
+  UPDATE approval_records
+  SET state = 'CONSUMED', consumed_at = ?
   WHERE approval_id = ? AND state = 'APPROVED';
   ```
 - Replay attempts, whether sequential or parallel from concurrent threads, fail closed with:

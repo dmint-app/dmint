@@ -212,5 +212,5 @@ When proposing changes, assess severity to recommend the appropriate SemVer bump
 
 ### Mandatory User Permission Protocol
 > **CRITICAL RULE**: AI agents must NEVER change or bump version numbers silently.
-> 
+>
 > Always suggest the recommended version to the user with clear rationale based on change severity, and wait for the user's **explicit permission** before updating version strings in `pyproject.toml`, `version.py`, `__init__.py`, or `CHANGELOG.md`.

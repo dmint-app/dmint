@@ -13,11 +13,11 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from dmint.approvals import new_request_id
-from dmint.errors import RequestValidationError
+from dmint.core.approvals import new_request_id
+from dmint.core.errors import RequestValidationError
 from .errors import MCPMappingError, MCPConfigurationError
-from dmint.models import NO_RESOURCE, NoResource, ToolRequest, TrustedContext, validate_text
-from dmint.request_binding import request_binding_fingerprint
+from dmint.core.models import NO_RESOURCE, NoResource, ToolRequest, TrustedContext, validate_text
+from dmint.core.request_binding import request_binding_fingerprint
 from .config import MCPIntegrationConfig, MCPToolBinding
 
 

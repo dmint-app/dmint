@@ -1,6 +1,14 @@
-"""Dmint's hardened Phase 1 deterministic authorization core."""
+from typing import TYPE_CHECKING, Any
 
 from dmint.version import __version__
+
+if TYPE_CHECKING:
+    from .authority import LocalApprovalAuthority
+    from .keys import (
+        load_private_key,
+        load_private_key_from_file,
+        write_private_key_atomic,
+    )
 
 
 from .approvals import (
@@ -16,21 +24,17 @@ from .approvals import (
     new_request_id,
     parse_approval_state,
 )
-from .authority import ApprovalAssertion, ApprovalVerifier, LocalApprovalAuthority, VerifiedApproval
-from .canonicalize import MAX_SAFE_INTEGER, canonicalize, canonicalize_request
-from .enforcement import AuthorizedRequest, Dmint, InvocationSnapshot
-from .keys import (
-    KeyExistsError,
-    KeyLoadError,
-    KeyPermissionError,
-    load_private_key,
-    load_private_key_from_file,
+from .verification import (
+    ApprovalAssertion,
+    ApprovalVerifier,
+    VerifiedApproval,
     public_key_from_hex,
     public_key_from_pem,
     public_key_hex,
     public_key_pem,
-    write_private_key_atomic,
 )
+from .canonicalize import MAX_SAFE_INTEGER, canonicalize, canonicalize_request
+from .enforcement import AuthorizedRequest, Dmint, InvocationSnapshot
 from .redaction import redact_database_url
 from .errors import (
     ApprovalAlgorithmUnsupportedError,
@@ -61,6 +65,9 @@ from .errors import (
     DmintError,
     ExecutionError,
     IllegalApprovalTransitionError,
+    KeyExistsError,
+    KeyLoadError,
+    KeyPermissionError,
     MalformedApprovalError,
     PolicyError,
     RequestValidationError,
@@ -202,3 +209,23 @@ __all__ = [
     "public_key_pem",
     "write_private_key_atomic",
 ]
+
+
+def __getattr__(name: str) -> Any:
+    if name == "LocalApprovalAuthority":
+        from .authority import LocalApprovalAuthority
+
+        return LocalApprovalAuthority
+    if name in ("load_private_key", "load_private_key_from_file", "write_private_key_atomic"):
+        from .keys import (
+            load_private_key,
+            load_private_key_from_file,
+            write_private_key_atomic,
+        )
+
+        return {
+            "load_private_key": load_private_key,
+            "load_private_key_from_file": load_private_key_from_file,
+            "write_private_key_atomic": write_private_key_atomic,
+        }[name]
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

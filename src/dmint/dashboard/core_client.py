@@ -24,8 +24,8 @@ from typing import Any
 from dmint import (
     ApprovalState,
     ApprovalStore,
-    LocalApprovalAuthority,
 )
+from dmint.core.authority import LocalApprovalAuthority
 from dmint.approvals import ApprovalRecord
 from dmint.core.storage import ThreadSafeApprovalStore
 

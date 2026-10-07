@@ -11,7 +11,7 @@ from types import MappingProxyType
 from typing import Any, TypeVar, cast
 
 from .approvals import ApprovalRecord, new_request_id
-from .authority import ApprovalAssertion, ApprovalVerifier
+from .verification import ApprovalAssertion, ApprovalVerifier
 from .canonicalize import freeze_json, thaw_json
 from .errors import (
     ApprovalPolicyInvalidError,

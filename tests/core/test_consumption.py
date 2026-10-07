@@ -166,6 +166,7 @@ class AtomicConsumptionTests(unittest.TestCase):
         other_authority = LocalApprovalAuthority(
             issuer_id="authority-1",
             audience="dmint/runtime-1",
+            private_key=Ed25519PrivateKey.generate(),
         )
         other_assertion = other_authority.issue(approved, self.approver, now=self.now)
         with self.assertRaises(ApprovalSignatureInvalidError):

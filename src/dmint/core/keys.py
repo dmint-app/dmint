@@ -2,13 +2,14 @@
 
 This module handles:
 - Atomic, permission-safe key file creation (0600, no group/other access).
-- Strict key-file and parent-directory permission enforcement.
-- Loading private keys from a file (preferred) or environment variable.
-- Public key export in hex and PEM formats.
-- Zero key material leakage in exceptions, reprs, or tracebacks.
+- Strict key-file and parent-directory permission enforcement using O_NOFOLLOW + fstat(fd).
+- Enforcing file ownership matches current effective UID (st_uid == os.geteuid()).
+- Safe loading of private keys from a file (preferred) or opt-in environment variable.
+- Non-POSIX fail-closed enforcement (requires DMINT_ALLOW_INSECURE_KEY_PERMISSIONS=1).
+- Public-key export (re-exported from .verification).
 
-The gateway (ApprovalVerifier) imports ONLY public-key helpers from this module.
-Private-key loading functions are kept here and MUST NOT be imported by dmint.mcp.gateway.
+The gateway (ApprovalVerifier) imports ONLY from dmint.core.verification.
+This module is strictly for the authority/signer process.
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ import os
 import platform
 import stat
 import tempfile
+import warnings
 from pathlib import Path
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import (
@@ -27,14 +29,21 @@ from cryptography.hazmat.primitives.serialization import (
     Encoding,
     NoEncryption,
     PrivateFormat,
-    PublicFormat,
+)
+
+# Re-export public-key helpers from verification module
+from .verification import (
+    public_key_from_hex,
+    public_key_from_pem,
+    public_key_hex,
+    public_key_pem,
 )
 
 __all__ = [
     # Paths
     "DEFAULT_KEY_DIR",
     "DEFAULT_KEY_FILE",
-    # Public-key helpers (safe for gateway import)
+    # Public-key helpers (safe for gateway import via .verification)
     "public_key_hex",
     "public_key_pem",
     "public_key_from_hex",
@@ -44,117 +53,36 @@ __all__ = [
     "load_private_key_from_file",
     "load_private_key",
     "write_private_key_atomic",
+    "KeyExistsError",
+    "KeyLoadError",
+    "KeyPermissionError",
 ]
 
 DEFAULT_KEY_DIR = Path.home() / ".config" / "dmint"
 DEFAULT_KEY_FILE = DEFAULT_KEY_DIR / "signing.key"
 _PRIVATE_KEY_ENV = "DMINT_PRIVATE_KEY"
 _KEY_FILE_ENV = "DMINT_KEY_FILE"
+_ALLOW_INLINE_KEY_ENV = "DMINT_ALLOW_INLINE_KEY"
+_ALLOW_INSECURE_PERMS_ENV = "DMINT_ALLOW_INSECURE_KEY_PERMISSIONS"
 _POSIX = platform.system() != "Windows"
 
-# ─── Public-key helpers ────────────────────────────────────────────────────────
+
+from .errors import (
+    KeyExistsError,
+    KeyLoadError,
+    KeyPermissionError,
+)
 
 
-def public_key_hex(public_key: Ed25519PublicKey) -> str:
-    """Return the raw 32-byte Ed25519 public key as a lowercase hex string (64 chars)."""
-    raw = public_key.public_bytes(encoding=Encoding.Raw, format=PublicFormat.Raw)
-    return raw.hex()
-
-
-def public_key_pem(public_key: Ed25519PublicKey) -> str:
-    """Return the public key as a PEM-encoded SubjectPublicKeyInfo string."""
-    return public_key.public_bytes(
-        encoding=Encoding.PEM,
-        format=PublicFormat.SubjectPublicKeyInfo,
-    ).decode("ascii")
-
-
-def public_key_from_hex(hex_str: str) -> Ed25519PublicKey:
-    """Load an Ed25519PublicKey from a 64-char lowercase hex string.
-
-    Raises ValueError on invalid input.
-    """
-    if not isinstance(hex_str, str) or len(hex_str) != 64:
-        raise ValueError("public_key_hex must be a 64-character hex string")
-    try:
-        raw = bytes.fromhex(hex_str)
-    except ValueError as exc:
-        raise ValueError("public_key_hex contains non-hex characters") from exc
-    return Ed25519PublicKey.from_public_bytes(raw)
-
-
-def public_key_from_pem(pem_str: str) -> Ed25519PublicKey:
-    """Load an Ed25519PublicKey from a PEM string.
-
-    Raises ValueError on invalid input.
-    """
-    from cryptography.hazmat.primitives.serialization import load_pem_public_key
-
-    try:
-        key = load_pem_public_key(pem_str.encode("ascii"))
-    except Exception as exc:
-        raise ValueError("invalid PEM public key") from exc
-    if not isinstance(key, Ed25519PublicKey):
-        raise ValueError("PEM key is not an Ed25519 public key")
-    return key
-
-
-# ─── Permission checks ─────────────────────────────────────────────────────────
-
-
-class KeyPermissionError(PermissionError):
-    """Raised when key file or parent directory permissions are too loose."""
-
-
-def check_key_file_permissions(path: Path) -> None:
-    """Verify that the key file and its parent directory have safe permissions.
-
-    Rules (POSIX only; on Windows, a warning is emitted but no error is raised):
-      - Key file must NOT be readable/writable/executable by group or others
-        (only modes 0600 and 0400 are accepted).
-      - Parent directory must NOT be writable by group or others
-        (group/world-writable parent could allow file replacement).
-
-    Raises:
-        KeyPermissionError: if any permission check fails.
-        FileNotFoundError: if the path does not exist.
-    """
-    if not _POSIX:
-        import warnings
-
-        warnings.warn(
-            "Key file permission checks are not enforced on non-POSIX systems.",
-            stacklevel=2,
-        )
-        return
-
-    path = path.resolve()
-    if not path.exists():
-        raise FileNotFoundError(f"key file does not exist: {path.name}")
-
-    # --- Key file permissions ---
-    try:
-        file_stat = path.stat()
-    except OSError as exc:
-        raise KeyPermissionError("cannot stat key file") from exc
-
-    file_mode = stat.S_IMODE(file_stat.st_mode)
-    if file_mode & 0o077:  # any group or other bits set
-        raise KeyPermissionError(
-            f"key file has unsafe permissions {oct(file_mode)}; "
-            "expected 0600 or 0400 (no group/other access). "
-            f"Fix with: chmod 0600 {path.name}"
-        )
-
-    # --- Parent directory permissions ---
-    parent = path.parent
+def _check_parent_dir_permissions(parent: Path) -> None:
+    """Verify that the key file parent directory has safe permissions."""
     try:
         parent_stat = parent.stat()
-    except OSError as exc:
-        raise KeyPermissionError("cannot stat key file parent directory") from exc
+    except OSError:
+        raise KeyLoadError("cannot stat key file parent directory") from None
 
     parent_mode = stat.S_IMODE(parent_stat.st_mode)
-    if parent_mode & 0o022:  # group-write or other-write
+    if parent_mode & 0o022:
         raise KeyPermissionError(
             f"key file parent directory has unsafe permissions {oct(parent_mode)}; "
             "group-writable or world-writable parent directories allow key file replacement. "
@@ -162,46 +90,142 @@ def check_key_file_permissions(path: Path) -> None:
         )
 
 
-# ─── Private-key loading ───────────────────────────────────────────────────────
+def check_key_file_permissions(path: Path | str) -> None:
+    """Public helper to verify key file and parent directory permissions.
 
-
-class KeyLoadError(RuntimeError):
-    """Raised when a private key cannot be loaded.
-
-    Key material is NEVER included in the message or attached cause.
-    """
-
-
-def load_private_key_from_file(path: Path | str) -> Ed25519PrivateKey:
-    """Load an Ed25519 private key from a file.
-
-    The file must contain exactly 64 hex characters (the raw 32-byte key).
-
-    Security:
-        - Enforces strict file and parent-directory permissions on POSIX.
-        - Never includes path contents, key material, or raw OS errors in
-          the raised exception message.
-
-    Raises:
-        KeyLoadError: on any failure (bad permissions, bad format, missing file).
+    On POSIX: checks mode 0600/0400, ownership by geteuid(), and parent directory.
+    On non-POSIX: fails closed unless DMINT_ALLOW_INSECURE_KEY_PERMISSIONS=1 is set.
     """
     path = Path(path).resolve()
+    if not path.exists():
+        raise FileNotFoundError(f"key file does not exist: {path.name}")
 
-    # Permission check (raises KeyPermissionError which is a PermissionError
-    # subclass — re-raise as KeyLoadError to unify the interface and avoid
-    # leaking the path in chained exceptions).
+    if not _POSIX:
+        if os.environ.get(_ALLOW_INSECURE_PERMS_ENV, "").lower() not in ("1", "true", "yes"):
+            raise KeyPermissionError(
+                "Key file permission enforcement is not supported on non-POSIX platforms; "
+                f"set {_ALLOW_INSECURE_PERMS_ENV}=1 or pass --allow-insecure-key-permissions to proceed."
+            )
+        return
+
+    _check_parent_dir_permissions(path.parent)
+
     try:
-        check_key_file_permissions(path)
-    except FileNotFoundError:
-        raise KeyLoadError("key file does not exist") from None
+        file_stat = path.stat()
+    except OSError as exc:
+        raise KeyPermissionError("cannot stat key file") from exc
+
+    if hasattr(os, "geteuid") and file_stat.st_uid != os.geteuid():
+        raise KeyPermissionError(
+            f"key file owner UID {file_stat.st_uid} does not match current process UID {os.geteuid()}"
+        )
+
+    file_mode = stat.S_IMODE(file_stat.st_mode)
+    if file_mode & 0o077:
+        raise KeyPermissionError(
+            f"key file has unsafe permissions {oct(file_mode)}; "
+            "expected 0600 or 0400 (no group/other access). "
+            f"Fix with: chmod 0600 {path.name}"
+        )
+
+
+def load_private_key_from_file(
+    path: Path | str,
+    *,
+    allow_insecure_permissions: bool = False,
+) -> Ed25519PrivateKey:
+    """Load an Ed25519 private key from a file using secure descriptor operations.
+
+    Security guarantees:
+      - Opens with O_RDONLY | O_NOFOLLOW (refuses symlinks).
+      - fstat(fd) on the open descriptor (eliminates TOCTOU stat-then-open race).
+      - Checks st_uid == geteuid() (must be owned by the running process user).
+      - Checks file mode (must be 0600 or 0400, no group/other access).
+      - Checks parent directory permissions (must not be group/world-writable).
+      - Fails closed on non-POSIX platforms unless allow_insecure_permissions or
+        DMINT_ALLOW_INSECURE_KEY_PERMISSIONS=1 is set.
+      - Never includes path contents or key material in exceptions.
+
+    Raises:
+        KeyLoadError: on any failure (bad permissions, symlink, bad format, missing file).
+    """
+    path = Path(path)
+
+    # 1. Non-POSIX check
+    if not _POSIX:
+        env_allowed = os.environ.get(_ALLOW_INSECURE_PERMS_ENV, "").lower() in ("1", "true", "yes")
+        if not (allow_insecure_permissions or env_allowed):
+            raise KeyLoadError(
+                "Key file permission enforcement is not supported on non-POSIX platforms; "
+                f"set {_ALLOW_INSECURE_PERMS_ENV}=1 or pass --allow-insecure-key-permissions to allow."
+            )
+        try:
+            raw_text = path.read_text(encoding="ascii").strip()
+        except FileNotFoundError:
+            raise KeyLoadError("key file does not exist") from None
+        except Exception:
+            raise KeyLoadError("failed to read key file") from None
+        return _parse_private_key_hex(raw_text)
+
+    # 2. Check parent directory permissions
+    try:
+        parent = path.resolve().parent
+        _check_parent_dir_permissions(parent)
     except KeyPermissionError as exc:
         raise KeyLoadError(str(exc)) from None
-
-    # Read file — suppress OS error details (they often contain the path).
-    try:
-        raw_text = path.read_text(encoding="ascii").strip()
     except Exception:
-        raise KeyLoadError("failed to read key file") from None
+        raise KeyLoadError("cannot verify key file parent directory") from None
+
+    # 3. Open with O_RDONLY | O_NOFOLLOW | O_CLOEXEC (no TOCTOU race, rejects symlinks)
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0)
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+
+    try:
+        fd = os.open(str(path), flags)
+    except FileNotFoundError:
+        raise KeyLoadError("key file does not exist") from None
+    except OSError as exc:
+        import errno
+
+        if exc.errno == errno.ELOOP or os.path.islink(path):
+            raise KeyLoadError("key file is a symlink; symlinks are rejected for security") from None
+        raise KeyLoadError("cannot open key file") from None
+
+    try:
+        # 4. fstat the opened fd directly
+        file_stat = os.fstat(fd)
+
+        if not stat.S_ISREG(file_stat.st_mode):
+            raise KeyLoadError("key file is not a regular file")
+
+        # Ownership check: must match current process effective UID
+        if hasattr(os, "geteuid"):
+            current_uid = os.geteuid()
+            if file_stat.st_uid != current_uid:
+                raise KeyLoadError(
+                    f"key file owner UID {file_stat.st_uid} does not match current process UID {current_uid}; "
+                    "key files must be owned by the running process user"
+                )
+
+        # Mode check: no group or other access
+        file_mode = stat.S_IMODE(file_stat.st_mode)
+        if file_mode & 0o077:
+            raise KeyLoadError(
+                f"key file has unsafe permissions {oct(file_mode)}; "
+                "expected 0600 or 0400 (no group/other access). "
+                f"Fix with: chmod 0600 {path.name}"
+            )
+
+        # 5. Read from the verified open fd
+        raw_bytes = os.read(fd, 256)
+    finally:
+        os.close(fd)
+
+    try:
+        raw_text = raw_bytes.decode("ascii").strip()
+    except Exception:
+        raise KeyLoadError("failed to decode key file content") from None
 
     return _parse_private_key_hex(raw_text)
 
@@ -210,33 +234,55 @@ def load_private_key(
     key_file: Path | str | None = None,
     *,
     env_var: str = _PRIVATE_KEY_ENV,
+    allow_inline_key: bool = False,
+    allow_insecure_permissions: bool = False,
 ) -> Ed25519PrivateKey:
-    """Load a private key from a file (preferred) or environment variable.
+    """Load a private key from a file (preferred) or opt-in environment variable.
 
     Resolution order:
       1. ``key_file`` argument (if given).
       2. ``DMINT_KEY_FILE`` environment variable.
-      3. ``env_var`` (default ``DMINT_PRIVATE_KEY``) environment variable.
+      3. ``DEFAULT_KEY_FILE`` (~/.config/dmint/signing.key) if it exists.
+      4. ``env_var`` (default ``DMINT_PRIVATE_KEY``) inline hex ONLY IF
+         explicitly opted-in via allow_inline_key or DMINT_ALLOW_INLINE_KEY=1.
 
     Raises:
-        KeyLoadError: if no key source is available or parsing fails.
+        KeyLoadError: if no key source is available, opt-in is missing, or parsing fails.
     """
     # 1. Explicit file argument
     if key_file is not None:
-        return load_private_key_from_file(key_file)
+        return load_private_key_from_file(key_file, allow_insecure_permissions=allow_insecure_permissions)
 
     # 2. DMINT_KEY_FILE env var -> file path
     env_key_file = os.environ.get(_KEY_FILE_ENV, "").strip()
     if env_key_file:
-        return load_private_key_from_file(env_key_file)
+        return load_private_key_from_file(env_key_file, allow_insecure_permissions=allow_insecure_permissions)
 
-    # 3. Inline hex env var (less secure — visible to same-user processes)
+    # 3. Default config directory key file if present
+    if DEFAULT_KEY_FILE.exists():
+        return load_private_key_from_file(DEFAULT_KEY_FILE, allow_insecure_permissions=allow_insecure_permissions)
+
+    # 4. Inline hex env var: OPT-IN ONLY with security warning
     hex_key = os.environ.get(env_var, "").strip()
     if hex_key:
+        opted_in = allow_inline_key or os.environ.get(_ALLOW_INLINE_KEY_ENV, "").lower() in ("1", "true", "yes")
+        if not opted_in:
+            raise KeyLoadError(
+                f"{env_var} contains inline private key material, which is exposed to "
+                "same-user processes via /proc/<pid>/environ. To use inline keys, explicitly "
+                f"opt-in by setting {_ALLOW_INLINE_KEY_ENV}=1."
+            )
+        warnings.warn(
+            f"{env_var} contains inline private key material visible in process environment. "
+            "Use a restricted key file (mode 0600) instead.",
+            UserWarning,
+            stacklevel=2,
+        )
         return _parse_private_key_hex(hex_key)
 
     raise KeyLoadError(
-        f"no private key source found; set {_KEY_FILE_ENV} or {env_var}, or pass key_file to load_private_key()"
+        f"no private key source found; an Ed25519 signing key must be provided via key_file, "
+        f"{_KEY_FILE_ENV}, or generated with 'dmint init-keys'."
     )
 
 
@@ -257,18 +303,12 @@ def _parse_private_key_hex(hex_str: str) -> Ed25519PrivateKey:
         raise KeyLoadError("invalid Ed25519 private key bytes") from None
 
 
-# ─── Atomic key-file creation ──────────────────────────────────────────────────
-
-
-class KeyExistsError(FileExistsError):
-    """Raised by write_private_key_atomic when the key file already exists and force=False."""
-
-
 def write_private_key_atomic(
     path: Path | str,
     private_key: Ed25519PrivateKey,
     *,
     force: bool = False,
+    allow_insecure_permissions: bool = False,
 ) -> None:
     """Write an Ed25519 private key to a file atomically with mode 0600.
 
@@ -279,14 +319,24 @@ def write_private_key_atomic(
     Args:
         path: Destination file path.
         private_key: The Ed25519 private key to persist.
-        force: If True, overwrite an existing file.  If False (default),
+        force: If True, overwrite an existing file. If False (default),
                raise KeyExistsError when the file already exists.
+        allow_insecure_permissions: If True on non-POSIX, bypass permission enforcement.
 
     Raises:
         KeyExistsError: if the file exists and force=False.
-        OSError: on filesystem errors (permission denied, disk full, etc.).
+        KeyPermissionError: if non-POSIX without opt-in.
+        OSError: on filesystem errors.
     """
     path = Path(path).resolve()
+
+    if not _POSIX:
+        env_allowed = os.environ.get(_ALLOW_INSECURE_PERMS_ENV, "").lower() in ("1", "true", "yes")
+        if not (allow_insecure_permissions or env_allowed):
+            raise KeyPermissionError(
+                "Key file permission enforcement is not supported on non-POSIX platforms; "
+                f"set {_ALLOW_INSECURE_PERMS_ENV}=1 or pass --allow-insecure-key-permissions to allow."
+            )
 
     if path.exists() and not force:
         raise KeyExistsError(

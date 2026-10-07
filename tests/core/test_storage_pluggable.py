@@ -11,6 +11,8 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
 from dmint import (
     ANY_RESOURCE,
     ApprovalAuthority,
@@ -182,6 +184,7 @@ class PostgreSQLStorageIntegrationTests(unittest.TestCase):
         self.authority = LocalApprovalAuthority(
             issuer_id="authority-pg-test",
             audience="local-runtime",
+            private_key=Ed25519PrivateKey.generate(),
             clock=lambda: self.now,
         )
         self.verifier = ApprovalVerifier(

@@ -102,9 +102,12 @@ def store(tmp_path):
 
 @pytest.fixture()
 def authority():
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
     return LocalApprovalAuthority(
         issuer_id="test-dashboard",
         audience="dmint/dashboard/v1",
+        private_key=Ed25519PrivateKey.generate(),
         clock=lambda: NOW,
     )
 

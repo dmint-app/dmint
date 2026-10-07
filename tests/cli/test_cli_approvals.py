@@ -6,6 +6,7 @@ import contextlib
 import hashlib
 import io
 import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -29,11 +30,18 @@ class TestCLIApprovals(unittest.TestCase):
     def setUp(self) -> None:
         self.tempdir = tempfile.TemporaryDirectory()
         self.db_path = Path(self.tempdir.name) / "approvals.sqlite"
+        self.key_file = Path(self.tempdir.name) / "signing.key"
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+        from dmint.core.keys import write_private_key_atomic
+
+        write_private_key_atomic(self.key_file, Ed25519PrivateKey.generate())
+        os.environ["DMINT_KEY_FILE"] = str(self.key_file)
         self.store = SQLiteApprovalStore(self.db_path, deployment_epoch="default")
         self.store.__enter__()
 
     def tearDown(self) -> None:
         self.store.__exit__(None, None, None)
+        os.environ.pop("DMINT_KEY_FILE", None)
         self.tempdir.cleanup()
 
     def _make_record(

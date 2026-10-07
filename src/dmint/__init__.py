@@ -1,6 +1,7 @@
 """Dmint: Deterministic authorization and security enforcement for AI-agent tool execution."""
 
 import sys
+from typing import Any
 
 from .version import __version__
 from .core import (
@@ -53,7 +54,6 @@ from .core import (
     ExecutionError,
     IllegalApprovalTransitionError,
     InvocationSnapshot,
-    LocalApprovalAuthority,
     MalformedApprovalError,
     NoResource,
     Policy,
@@ -102,12 +102,16 @@ if TYPE_CHECKING:
     from . import skills as skills
 
 
-def __getattr__(name: str):
+def __getattr__(name: str) -> Any:
     if name in ("cli", "mcp", "dashboard", "skills"):
         mod = importlib.import_module(f".{name}", __name__)
         globals()[name] = mod
         sys.modules.setdefault(f"dmint_{name}", mod)
         return mod
+    if name == "LocalApprovalAuthority":
+        from .core.authority import LocalApprovalAuthority
+
+        return LocalApprovalAuthority
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 

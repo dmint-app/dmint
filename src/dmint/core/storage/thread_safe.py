@@ -6,12 +6,15 @@ from collections.abc import Callable, Collection
 from datetime import datetime
 from pathlib import Path
 import threading
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from dmint.core.approvals import ApprovalRecord, ApprovalState, PolicyProvenance
-from dmint.core.authority import ApprovalAssertion, ApprovalVerifier, LocalApprovalAuthority
 from dmint.core.models import ToolRequest
 from dmint.core.policy import Policy
+from dmint.core.verification import ApprovalAssertion, ApprovalVerifier
+
+if TYPE_CHECKING:
+    from dmint.core.authority import LocalApprovalAuthority
 from .base import ApprovalStore
 from .factory import create_approval_store
 from .sql import SQLAlchemyApprovalStore
