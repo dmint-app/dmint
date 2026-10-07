@@ -7,6 +7,7 @@ import platform
 import stat
 import tempfile
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -219,6 +220,42 @@ class TestCheckKeyFilePermissions:
         dest = subdir / "signing.key"
         _write_hex_key(dest, key, mode=0o600)
         check_key_file_permissions(dest)  # must not raise
+
+    def test_parent_dir_wrong_owner_raises(self, tmp_path: Path) -> None:
+        """Parent directory not owned by current euid or root must be rejected."""
+        key = _gen_key()
+        dest = tmp_path / "signing.key"
+        _write_hex_key(dest, key, mode=0o600)
+        with patch("os.geteuid", return_value=os.geteuid() + 5000):
+            with pytest.raises(KeyPermissionError, match="parent directory owner UID"):
+                check_key_file_permissions(dest)
+
+    def test_parent_dir_root_owned_passes(self, tmp_path: Path) -> None:
+        """Parent directory owned by root (UID 0) must pass when process is non-root."""
+        key = _gen_key()
+        dest = tmp_path / "signing.key"
+        _write_hex_key(dest, key, mode=0o600)
+
+        real_stat = dest.parent.stat()
+
+        class FakeStat:
+            st_uid = 0
+            st_mode = real_stat.st_mode
+
+        parent_str = str(dest.parent.resolve())
+
+        orig_stat = Path.stat
+
+        def fake_stat(self_path: Path) -> Any:
+            try:
+                if str(self_path) == parent_str:
+                    return FakeStat()
+            except Exception:
+                pass
+            return orig_stat(self_path)
+
+        with patch.object(Path, "stat", fake_stat):
+            check_key_file_permissions(dest)  # must not raise
 
 
 # ─── load_private_key_from_file ───────────────────────────────────────────────

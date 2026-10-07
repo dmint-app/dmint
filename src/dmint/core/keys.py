@@ -75,11 +75,19 @@ from .errors import (
 
 
 def _check_parent_dir_permissions(parent: Path) -> None:
-    """Verify that the key file parent directory has safe permissions."""
+    """Verify that the key file parent directory has safe permissions and ownership."""
     try:
         parent_stat = parent.stat()
-    except OSError:
-        raise KeyLoadError("cannot stat key file parent directory") from None
+    except OSError as exc:
+        raise KeyLoadError("cannot stat key file parent directory") from exc
+
+    if hasattr(os, "geteuid"):
+        current_uid = os.geteuid()
+        if parent_stat.st_uid not in (current_uid, 0):
+            raise KeyPermissionError(
+                f"key file parent directory owner UID {parent_stat.st_uid} is neither current process UID {current_uid} nor root (0); "
+                "parent directory must be owned by the running process user or root"
+            )
 
     parent_mode = stat.S_IMODE(parent_stat.st_mode)
     if parent_mode & 0o022:
@@ -93,40 +101,61 @@ def _check_parent_dir_permissions(parent: Path) -> None:
 def check_key_file_permissions(path: Path | str) -> None:
     """Public helper to verify key file and parent directory permissions.
 
-    On POSIX: checks mode 0600/0400, ownership by geteuid(), and parent directory.
-    On non-POSIX: fails closed unless DMINT_ALLOW_INSECURE_KEY_PERMISSIONS=1 is set.
+    Reimplemented on the same descriptor-based logic (O_NOFOLLOW + fstat) to eliminate TOCTOU races:
+    - On POSIX: verifies parent directory (permissions and owner euid/root),
+      opens with O_RDONLY | O_NOFOLLOW | O_CLOEXEC, fstat(fd), verifies mode 0600/0400,
+      and ownership by geteuid().
+    - On non-POSIX: fails closed unless DMINT_ALLOW_INSECURE_KEY_PERMISSIONS=1 is set.
     """
     path = Path(path).resolve()
-    if not path.exists():
-        raise FileNotFoundError(f"key file does not exist: {path.name}")
-
     if not _POSIX:
         if os.environ.get(_ALLOW_INSECURE_PERMS_ENV, "").lower() not in ("1", "true", "yes"):
             raise KeyPermissionError(
                 "Key file permission enforcement is not supported on non-POSIX platforms; "
                 f"set {_ALLOW_INSECURE_PERMS_ENV}=1 or pass --allow-insecure-key-permissions to proceed."
             )
+        if not path.exists():
+            raise FileNotFoundError(f"key file does not exist: {path.name}")
         return
 
     _check_parent_dir_permissions(path.parent)
 
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0)
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+
     try:
-        file_stat = path.stat()
+        fd = os.open(str(path), flags)
+    except FileNotFoundError:
+        raise FileNotFoundError(f"key file does not exist: {path.name}") from None
     except OSError as exc:
-        raise KeyPermissionError("cannot stat key file") from exc
+        import errno
 
-    if hasattr(os, "geteuid") and file_stat.st_uid != os.geteuid():
-        raise KeyPermissionError(
-            f"key file owner UID {file_stat.st_uid} does not match current process UID {os.geteuid()}"
-        )
+        if exc.errno == errno.ELOOP or os.path.islink(path):
+            raise KeyPermissionError("key file is a symlink; symlinks are rejected for security") from None
+        raise KeyPermissionError("cannot open key file") from exc
 
-    file_mode = stat.S_IMODE(file_stat.st_mode)
-    if file_mode & 0o077:
-        raise KeyPermissionError(
-            f"key file has unsafe permissions {oct(file_mode)}; "
-            "expected 0600 or 0400 (no group/other access). "
-            f"Fix with: chmod 0600 {path.name}"
-        )
+    try:
+        file_stat = os.fstat(fd)
+        if not stat.S_ISREG(file_stat.st_mode):
+            raise KeyPermissionError("key file is not a regular file")
+
+        if hasattr(os, "geteuid"):
+            current_uid = os.geteuid()
+            if file_stat.st_uid != current_uid:
+                raise KeyPermissionError(
+                    f"key file owner UID {file_stat.st_uid} does not match current process UID {current_uid}"
+                )
+
+        file_mode = stat.S_IMODE(file_stat.st_mode)
+        if file_mode & 0o077:
+            raise KeyPermissionError(
+                f"key file has unsafe permissions {oct(file_mode)}; "
+                "expected 0600 or 0400 (no group/other access). "
+                f"Fix with: chmod 0600 {path.name}"
+            )
+    finally:
+        os.close(fd)
 
 
 def load_private_key_from_file(

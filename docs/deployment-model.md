@@ -79,9 +79,8 @@ Planned future enhancements for Dmint Dashboard identity management include:
    Integration with enterprise identity providers (Okta, GitHub, Google Workspace) and FIDO2 / WebAuthn hardware tokens for high-assurance cryptographic attestation of approval decisions.
 3. **Multi-Party Quorum Approvals**:
    Requiring M-of-N distinct human approver signatures before sensitive high-impact capabilities (e.g. production DB migrations, financial transfers) can transition to `APPROVED`.
-4. **Trusted Issuers Validity Windows (`not_before` / `not_after`)**:
-   Support optional `not_before` and `not_after` ISO-8601 timestamp constraints within gateway `trusted_issuers` configuration entries. This allows staging upcoming keys ahead of activation and automatically sunsetting retired keys without manual gateway configuration restarts.
-
+4. **Trusted Issuers Validity Windows (`not_before` / `not_after`) & Revocation**:
+   Support optional `not_before` and `not_after` ISO-8601 timestamp constraints within gateway `trusted_issuers` configuration entries. This allows staging upcoming keys ahead of activation and automatically sunsetting retired keys without manual gateway configuration restarts. Additionally, support cryptographic Key Revocation Lists (CRLs) and revocation endpoints to immediately invalidate compromised signing keys prior to expiration.
 
 ---
 
@@ -98,54 +97,65 @@ Dmint uses Ed25519 signing keys to cryptographically bind each approval assertio
 
 The private key file and the agent process must be in separate security contexts (different OS users, containers, or VMs). The gateway only ever sees public keys.
 
-### Creating a Signing Key
+### Unified Quickstart: Key Provisioning & End-to-End Approval
 
+Follow this end-to-end workflow to set up key signing and verify retries across processes using the unified default audience (`dmint/dashboard/v1`):
+
+#### 1. Generate Signing Key (Approver Context)
 ```bash
-# Generate a new Ed25519 signing key (creates ~/.config/dmint/signing.key with mode 0600):
-dmint init-keys --issuer-id my-authority
-
-# Export the public key for pasting into the gateway's trusted_issuers:
-dmint export-public-key --issuer-id my-authority
+# Atomically generates mode 0600 key file
+dmint init-keys --key-file ~/.config/dmint/signing.key --issuer-id ops-authority
 ```
 
-Key file permissions enforced:
-- The key file must be `0600` or `0400` (no group/other access).
-- The parent directory must not be group-writable or world-writable.
-- Ownership must match the current process effective UID (`st_uid == geteuid()`).
-- File descriptors are opened with `O_NOFOLLOW` and verified with `fstat(fd)` to prevent symlink or TOCTOU race conditions.
-- Dmint refuses to load a key file with looser permissions.
-- Key file creation is atomic — there is no window where it is world-readable.
+#### 2. Export Public Key for Gateway
+```bash
+# Outputs the public key and issuer ID in JSON
+dmint export-public-key --key-file ~/.config/dmint/signing.key --issuer-id ops-authority --format json
+```
+Example output:
+```json
+{
+  "issuer_id": "ops-authority",
+  "public_key_hex": "4a7b1c...",
+  "format": "ed25519-raw-hex"
+}
+```
 
-### Non-POSIX Platforms & Insecure Permissions Override
-
-On non-POSIX operating systems (such as Windows), POSIX file mode bits (e.g. `0600`) cannot be reliably enforced. Dmint **fails closed by default** on non-POSIX systems:
-- Key loading and generation will raise `KeyLoadError` / `KeyPermissionError` unless an explicit opt-in is supplied.
-- To run on non-POSIX systems, operators must explicitly set `DMINT_ALLOW_INSECURE_KEY_PERMISSIONS=1` or supply `--allow-insecure-key-permissions`.
-
-### Inline Private Keys & Process Isolation
-
-Loading private keys via the `DMINT_PRIVATE_KEY` inline hex environment variable exposes sensitive cryptographic material to other processes running under the same user account via `/proc/<pid>/environ`.
-
-- Inline private keys are **disabled by default**.
-- If `DMINT_PRIVATE_KEY` is set without opt-in, Dmint fails closed with `KeyLoadError`.
-- To allow inline private keys, operators must explicitly set `DMINT_ALLOW_INLINE_KEY=1`. A runtime security warning will be emitted.
-- **Best Practice:** Always use restricted key files (`0600`) via `DMINT_KEY_FILE` or the default `~/.config/dmint/signing.key`.
-
-### Gateway `trusted_issuers` Configuration
-
-Add the exported public key to `mcp_protection.json`:
-
+#### 3. Configure Gateway (`mcp_protection.json`)
+Add the exported public key and audience to `mcp_protection.json`:
 ```json
 {
   "trusted_issuers": [
     {
-      "issuer_id": "my-authority",
-      "public_key_hex": "<64-char hex from dmint export-public-key>"
+      "issuer_id": "ops-authority",
+      "public_key_hex": "4a7b1c..."
     }
   ],
   "approval_audience": "dmint/dashboard/v1"
 }
 ```
+*(The gateway starts with ONLY this public configuration; no private key is present in its memory, environment, or filesystem).*
+
+#### 4. Agent Tool Call Trigger
+Agent calls protected tool (e.g. `github.merge_pr`) → Gateway returns `APPROVAL_REQUIRED` challenge with `approval_id`.
+
+#### 5. Operator Approves Request
+```bash
+# Approves the pending request, signing an assertion for audience 'dmint/dashboard/v1'
+dmint approve apr_xxx \
+  --key-file ~/.config/dmint/signing.key \
+  --authority-issuer ops-authority \
+  --output-assertion assertion.bin
+```
+
+#### 6. Retry & Single-Use Enforcement
+Host retries tool call with `assertion.bin` credential → Gateway validates cryptographic signature against `ops-authority` public key and atomically consumes the approval:
+- **First retry**: Authorized and executes downstream once.
+- **Subsequent replay**: Rejected fail-closed with `DMT_APPROVAL_CONSUMED`.
+
+---
+
+### Key File Permissions & Hardening
 
 The gateway builds its `ApprovalVerifier` from this config at startup. Multiple issuers can coexist to support key rotation.
 

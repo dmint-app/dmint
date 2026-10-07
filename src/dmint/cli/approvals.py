@@ -17,6 +17,7 @@ from dmint.approvals import (
     ApprovalState,
 )
 from dmint.authority import LocalApprovalAuthority
+from dmint.core.verification import DEFAULT_APPROVAL_AUDIENCE
 from dmint.errors import (
     ApprovalConcurrentConsumeError,
     ApprovalExpiredError,
@@ -90,7 +91,7 @@ def _get_authority(
 ) -> LocalApprovalAuthority:
     """Instantiate a local approval authority for signing assertions."""
     issuer = authority_issuer or os.environ.get("DMINT_AUTHORITY_ISSUER") or "dmint-cli"
-    aud = audience or os.environ.get("DMINT_AUTHORITY_AUDIENCE", "dmint/cli/v1")
+    aud = audience or os.environ.get("DMINT_AUTHORITY_AUDIENCE", DEFAULT_APPROVAL_AUDIENCE)
     return LocalApprovalAuthority(
         issuer_id=issuer,
         audience=aud,
@@ -249,7 +250,7 @@ def main_approve(args: list[str] | None = None) -> int:
     parser.add_argument(
         "--audience",
         default=None,
-        help="Target audience for the approval assertion (or set DMINT_AUTHORITY_AUDIENCE)",
+        help=f"Target audience for the approval assertion (default: {DEFAULT_APPROVAL_AUDIENCE}, or set DMINT_AUTHORITY_AUDIENCE)",
     )
     parser.add_argument(
         "--output-assertion",

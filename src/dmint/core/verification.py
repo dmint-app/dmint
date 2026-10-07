@@ -44,11 +44,14 @@ __all__ = [
     "ApprovalAssertion",
     "VerifiedApproval",
     "ApprovalVerifier",
+    "DEFAULT_APPROVAL_AUDIENCE",
     "public_key_hex",
     "public_key_pem",
     "public_key_from_hex",
     "public_key_from_pem",
 ]
+
+DEFAULT_APPROVAL_AUDIENCE: str = "dmint/dashboard/v1"
 
 _ASSERTION_TOKEN = object()
 _ID_PATTERN = re.compile(r"^(?:req|apr)_[A-Za-z0-9_-]{43}$")

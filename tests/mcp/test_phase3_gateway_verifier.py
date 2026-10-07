@@ -187,11 +187,12 @@ class TestGatewayDoesNotExposePrivateKeyLoader:
             "        for sym in banned_symbols:\n"
             "            assert not hasattr(mod, sym), f'{mod_name} exposes banned symbol {sym}'\n"
         )
+        src_dir = str(Path(__file__).resolve().parents[2] / "src")
         proc = subprocess.run(
             [sys.executable, "-c", code],
             capture_output=True,
             text=True,
-            env={**os.environ, "PYTHONPATH": "src"},
+            env={**os.environ, "PYTHONPATH": src_dir},
         )
         assert proc.returncode == 0, f"Subprocess failed:\n{proc.stderr}\n{proc.stdout}"
 
@@ -606,9 +607,10 @@ class TestSubprocessE2E(unittest.IsolatedAsyncioTestCase):
             issuer_id = "subprocess-authority"
             audience = "github-prod"
 
+            src_dir = str(Path(__file__).resolve().parents[2] / "src")
             env = {
                 **os.environ,
-                "PYTHONPATH": "src",
+                "PYTHONPATH": src_dir,
                 "DMINT_DB_PATH": str(db_path),
             }
 
