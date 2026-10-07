@@ -5,14 +5,12 @@ from __future__ import annotations
 import hashlib
 from typing import Any
 
-import rfc8785
-
-from .canonicalize import thaw_json
+from .canonicalize import canonicalize_bytes, thaw_json
 from .errors import CanonicalizationError, MalformedApprovalError, UnknownApprovalVersionError
 from .models import AnyResource, NoResource, ToolRequest, validate_text
 from .versions import CANONICALIZATION_PROFILE, REQUEST_BINDING_VERSION
 
-_FINGERPRINT_DOMAIN = b"dmint/request-fingerprint/v1\x00"
+_FINGERPRINT_DOMAIN = b"dmint/request-fingerprint/v2\x00"
 
 
 def _resource_value(request: ToolRequest) -> dict[str, Any]:
@@ -78,8 +76,8 @@ def canonical_request_binding(
         canonicalization_profile=canonicalization_profile,
     )
     try:
-        return rfc8785.dumps(envelope)
-    except (TypeError, ValueError, OverflowError) as exc:
+        return canonicalize_bytes(envelope)
+    except Exception as exc:
         raise CanonicalizationError("request binding cannot be JCS canonicalized") from exc
 
 

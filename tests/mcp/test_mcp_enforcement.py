@@ -261,7 +261,9 @@ class MCPEnforcementSecurityTests(unittest.IsolatedAsyncioTestCase):
         args["pr_id"] = "PR-MUTATED"
         self.assertEqual(self.spy_client.last_arguments["pr_id"], "PR-100")
 
-    async def test_14_numeric_edge_cases_reject_whole_integer_floats(self):
+    async def test_14_numeric_edge_cases_reject_non_finite_floats(self):
+        import math
+
         policy = Policy(rules=(Rule.allow("github", "read", resource=AnyResource()),))
         gate = self.create_gate(policy)
 
@@ -269,7 +271,7 @@ class MCPEnforcementSecurityTests(unittest.IsolatedAsyncioTestCase):
             await gate.route_call(
                 integration_id="github-prod",
                 tool_name="read_issue",
-                arguments={"bad_float": 1.0},
+                arguments={"bad_float": math.nan},
             )
         self.assertEqual(self.spy_client.call_count, 0)
 

@@ -86,8 +86,10 @@ class MCPSecurityMappingTests(unittest.TestCase):
             self.mapper.map(tool_name="terminate_instance", arguments=args)
 
     def test_numeric_edge_cases_rejected(self):
-        # whole-integer floats like 1.0 or -0.0 fail canonicalization
-        args = {"instance_id": "i-123", "bad_float": 1.0}
+        import math
+
+        # non-finite numbers like NaN or Infinity fail canonicalization
+        args = {"instance_id": "i-123", "bad_float": math.nan}
         with self.assertRaises(RequestValidationError):
             self.mapper.map(tool_name="terminate_instance", arguments=args)
 

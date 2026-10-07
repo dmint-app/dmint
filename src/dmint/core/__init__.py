@@ -33,7 +33,12 @@ from .verification import (
     public_key_hex,
     public_key_pem,
 )
-from .canonicalize import MAX_SAFE_INTEGER, canonicalize, canonicalize_request
+from .canonicalize import (
+    MAX_SAFE_INTEGER,
+    canonicalize,
+    canonicalize_bytes,
+    canonicalize_request,
+)
 from .enforcement import AuthorizedRequest, Dmint, InvocationSnapshot
 from .redaction import redact_database_url
 from .errors import (
@@ -180,6 +185,7 @@ __all__ = [
     "UnknownApprovalVersionError",
     "VerifiedApproval",
     "canonicalize",
+    "canonicalize_bytes",
     "canonicalize_request",
     "redact_database_url",
     "canonical_request_binding",

@@ -1,0 +1,214 @@
+[
+  {
+    "name": "boolean_true",
+    "input": true,
+    "expected_canonical": "true"
+  },
+  {
+    "name": "boolean_false",
+    "input": false,
+    "expected_canonical": "false"
+  },
+  {
+    "name": "null_value",
+    "input": null,
+    "expected_canonical": "null"
+  },
+  {
+    "name": "int_zero",
+    "input": 0,
+    "expected_canonical": "0"
+  },
+  {
+    "name": "int_positive",
+    "input": 12345,
+    "expected_canonical": "12345"
+  },
+  {
+    "name": "int_negative",
+    "input": -67890,
+    "expected_canonical": "-67890"
+  },
+  {
+    "name": "int_max_safe",
+    "input": 9007199254740991,
+    "expected_canonical": "9007199254740991"
+  },
+  {
+    "name": "int_min_safe",
+    "input": -9007199254740991,
+    "expected_canonical": "-9007199254740991"
+  },
+  {
+    "name": "float_simple",
+    "input": 1.5,
+    "expected_canonical": "1.5"
+  },
+  {
+    "name": "float_negative",
+    "input": -2.5,
+    "expected_canonical": "-2.5"
+  },
+  {
+    "name": "float_small",
+    "input": 1e-05,
+    "expected_canonical": "0.00001"
+  },
+  {
+    "name": "float_exp_large",
+    "input": 1e+20,
+    "expected_canonical": "100000000000000000000"
+  },
+  {
+    "name": "float_exp_small",
+    "input": 1e-06,
+    "expected_canonical": "0.000001"
+  },
+  {
+    "name": "float_pi",
+    "input": 3.141592653589793,
+    "expected_canonical": "3.141592653589793"
+  },
+  {
+    "name": "string_empty",
+    "input": "",
+    "expected_canonical": "\"\""
+  },
+  {
+    "name": "string_ascii",
+    "input": "hello world",
+    "expected_canonical": "\"hello world\""
+  },
+  {
+    "name": "string_escapes",
+    "input": "quote: \", backslash: \\, tab: \t, newline: \n, cr: \r, backspace: \b, formfeed: \f",
+    "expected_canonical": "\"quote: \\\", backslash: \\\\, tab: \\t, newline: \\n, cr: \\r, backspace: \\b, formfeed: \\f\""
+  },
+  {
+    "name": "string_controls",
+    "input": "\u0000\u0001\u001f",
+    "expected_canonical": "\"\\u0000\\u0001\\u001f\""
+  },
+  {
+    "name": "string_unicode_bmp",
+    "input": "caf\u00e9 \u2615 \u6f22\u5b57 \u65e5\u672c\u8a9e",
+    "expected_canonical": "\"caf\u00e9 \u2615 \u6f22\u5b57 \u65e5\u672c\u8a9e\""
+  },
+  {
+    "name": "string_unicode_astral",
+    "input": "\ud83d\ude80 \ud834\udd1e \ud800\udc00",
+    "expected_canonical": "\"\ud83d\ude80 \ud834\udd1e \ud800\udc00\""
+  },
+  {
+    "name": "array_empty",
+    "input": [],
+    "expected_canonical": "[]"
+  },
+  {
+    "name": "array_nested",
+    "input": [
+      1,
+      [
+        2,
+        [
+          3,
+          [
+            4
+          ]
+        ]
+      ]
+    ],
+    "expected_canonical": "[1,[2,[3,[4]]]]"
+  },
+  {
+    "name": "array_mixed",
+    "input": [
+      true,
+      false,
+      null,
+      1,
+      2.5,
+      "test",
+      {
+        "k": "v"
+      }
+    ],
+    "expected_canonical": "[true,false,null,1,2.5,\"test\",{\"k\":\"v\"}]"
+  },
+  {
+    "name": "object_empty",
+    "input": {},
+    "expected_canonical": "{}"
+  },
+  {
+    "name": "object_keys_unsorted",
+    "input": {
+      "z": 1,
+      "a": 2,
+      "m": 3
+    },
+    "expected_canonical": "{\"a\":2,\"m\":3,\"z\":1}"
+  },
+  {
+    "name": "object_utf16_sort_order",
+    "input": {
+      "\ue000": "bmp",
+      "\ud800\udc00": "supplementary"
+    },
+    "expected_canonical": "{\"\ud800\udc00\":\"supplementary\",\"\ue000\":\"bmp\"}"
+  },
+  {
+    "name": "object_nested",
+    "input": {
+      "b": {
+        "y": 1,
+        "x": 2
+      },
+      "a": {
+        "w": 3,
+        "v": 4
+      }
+    },
+    "expected_canonical": "{\"a\":{\"v\":4,\"w\":3},\"b\":{\"x\":2,\"y\":1}}"
+  },
+  {
+    "name": "tool_request_envelope",
+    "input": {
+      "action": "delete",
+      "agent_id": "agent-prod-1",
+      "arguments": {
+        "confirm": true,
+        "count": 5,
+        "resource_id": "res-99"
+      },
+      "context": {
+        "environment": "production",
+        "user": "alice"
+      },
+      "request_id": "req_12345",
+      "resource": {
+        "kind": "value",
+        "value": "users/42"
+      },
+      "tool": "database"
+    },
+    "expected_canonical": "{\"action\":\"delete\",\"agent_id\":\"agent-prod-1\",\"arguments\":{\"confirm\":true,\"count\":5,\"resource_id\":\"res-99\"},\"context\":{\"environment\":\"production\",\"user\":\"alice\"},\"request_id\":\"req_12345\",\"resource\":{\"kind\":\"value\",\"value\":\"users/42\"},\"tool\":\"database\"}"
+  },
+  {
+    "name": "assertion_payload",
+    "input": {
+      "approval_id": "apr_abcdef1234567890abcdef1234567890abcdef12345",
+      "audience": "dmint/dashboard/v1",
+      "decision": "APPROVED",
+      "expires_at": "2026-10-07T14:00:00Z",
+      "integration_id": "github-prod",
+      "issued_at": "2026-10-07T13:00:00Z",
+      "issuer": "ops-authority",
+      "nonce": "nonce_abcdef1234567890abcdef1234567890abcde",
+      "principal_id": "agent-prod-1",
+      "request_fingerprint": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "request_id": "req_abcdef1234567890abcdef1234567890abcdef12345"
+    },
+    "expected_canonical": "{\"approval_id\":\"apr_abcdef1234567890abcdef1234567890abcdef12345\",\"audience\":\"dmint/dashboard/v1\",\"decision\":\"APPROVED\",\"expires_at\":\"2026-10-07T14:00:00Z\",\"integration_id\":\"github-prod\",\"issued_at\":\"2026-10-07T13:00:00Z\",\"issuer\":\"ops-authority\",\"nonce\":\"nonce_abcdef1234567890abcdef1234567890abcde\",\"principal_id\":\"agent-prod-1\",\"request_fingerprint\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\",\"request_id\":\"req_abcdef1234567890abcdef1234567890abcdef12345\"}"
+  }
+]

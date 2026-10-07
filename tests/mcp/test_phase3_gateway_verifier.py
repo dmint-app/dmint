@@ -149,9 +149,9 @@ class TestGatewayDoesNotExposePrivateKeyLoader:
     def test_gateway_module_does_not_expose_load_private_key_from_file(self) -> None:
         import dmint.mcp.gateway as gw
 
-        assert not hasattr(
-            gw, "load_private_key_from_file"
-        ), "gateway module must not expose load_private_key_from_file"
+        assert not hasattr(gw, "load_private_key_from_file"), (
+            "gateway module must not expose load_private_key_from_file"
+        )
 
     def test_gateway_module_does_not_expose_write_private_key_atomic(self) -> None:
         import dmint.mcp.gateway as gw

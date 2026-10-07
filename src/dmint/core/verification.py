@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from types import MappingProxyType
 from typing import Any
 
-import rfc8785
+from .canonicalize import canonicalize_bytes
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from cryptography.hazmat.primitives.serialization import (
@@ -157,8 +157,8 @@ def _b64_decode(value: Any, field: str, expected_length: int) -> bytes:
 
 def _canonical_envelope(envelope: Mapping[str, Any]) -> bytes:
     try:
-        return rfc8785.dumps(dict(envelope))
-    except (TypeError, ValueError, OverflowError) as exc:
+        return canonicalize_bytes(dict(envelope))
+    except Exception as exc:
         raise ApprovalMalformedError("assertion is not canonicalizable") from exc
 
 
