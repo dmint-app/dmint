@@ -13,7 +13,7 @@ from starlette.types import ASGIApp
 
 from dmint.core.errors import RequestValidationError
 from dmint.core.models import validate_text
-from .errors import MCPConfigurationError
+from .errors import MCPConfigurationError, MCPProtocolError
 
 # ContextVar holding the authoritative bound agent_id for the current request
 CURRENT_AGENT_ID: ContextVar[str | None] = ContextVar("current_agent_id", default=None)
@@ -193,6 +193,26 @@ class AgentAuthMiddleware(BaseHTTPMiddleware):
                     )
             except ValueError:
                 pass
+
+        # 1.5. Validate JSON body syntax and reject duplicate keys
+        if request.method in ("POST", "PUT", "PATCH"):
+            body = await request.body()
+            if body:
+                content_type = request.headers.get("content-type", "")
+                if "application/json" in content_type or body.lstrip()[:1] in (b"{", b"["):
+                    try:
+                        from .gateway import parse_gateway_request
+
+                        parse_gateway_request(body)
+                    except MCPProtocolError as exc:
+                        return JSONResponse(
+                            {
+                                "error": "invalid_request",
+                                "code": getattr(exc, "code", "DMT_MCP_PROTOCOL_ERROR"),
+                                "message": str(exc),
+                            },
+                            status_code=400,
+                        )
 
         # 2. Enforce Bearer authentication if authenticator is configured
         if self.authenticator is not None and self.authenticator.has_tokens:

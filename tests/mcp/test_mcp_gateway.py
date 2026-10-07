@@ -370,6 +370,32 @@ class TestMCPGateway(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(res.is_error)
         self.assertIn("DMT_MCP_TIMEOUT", res.content[0].text)  # type: ignore
 
+    def test_parse_gateway_request_rejects_duplicate_json_keys(self) -> None:
+        """Gateway request parsing must reject duplicate JSON keys (object_pairs_hook) with clear error."""
+        from dmint.mcp.gateway import parse_gateway_request
+        from dmint.mcp.errors import MCPProtocolError
+
+        with self.assertRaises(MCPProtocolError) as ctx:
+            parse_gateway_request('{"a": 1, "a": 2}')
+        self.assertEqual(ctx.exception.code, "DMT_MCP_PROTOCOL_ERROR")
+        self.assertIn("duplicate JSON key: 'a'", str(ctx.exception))
+
+    async def test_http_endpoint_rejects_duplicate_json_keys(self) -> None:
+        """Starlette HTTP app must reject duplicate JSON keys in request body with 400 Bad Request."""
+        from starlette.testclient import TestClient
+
+        app = self.gateway.create_http_app(auth_token="secret_tok")
+        client = TestClient(app)
+        resp = client.post(
+            "/mcp",
+            content=b'{"a": 1, "a": 2}',
+            headers={"Content-Type": "application/json", "Authorization": "Bearer secret_tok"},
+        )
+        self.assertEqual(resp.status_code, 400)
+        data = resp.json()
+        self.assertEqual(data.get("code"), "DMT_MCP_PROTOCOL_ERROR")
+        self.assertIn("duplicate JSON key", data.get("message", ""))
+
 
 if __name__ == "__main__":
     unittest.main()

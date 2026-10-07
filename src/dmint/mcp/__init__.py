@@ -17,12 +17,13 @@ from .ssrf import is_loopback_host, validate_mcp_url
 
 try:
     from .client import DownstreamMCPClient
-    from .gateway import GatewayIntegration, MCPGateway
+    from .gateway import GatewayIntegration, MCPGateway, parse_gateway_request
     from .proxy import DmintMCPProxy, EnforcementGate, MCPProxyError
 except ImportError:
     DownstreamMCPClient = None  # type: ignore[assignment, misc]
     GatewayIntegration = None  # type: ignore[assignment, misc]
     MCPGateway = None  # type: ignore[assignment, misc]
+    parse_gateway_request = None  # type: ignore[assignment, misc]
     DmintMCPProxy = None  # type: ignore[assignment, misc]
     EnforcementGate = None  # type: ignore[assignment, misc]
     MCPProxyError = None  # type: ignore[assignment, misc]
@@ -50,6 +51,7 @@ __all__ = [
     "MCPToolBinding",
     "MCPTransportType",
     "load_protection_config",
+    "parse_gateway_request",
     "parse_protection_config",
     "validate_mcp_url",
 ]

@@ -34,6 +34,8 @@ from .verification import (
     public_key_pem,
 )
 from .canonicalize import (
+    MAX_CANONICAL_BYTES,
+    MAX_CANONICAL_DEPTH,
     MAX_SAFE_INTEGER,
     canonicalize,
     canonicalize_bytes,
@@ -159,6 +161,8 @@ __all__ = [
     "ExecutionError",
     "IllegalApprovalTransitionError",
     "InvocationSnapshot",
+    "MAX_CANONICAL_BYTES",
+    "MAX_CANONICAL_DEPTH",
     "MAX_SAFE_INTEGER",
     "MalformedApprovalError",
     "LocalApprovalAuthority",

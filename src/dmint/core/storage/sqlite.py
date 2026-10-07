@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import hashlib
+import logging
 import os
 import re
 import sqlite3
@@ -49,6 +50,8 @@ from ..errors import (
 from ..models import NO_RESOURCE, NoResource, ToolRequest, TrustedContext
 from ..request_binding import request_binding_fingerprint
 from ..versions import CANONICALIZATION_PROFILE, REQUEST_BINDING_VERSION
+
+logger = logging.getLogger(__name__)
 
 _ID_PATTERN = re.compile(r"^(?:req|apr)_[A-Za-z0-9_-]{43}$")
 _STORED_COLUMNS = (
@@ -704,12 +707,18 @@ class SQLiteApprovalStore(ApprovalStore):
         except sqlite3.Error as exc:
             raise ApprovalStoreError("could not list pending approval records") from exc
         results: list[ApprovalRecord] = []
+        skipped_unsupported_count = 0
         for row in rows:
             try:
                 results.append(self._deserialize(row))
             except UnknownApprovalVersionError:
-                # Old/unsupported schema versions fail closed and are safely skipped from active pending list
+                skipped_unsupported_count += 1
                 continue
+        if skipped_unsupported_count > 0:
+            logger.warning(
+                "Skipped %d pending approval records with unsupported schema version",
+                skipped_unsupported_count,
+            )
         return results
 
     def list_records(
@@ -762,11 +771,18 @@ class SQLiteApprovalStore(ApprovalStore):
             except sqlite3.Error as exc:
                 raise ApprovalStoreError("could not list approval records") from exc
         records: list[ApprovalRecord] = []
+        skipped_unsupported_count = 0
         for row in rows:
             try:
                 records.append(self._deserialize(row))
             except UnknownApprovalVersionError:
+                skipped_unsupported_count += 1
                 continue
+        if skipped_unsupported_count > 0:
+            logger.warning(
+                "Skipped %d approval records with unsupported schema version",
+                skipped_unsupported_count,
+            )
         return records
 
     def approve_pending(

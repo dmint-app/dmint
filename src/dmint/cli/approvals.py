@@ -26,6 +26,7 @@ from dmint.errors import (
     ApprovalStoreError,
     IllegalApprovalTransitionError,
     MalformedApprovalError,
+    UnknownApprovalVersionError,
 )
 from dmint.models import Decision
 from dmint.policy import Policy
@@ -343,6 +344,9 @@ def main_approve(args: list[str] | None = None) -> int:
             if parsed.reason:
                 print(f"  Reason: {parsed.reason}")
             return 0
+    except UnknownApprovalVersionError as exc:
+        print(f"Error [{exc.code}]: Cannot approve '{parsed.approval_id}': {exc}", file=sys.stderr)
+        return 1
     except (
         ApprovalNotFoundError,
         ApprovalExpiredError,

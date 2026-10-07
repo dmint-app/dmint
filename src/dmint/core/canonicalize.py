@@ -13,6 +13,8 @@ from .errors import CanonicalizationError
 
 MAX_SAFE_INTEGER: int = 2**53 - 1
 MIN_SAFE_INTEGER: int = -(2**53 - 1)
+MAX_CANONICAL_DEPTH: int = 100
+MAX_CANONICAL_BYTES: int = 10 * 1024 * 1024  # 10 MB
 
 # Escape table per RFC 8785 Section 3.2.2.2:
 # Only characters U+0000 through U+001F, quote (\"), and backslash (\\) are escaped.
@@ -107,7 +109,12 @@ def _serialize_number(val: int | float) -> str:
     return prefix + res
 
 
-def canonicalize(value: Any) -> str:
+def canonicalize(
+    value: Any,
+    *,
+    max_depth: int = MAX_CANONICAL_DEPTH,
+    max_bytes: int = MAX_CANONICAL_BYTES,
+) -> str:
     """Serialize JSON-compatible data deterministically per RFC 8785 (JCS).
 
     Guarantees:
@@ -117,36 +124,136 @@ def canonicalize(value: Any) -> str:
       - Whitespace completely eliminated.
       - Only JSON-native Python types accepted: dict, list, str, bool, int, float, None.
       - Tuples, custom Mappings, and other non-JSON types are strictly rejected.
+      - Depth limit, total size limit, and cyclic references fail closed with CanonicalizationError.
     """
-    return _canonicalize_value(value)
+    seen_ids: set[int] = set()
+    size_counter: list[int] = [0]
+    return _canonicalize_value(
+        value,
+        depth=0,
+        max_depth=max_depth,
+        max_bytes=max_bytes,
+        seen_ids=seen_ids,
+        size_counter=size_counter,
+    )
 
 
-def canonicalize_bytes(value: Any) -> bytes:
+def canonicalize_bytes(
+    value: Any,
+    *,
+    max_depth: int = MAX_CANONICAL_DEPTH,
+    max_bytes: int = MAX_CANONICAL_BYTES,
+) -> bytes:
     """Return RFC 8785 canonical bytes encoded as UTF-8."""
-    return canonicalize(value).encode("utf-8")
+    return canonicalize(value, max_depth=max_depth, max_bytes=max_bytes).encode("utf-8")
 
 
-def _canonicalize_value(value: Any) -> str:
+def _canonicalize_value(
+    value: Any,
+    depth: int,
+    max_depth: int,
+    max_bytes: int,
+    seen_ids: set[int],
+    size_counter: list[int],
+) -> str:
+    if depth > max_depth:
+        raise CanonicalizationError(f"maximum nesting depth of {max_depth} exceeded")
+
     if value is None:
+        size_counter[0] += 4
+        if size_counter[0] > max_bytes:
+            raise CanonicalizationError(f"maximum canonical size of {max_bytes} bytes exceeded")
         return "null"
+
     if type(value) is bool:
-        return "true" if value else "false"
+        s = "true" if value else "false"
+        size_counter[0] += len(s)
+        if size_counter[0] > max_bytes:
+            raise CanonicalizationError(f"maximum canonical size of {max_bytes} bytes exceeded")
+        return s
+
     if type(value) in (int, float):
-        return _serialize_number(value)
+        s = _serialize_number(value)
+        size_counter[0] += len(s)
+        if size_counter[0] > max_bytes:
+            raise CanonicalizationError(f"maximum canonical size of {max_bytes} bytes exceeded")
+        return s
+
     if type(value) is str:
-        return _serialize_str(value)
+        s = _serialize_str(value)
+        size_counter[0] += len(s)
+        if size_counter[0] > max_bytes:
+            raise CanonicalizationError(f"maximum canonical size of {max_bytes} bytes exceeded")
+        return s
+
     if type(value) is list:
-        items = [_canonicalize_value(item) for item in value]
-        return "[" + ",".join(items) + "]"
+        val_id = id(value)
+        if val_id in seen_ids:
+            raise CanonicalizationError("circular reference detected in list structure")
+        seen_ids.add(val_id)
+        try:
+            # '[' and ']' + commas
+            structural = 2 + (len(value) - 1 if value else 0)
+            size_counter[0] += structural
+            if size_counter[0] > max_bytes:
+                raise CanonicalizationError(f"maximum canonical size of {max_bytes} bytes exceeded")
+            items = [
+                _canonicalize_value(
+                    item,
+                    depth + 1,
+                    max_depth,
+                    max_bytes,
+                    seen_ids,
+                    size_counter,
+                )
+                for item in value
+            ]
+            return "[" + ",".join(items) + "]"
+        finally:
+            seen_ids.remove(val_id)
+
     if type(value) is dict:
-        sorted_pairs = []
-        for k, v in value.items():
-            if type(k) is not str:
-                raise CanonicalizationError("object keys must be strings")
-            sorted_pairs.append((k, v))
-        sorted_pairs.sort(key=lambda pair: utf16_sort_key(pair[0]))
-        members = [f"{_serialize_str(k)}:{_canonicalize_value(v)}" for k, v in sorted_pairs]
-        return "{" + ",".join(members) + "}"
+        val_id = id(value)
+        if val_id in seen_ids:
+            raise CanonicalizationError("circular reference detected in dict structure")
+        seen_ids.add(val_id)
+        try:
+            sorted_pairs = []
+            for k, v in value.items():
+                if type(k) is not str:
+                    raise CanonicalizationError("object keys must be strings")
+                try:
+                    k.encode("utf-8")
+                except UnicodeEncodeError as exc:
+                    raise CanonicalizationError("object key contains invalid Unicode (lone surrogates)") from exc
+                sorted_pairs.append((k, v))
+            sorted_pairs.sort(key=lambda pair: utf16_sort_key(pair[0]))
+
+            # '{' and '}' + colons + commas
+            structural = 2 + len(sorted_pairs) + (len(sorted_pairs) - 1 if sorted_pairs else 0)
+            size_counter[0] += structural
+            if size_counter[0] > max_bytes:
+                raise CanonicalizationError(f"maximum canonical size of {max_bytes} bytes exceeded")
+
+            members = []
+            for k, v in sorted_pairs:
+                key_str = _serialize_str(k)
+                size_counter[0] += len(key_str)
+                if size_counter[0] > max_bytes:
+                    raise CanonicalizationError(f"maximum canonical size of {max_bytes} bytes exceeded")
+                val_str = _canonicalize_value(
+                    v,
+                    depth + 1,
+                    max_depth,
+                    max_bytes,
+                    seen_ids,
+                    size_counter,
+                )
+                members.append(f"{key_str}:{val_str}")
+            return "{" + ",".join(members) + "}"
+        finally:
+            seen_ids.remove(val_id)
+
     raise CanonicalizationError(f"unsupported value type for canonicalization: {type(value).__name__}")
 
 

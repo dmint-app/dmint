@@ -54,6 +54,35 @@ from .proxy import EnforcementGate, MCPProxyError
 from .ssrf import is_loopback_host
 
 
+def _reject_duplicate_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    seen: set[str] = set()
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in seen:
+            raise MCPProtocolError(f"duplicate JSON key: '{key}'", code="DMT_MCP_PROTOCOL_ERROR")
+        seen.add(key)
+        result[key] = value
+    return result
+
+
+def parse_gateway_request(raw: str | bytes) -> dict[str, Any]:
+    """Parse an inbound gateway JSON request strictly rejecting duplicate object keys."""
+    if isinstance(raw, bytes):
+        try:
+            raw = raw.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise MCPProtocolError(f"invalid UTF-8 in gateway request: {exc}", code="DMT_MCP_PROTOCOL_ERROR") from exc
+    if not isinstance(raw, str):
+        raise MCPProtocolError("gateway request payload must be text or bytes", code="DMT_MCP_PROTOCOL_ERROR")
+    try:
+        data = json.loads(raw, object_pairs_hook=_reject_duplicate_pairs)
+    except json.JSONDecodeError as exc:
+        raise MCPProtocolError(f"malformed JSON in gateway request: {exc}", code="DMT_MCP_PROTOCOL_ERROR") from exc
+    if not isinstance(data, dict):
+        raise MCPProtocolError("gateway request must be a JSON object", code="DMT_MCP_PROTOCOL_ERROR")
+    return data
+
+
 class GatewayIntegration:
     """Encapsulates runtime state and enforcement gate for one downstream integration."""
 

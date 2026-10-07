@@ -3,6 +3,7 @@ import json
 import math
 from pathlib import Path
 import subprocess
+from typing import Any
 import unittest
 
 from dmint import (
@@ -367,23 +368,99 @@ class CanonicalizationTests(unittest.TestCase):
             conn.commit()
             conn.close()
 
-            # list_pending should succeed and return only the valid v2 record
-            pending = store.list_pending()
+            # list_pending should succeed and return only the valid v2 record, logging warning
+            with self.assertLogs("dmint.core.storage.sqlite", level="WARNING") as cm:
+                pending = store.list_pending()
             self.assertEqual(len(pending), 1)
             self.assertEqual(pending[0].approval_id, rec2.approval_id)
+            self.assertTrue(
+                any("Skipped 1 pending approval records with unsupported schema version" in msg for msg in cm.output)
+            )
 
-            # list_records should also succeed without crashing
-            records = store.list_records()
+            # list_records should also succeed without crashing and log warning
+            with self.assertLogs("dmint.core.storage.sqlite", level="WARNING") as cm_rec:
+                records = store.list_records()
             self.assertEqual(len(records), 1)
             self.assertEqual(records[0].approval_id, rec2.approval_id)
+            self.assertTrue(
+                any("Skipped 1 approval records with unsupported schema version" in msg for msg in cm_rec.output)
+            )
+
+            # Approving the v1 record directly must raise UnknownApprovalVersionError
+            from dmint.authority import LocalApprovalAuthority
+            from dmint.core.errors import UnknownApprovalVersionError
+            from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+            authority = LocalApprovalAuthority(
+                issuer_id="test-iss",
+                audience=epoch,
+                private_key=Ed25519PrivateKey.generate(),
+            )
+            v1_id = "apr_0123456789abcdef0123456789abcdef01234567891"
+            with self.assertRaises(UnknownApprovalVersionError) as err_ctx:
+                store.approve_pending(v1_id, authority=authority, approved_by="admin")
+            self.assertEqual(err_ctx.exception.code, "DMT_APPROVAL_UNKNOWN_VERSION")
+
+            # dmint approve <v1 approval id> CLI must return version error code
+            import io
+            from unittest.mock import patch
+            from dmint.cli.approvals import main_approve
+
+            stderr_buf = io.StringIO()
+            with patch("sys.stderr", stderr_buf):
+                exit_code = main_approve([v1_id, "--db-path", str(db_path), "--deployment-epoch", epoch])
+            self.assertEqual(exit_code, 1)
+            self.assertIn("DMT_APPROVAL_UNKNOWN_VERSION", stderr_buf.getvalue())
             store.close()
+
+    def test_object_key_lone_surrogates_rejected_before_sorting(self):
+        """Object keys containing lone surrogates must raise CanonicalizationError before sorting."""
+        with self.assertRaises(CanonicalizationError) as ctx:
+            canonicalize({"\ud800": 1})
+        self.assertIn("lone surrogates", str(ctx.exception))
+
+    def test_max_depth_exceeded_10000_levels(self):
+        """Nesting 10,000 levels deep must raise CanonicalizationError without RecursionError."""
+        cur: dict[str, Any] = {}
+        for _ in range(10000):
+            cur = {"a": cur}
+        with self.assertRaises(CanonicalizationError) as ctx:
+            canonicalize(cur)
+        self.assertIn("maximum nesting depth", str(ctx.exception))
+
+    def test_cycle_detection_self_referencing_dict_and_list(self):
+        """Self-referencing dicts and lists must raise CanonicalizationError for circular references."""
+        cyclic_dict: dict[str, Any] = {}
+        cyclic_dict["self"] = cyclic_dict
+        with self.assertRaises(CanonicalizationError) as ctx_d:
+            canonicalize(cyclic_dict)
+        self.assertIn("circular reference detected", str(ctx_d.exception))
+
+        cyclic_list: list[Any] = []
+        cyclic_list.append(cyclic_list)
+        with self.assertRaises(CanonicalizationError) as ctx_l:
+            canonicalize(cyclic_list)
+        self.assertIn("circular reference detected", str(ctx_l.exception))
+
+    def test_max_canonical_size_exceeded(self):
+        """Payloads exceeding max_bytes limit must raise CanonicalizationError."""
+        payload = {"data": "x" * 100}
+        with self.assertRaises(CanonicalizationError) as ctx:
+            canonicalize(payload, max_bytes=50)
+        self.assertIn("maximum canonical size", str(ctx.exception))
 
     def test_200k_doubles_fuzz_against_node(self):
         """Fuzz test at least 200,000 doubles against Node JSON.stringify."""
-        import struct
         import random
+        import shutil
+        import struct
 
-        rng = random.Random(1337)
+        node_bin = shutil.which("node")
+        if node_bin is None:
+            self.fail("Node.js is required for 200k doubles fuzz test but 'node' was not found in PATH")
+
+        seed = 1337
+        rng = random.Random(seed)
         doubles = [
             0.0,
             -0.0,
@@ -499,8 +576,8 @@ rl.on("close", () => {
                 for idx, (x, node_line) in enumerate(zip(doubles, f_node)):
                     node_exp = node_line.strip()
                     py_act = canonicalize(x)
-                    self.assertEqual(
-                        py_act,
-                        node_exp,
-                        f"Mismatch at index {idx} for {x} (repr={repr(x)}): py={py_act} != node={node_exp}",
-                    )
+                    if py_act != node_exp:
+                        self.fail(
+                            f"200k doubles fuzz test failed with fixed seed {seed} at index {idx} "
+                            f"for {x} (repr={repr(x)}): py={py_act} != node={node_exp}"
+                        )
