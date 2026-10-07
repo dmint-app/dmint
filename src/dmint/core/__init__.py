@@ -92,6 +92,14 @@ from .models import (
     TrustedContext,
 )
 from .policy import Condition, ConditionOperator, Policy, Rule, policy_digest
+from .resources import (
+    ResourceKind,
+    ResourceMatchingError,
+    compile_path_pattern,
+    match_resource,
+    normalize_path,
+    normalize_url,
+)
 from .request_binding import (
     canonical_request_binding,
     request_binding_envelope,
@@ -175,6 +183,12 @@ __all__ = [
     "policy_digest",
     "REQUEST_BINDING_VERSION",
     "RequestValidationError",
+    "ResourceKind",
+    "ResourceMatchingError",
+    "compile_path_pattern",
+    "match_resource",
+    "normalize_path",
+    "normalize_url",
     "Rule",
     "ApprovalStore",
     "ApprovalStoreConfigurationError",

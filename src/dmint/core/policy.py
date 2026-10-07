@@ -7,11 +7,10 @@ from dataclasses import dataclass
 import hashlib
 from typing import Any, Literal
 
-import rfc8785
-
-from .canonicalize import canonicalize_frozen, freeze_json, thaw_json
-from .errors import PolicyError
+from .canonicalize import canonicalize, canonicalize_bytes, canonicalize_frozen, freeze_json, thaw_json
+from .errors import CanonicalizationError, PolicyError
 from .models import (
+    ANY_RESOURCE,
     NO_RESOURCE,
     AnyResource,
     Decision,
@@ -19,6 +18,7 @@ from .models import (
     ToolRequest,
     validate_text,
 )
+from .resources import ResourceMatchingError, match_resource, validate_resource_syntax
 
 ConditionOperator = Literal["equals", "notEquals", "in", "contains", "startsWith", "endsWith"]
 _OPERATORS: set[str] = {"equals", "notEquals", "in", "contains", "startsWith", "endsWith"}
@@ -104,6 +104,7 @@ class Rule:
     action: str
     agent_id: str | None = None
     resource: str | NoResource | AnyResource = NO_RESOURCE
+    resource_kind: str | None = None
     conditions: tuple[Condition, ...] = ()
 
     def __post_init__(self) -> None:
@@ -113,10 +114,14 @@ class Rule:
         validate_text(self.action, "rule action")
         if self.agent_id is not None:
             validate_text(self.agent_id, "rule agent_id")
-        if type(self.resource) is str:
+        if self.resource == "*" and self.resource_kind is None:
+            object.__setattr__(self, "resource", ANY_RESOURCE)
+        elif type(self.resource) is str:
             validate_text(self.resource, "rule resource")
         elif type(self.resource) not in (NoResource, AnyResource):
             raise PolicyError("invalid rule resource")
+        if self.resource_kind is not None:
+            validate_text(self.resource_kind, "rule resource_kind")
         if not isinstance(self.conditions, Sequence) or isinstance(self.conditions, (str, bytes)):
             raise PolicyError("rule conditions must be a sequence")
         if not all(type(condition) is Condition for condition in self.conditions):
@@ -131,9 +136,10 @@ class Rule:
         *,
         agent_id: str | None = None,
         resource: str | NoResource | AnyResource = NO_RESOURCE,
+        resource_kind: str | None = None,
         conditions: Sequence[Condition] = (),
     ) -> "Rule":
-        return cls(Decision.ALLOW, tool, action, agent_id, resource, tuple(conditions))
+        return cls(Decision.ALLOW, tool, action, agent_id, resource, resource_kind, tuple(conditions))
 
     @classmethod
     def deny(
@@ -143,9 +149,10 @@ class Rule:
         *,
         agent_id: str | None = None,
         resource: str | NoResource | AnyResource = NO_RESOURCE,
+        resource_kind: str | None = None,
         conditions: Sequence[Condition] = (),
     ) -> "Rule":
-        return cls(Decision.DENY, tool, action, agent_id, resource, tuple(conditions))
+        return cls(Decision.DENY, tool, action, agent_id, resource, resource_kind, tuple(conditions))
 
     @classmethod
     def approval_required(
@@ -155,9 +162,10 @@ class Rule:
         *,
         agent_id: str | None = None,
         resource: str | NoResource | AnyResource = NO_RESOURCE,
+        resource_kind: str | None = None,
         conditions: Sequence[Condition] = (),
     ) -> "Rule":
-        return cls(Decision.APPROVAL_REQUIRED, tool, action, agent_id, resource, tuple(conditions))
+        return cls(Decision.APPROVAL_REQUIRED, tool, action, agent_id, resource, resource_kind, tuple(conditions))
 
     approve = approval_required
 
@@ -166,8 +174,15 @@ class Rule:
             return False
         if self.agent_id is not None and self.agent_id != request.agent_id:
             return False
-        if type(self.resource) is not AnyResource and self.resource != request.resource:
-            return False
+        if type(self.resource) is not AnyResource:
+            if type(self.resource) is NoResource:
+                if request.resource is not NO_RESOURCE:
+                    return False
+            elif type(self.resource) is str:
+                if request.resource is NO_RESOURCE or type(request.resource) is not str:
+                    return False
+                if not match_resource(self.resource, request.resource, kind=self.resource_kind or "unknown"):
+                    return False
         return all(condition.matches(request) for condition in self.conditions)
 
 
@@ -219,7 +234,7 @@ class Policy:
     def _rule_from_mapping(value: Any) -> Rule:
         if not isinstance(value, Mapping):
             raise PolicyError("rule must be a mapping")
-        _strict_keys(value, {"effect", "tool", "action", "agent_id", "resource", "conditions"}, "rule")
+        _strict_keys(value, {"effect", "tool", "action", "agent_id", "resource", "resource_kind", "conditions"}, "rule")
         effect_value = value.get("effect")
         if effect_value == "allow":
             effect = Decision.ALLOW
@@ -266,6 +281,7 @@ class Policy:
             value["action"],
             value.get("agent_id"),
             resource,
+            value.get("resource_kind"),
             tuple(conditions),
         )
 
@@ -284,6 +300,8 @@ class Policy:
                 rule_dict["resource"] = r.resource
             elif type(r.resource) is AnyResource:
                 rule_dict["resource"] = "*"
+            if r.resource_kind is not None:
+                rule_dict["resource_kind"] = r.resource_kind
             if r.conditions:
                 conds = []
                 for c in r.conditions:
@@ -321,18 +339,58 @@ class Policy:
         return json.dumps(self.to_dict(), indent=indent)
 
     def evaluate(self, request: ToolRequest) -> Decision:
-        """Evaluate without side effects: deny overrides allow, then default deny."""
+        """Evaluate without side effects: fail closed on unnormalizable resources,
 
+        deny overrides allow, then default deny.
+        """
+        decision, _ = self.evaluate_detailed(request)
+        return decision
+
+    def evaluate_detailed(self, request: ToolRequest) -> tuple[Decision, str | None]:
+        """Evaluate without side effects: fail closed on unnormalizable resources,
+
+        deny overrides allow, then default deny.
+        Returns (decision, error_code_or_reason).
+        """
         if type(request) is not ToolRequest:
             raise PolicyError("expected a ToolRequest")
+
+        # 1. Fail closed BEFORE rule matching if request resource cannot be normalized for applicable kinds
+        if isinstance(request.resource, str):
+            applicable_kinds: set[str] = set()
+            for rule in self.rules:
+                if rule.tool == request.tool and rule.action == request.action:
+                    if rule.resource_kind:
+                        applicable_kinds.add(rule.resource_kind.lower())
+                    elif isinstance(rule.resource, str):
+                        if rule.resource.startswith("/") or "/" in rule.resource:
+                            applicable_kinds.add("path")
+                        elif rule.resource.startswith("http://") or rule.resource.startswith("https://"):
+                            applicable_kinds.add("url")
+
+            for kind in applicable_kinds:
+                try:
+                    validate_resource_syntax(request.resource, kind=kind)
+                except ResourceMatchingError:
+                    object.__setattr__(self, "_last_error_code", "DMT_RESOURCE_INVALID")
+                    return Decision.DENY, "DMT_RESOURCE_INVALID"
+
         matches = [rule for rule in self.rules if rule.matches(request)]
         if any(rule.effect is Decision.DENY for rule in matches):
-            return Decision.DENY
+            object.__setattr__(self, "_last_error_code", "DMT_POLICY_DENIED")
+            return Decision.DENY, "DMT_POLICY_DENIED"
         if any(rule.effect is Decision.APPROVAL_REQUIRED for rule in matches):
-            return Decision.APPROVAL_REQUIRED
+            object.__setattr__(self, "_last_error_code", "DMT_APPROVAL_REQUIRED")
+            return Decision.APPROVAL_REQUIRED, "DMT_APPROVAL_REQUIRED"
         if any(rule.effect is Decision.ALLOW for rule in matches):
-            return Decision.ALLOW
-        return Decision.DENY
+            object.__setattr__(self, "_last_error_code", None)
+            return Decision.ALLOW, None
+        object.__setattr__(self, "_last_error_code", "DMT_DEFAULT_DENIED")
+        return Decision.DENY, "DMT_DEFAULT_DENIED"
+
+    @property
+    def last_error_code(self) -> str | None:
+        return getattr(self, "_last_error_code", None)
 
 
 _POLICY_DIGEST_DOMAIN = b"dmint/policy-digest/v1\x00"
@@ -347,7 +405,7 @@ def policy_digest(policy: Policy | Mapping[str, Any]) -> str:
     else:
         raise PolicyError("policy_digest requires a Policy instance or policy mapping")
     try:
-        canonical = rfc8785.dumps(mapping)
-    except (TypeError, ValueError, OverflowError) as exc:
+        canonical = canonicalize_bytes(mapping)
+    except (TypeError, ValueError, OverflowError, CanonicalizationError) as exc:
         raise PolicyError("policy content cannot be canonicalized") from exc
     return hashlib.sha256(_POLICY_DIGEST_DOMAIN + canonical).hexdigest()

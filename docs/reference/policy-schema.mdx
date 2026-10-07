@@ -65,15 +65,25 @@ Each element in the `rules` array defines an authorization rule for an agent act
 | `tool` | string | **Yes** | Tool identifier or namespace (e.g. `"postgres"`, `"filesystem"`, `"ledger"`). |
 | `action` | string | **Yes** | Specific action or method name (e.g. `"query"`, `"transfer"`, `"read"`). |
 | `resource` | string | No | Targeted resource string or wildcard (`"*"`). Defaults to matching requests with no resource concept if omitted. |
+| `resource_kind` | string | No | Deterministic matching engine kind: `"path"`, `"url"`, `"host"`, or `"identifier"`. Defaults to exact string match if omitted. |
 | `agent_id` | string | No | Optional agent identifier to restrict this rule to a specific agent identity. |
 | `conditions` | array | No | Optional trusted context conditions evaluated against environmental attributes. |
 
 ---
 
-## Resource Matching Semantics
+## Resource Matching & Kind Semantics
 
-- **Wildcard (`"resource": "*"`)**: Matches any resource specified in the tool request.
-- **Specific String (`"resource": "orders_table"`)**: Matches only requests targeting that exact resource.
+- **Any Resource (`"resource": "*"`)**: Matches any resource specified in the tool request.
+- **Rules Without a Kind (Omitted `resource_kind`)**: When `resource_kind` is omitted or set to an unrecognized value, matching falls back strictly to an **exact string match** (`rule == request.resource`). Wildcards are not expanded.
+- **Path Globs (`resource_kind: "path"`)**:
+  - `*` matches characters within a single path segment (does not cross `/`).
+  - `**` matches zero or more complete path segments across slashes (e.g. `/workspace/**/*.py`).
+  - Single-character `?` is not supported.
+  - Path matching is case-sensitive by default. On case-insensitive filesystems (macOS, Windows), configure `case_sensitive=False`.
+- **Identifier Globs (`resource_kind: "identifier"`)**:
+  - `*` matches alphanumeric and delimiter characters `[A-Za-z0-9_.-]*`.
+  - Leading and trailing whitespace is rejected.
+- **Fail-Closed Pre-Check**: If an incoming request's resource cannot be legally normalized for any applicable rule kind in the policy (e.g., path root escape `/../`, NUL byte `\x00`, backslash `\`, encoded traversal `%2f`/`%2e%2e`, userinfo in URLs), policy evaluation immediately returns `DENY` with code `DMT_RESOURCE_INVALID` before any rule matching.
 - **Omission**: Omitting `"resource"` means the rule *only* matches requests that have no resource concept at all. It does **not** mean "any resource".
 
 ---
@@ -118,6 +128,10 @@ Each element in the `rules` array defines an authorization rule for an agent act
           },
           "resource": {
             "type": "string"
+          },
+          "resource_kind": {
+            "type": "string",
+            "enum": ["path", "url", "host", "identifier"]
           },
           "agent_id": {
             "type": "string"

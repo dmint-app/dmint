@@ -1,0 +1,485 @@
+[
+  {
+    "name": "path_exact_match",
+    "kind": "path",
+    "input": "/var/log/syslog",
+    "rule": "/var/log/syslog",
+    "expected": true
+  },
+  {
+    "name": "path_exact_mismatch",
+    "kind": "path",
+    "input": "/var/log/auth.log",
+    "rule": "/var/log/syslog",
+    "expected": false
+  },
+  {
+    "name": "path_posix_double_slash_quirk",
+    "kind": "path",
+    "input": "//var//log///syslog",
+    "rule": "/var/log/syslog",
+    "expected": true
+  },
+  {
+    "name": "path_dot_dot_resolution",
+    "kind": "path",
+    "input": "/var/log/../log/syslog",
+    "rule": "/var/log/syslog",
+    "expected": true
+  },
+  {
+    "name": "path_dot_resolution",
+    "kind": "path",
+    "input": "/var/./log/./syslog",
+    "rule": "/var/log/syslog",
+    "expected": true
+  },
+  {
+    "name": "path_trailing_slash_normalized",
+    "kind": "path",
+    "input": "/var/log/syslog/",
+    "rule": "/var/log/syslog",
+    "expected": true
+  },
+  {
+    "name": "path_rule_trailing_slash_normalized",
+    "kind": "path",
+    "input": "/var/log",
+    "rule": "/var/log/",
+    "expected": true
+  },
+  {
+    "name": "path_single_star_within_segment",
+    "kind": "path",
+    "input": "/var/log/app.log",
+    "rule": "/var/log/*.log",
+    "expected": true
+  },
+  {
+    "name": "path_single_star_does_not_cross_slash",
+    "kind": "path",
+    "input": "/var/log/nginx/access.log",
+    "rule": "/var/log/*.log",
+    "expected": false
+  },
+  {
+    "name": "path_globstar_crosses_segments",
+    "kind": "path",
+    "input": "/workspace/src/utils/helpers.py",
+    "rule": "/workspace/**",
+    "expected": true
+  },
+  {
+    "name": "path_globstar_matches_root_level",
+    "kind": "path",
+    "input": "/workspace",
+    "rule": "/workspace/**",
+    "expected": true
+  },
+  {
+    "name": "path_globstar_with_extension",
+    "kind": "path",
+    "input": "/workspace/src/test.py",
+    "rule": "/workspace/**/*.py",
+    "expected": true
+  },
+  {
+    "name": "path_globstar_extension_mismatch",
+    "kind": "path",
+    "input": "/workspace/src/test.txt",
+    "rule": "/workspace/**/*.py",
+    "expected": false
+  },
+  {
+    "name": "path_middle_globstar_direct",
+    "kind": "path",
+    "input": "/a/b",
+    "rule": "/a/**/b",
+    "expected": true
+  },
+  {
+    "name": "path_middle_globstar_nested",
+    "kind": "path",
+    "input": "/a/x/y/z/b",
+    "rule": "/a/**/b",
+    "expected": true
+  },
+  {
+    "name": "path_middle_globstar_mismatch",
+    "kind": "path",
+    "input": "/a/x/y/z/c",
+    "rule": "/a/**/b",
+    "expected": false
+  },
+  {
+    "name": "path_case_sensitive_default_match",
+    "kind": "path",
+    "input": "/var/log/App.log",
+    "rule": "/var/log/App.log",
+    "expected": true
+  },
+  {
+    "name": "path_case_sensitive_default_mismatch",
+    "kind": "path",
+    "input": "/var/log/app.log",
+    "rule": "/var/log/App.log",
+    "expected": false
+  },
+  {
+    "name": "path_unicode_nfc_nfd_equivalence",
+    "kind": "path",
+    "input": "/files/caf\u0065\u0301.txt",
+    "rule": "/files/caf\u00e9.txt",
+    "expected": true
+  },
+  {
+    "name": "path_invalid_root_escape",
+    "kind": "path",
+    "input": "/../etc/passwd",
+    "rule": "/etc/passwd",
+    "expected": "invalid"
+  },
+  {
+    "name": "path_invalid_nested_root_escape",
+    "kind": "path",
+    "input": "/var/../../etc/passwd",
+    "rule": "/etc/passwd",
+    "expected": "invalid"
+  },
+  {
+    "name": "path_invalid_relative_escape",
+    "kind": "path",
+    "input": "../../etc/passwd",
+    "rule": "etc/passwd",
+    "expected": "invalid"
+  },
+  {
+    "name": "path_invalid_nul_byte",
+    "kind": "path",
+    "input": "/var/log/test\u0000.log",
+    "rule": "/var/log/*.log",
+    "expected": "invalid"
+  },
+  {
+    "name": "path_invalid_backslash",
+    "kind": "path",
+    "input": "/var\\log\\test.log",
+    "rule": "/var/log/test.log",
+    "expected": "invalid"
+  },
+  {
+    "name": "path_invalid_encoded_slash",
+    "kind": "path",
+    "input": "/var/%2f/log",
+    "rule": "/var/**",
+    "expected": "invalid"
+  },
+  {
+    "name": "path_invalid_encoded_dot_dot",
+    "kind": "path",
+    "input": "/var/%2e%2e/etc/passwd",
+    "rule": "/etc/passwd",
+    "expected": "invalid"
+  },
+  {
+    "name": "url_exact_match",
+    "kind": "url",
+    "input": "https://api.github.com/repos",
+    "rule": "https://api.github.com/repos",
+    "expected": true
+  },
+  {
+    "name": "url_default_port_443_removed",
+    "kind": "url",
+    "input": "https://api.github.com:443/repos",
+    "rule": "https://api.github.com/repos",
+    "expected": true
+  },
+  {
+    "name": "url_rule_has_default_port",
+    "kind": "url",
+    "input": "https://api.github.com/repos",
+    "rule": "https://api.github.com:443/repos",
+    "expected": true
+  },
+  {
+    "name": "url_default_port_80_removed",
+    "kind": "url",
+    "input": "http://example.com:80/index.html",
+    "rule": "http://example.com/index.html",
+    "expected": true
+  },
+  {
+    "name": "url_case_insensitive_scheme_and_host",
+    "kind": "url",
+    "input": "HTTPS://API.GITHUB.COM/repos",
+    "rule": "https://api.github.com/repos",
+    "expected": true
+  },
+  {
+    "name": "url_trailing_dot_host_normalized",
+    "kind": "url",
+    "input": "https://api.github.com./repos",
+    "rule": "https://api.github.com/repos",
+    "expected": true
+  },
+  {
+    "name": "url_idn_punycode_match",
+    "kind": "url",
+    "input": "https://münchen.de/api",
+    "rule": "https://xn--mnchen-3ya.de/api",
+    "expected": true
+  },
+  {
+    "name": "url_ipv6_literal_match",
+    "kind": "url",
+    "input": "http://[::1]:8080/api",
+    "rule": "http://[::1]:8080/api",
+    "expected": true
+  },
+  {
+    "name": "url_non_default_port_mismatch",
+    "kind": "url",
+    "input": "https://example.com:8443/api",
+    "rule": "https://example.com/api",
+    "expected": false
+  },
+  {
+    "name": "url_path_wildcard",
+    "kind": "url",
+    "input": "https://api.github.com/repos/dmint/dmint/pulls",
+    "rule": "https://api.github.com/repos/**",
+    "expected": true
+  },
+  {
+    "name": "url_host_subdomain_wildcard",
+    "kind": "url",
+    "input": "https://api.github.com/repos",
+    "rule": "https://*.github.com/repos",
+    "expected": true
+  },
+  {
+    "name": "url_scheme_mismatch",
+    "kind": "url",
+    "input": "http://api.github.com/repos",
+    "rule": "https://api.github.com/repos",
+    "expected": false
+  },
+  {
+    "name": "url_invalid_userinfo_at_trick",
+    "kind": "url",
+    "input": "https://api.github.com@evil.com/",
+    "rule": "https://api.github.com/**",
+    "expected": "invalid"
+  },
+  {
+    "name": "url_invalid_userinfo_backslash_at",
+    "kind": "url",
+    "input": "https://evil.com\\@github.com",
+    "rule": "https://github.com/**",
+    "expected": "invalid"
+  },
+  {
+    "name": "url_invalid_non_http_ftp",
+    "kind": "url",
+    "input": "ftp://example.com/file.txt",
+    "rule": "ftp://example.com/**",
+    "expected": "invalid"
+  },
+  {
+    "name": "url_invalid_non_http_file",
+    "kind": "url",
+    "input": "file:///etc/passwd",
+    "rule": "file:///**",
+    "expected": "invalid"
+  },
+  {
+    "name": "url_invalid_non_http_javascript",
+    "kind": "url",
+    "input": "javascript:alert(1)",
+    "rule": "javascript:*",
+    "expected": "invalid"
+  },
+  {
+    "name": "url_invalid_encoded_dot_dot",
+    "kind": "url",
+    "input": "https://api.github.com/%2e%2e/admin",
+    "rule": "https://api.github.com/**",
+    "expected": "invalid"
+  },
+  {
+    "name": "url_invalid_encoded_slash",
+    "kind": "url",
+    "input": "https://api.github.com/%2f/admin",
+    "rule": "https://api.github.com/**",
+    "expected": "invalid"
+  },
+  {
+    "name": "url_invalid_root_escape_path",
+    "kind": "url",
+    "input": "https://api.github.com/../../etc/passwd",
+    "rule": "https://api.github.com/**",
+    "expected": "invalid"
+  },
+  {
+    "name": "url_invalid_nul_byte",
+    "kind": "url",
+    "input": "https://api.github.com/repos\u0000",
+    "rule": "https://api.github.com/**",
+    "expected": "invalid"
+  },
+  {
+    "name": "host_exact_match",
+    "kind": "host",
+    "input": "api.github.com",
+    "rule": "api.github.com",
+    "expected": true
+  },
+  {
+    "name": "host_trailing_dot_normalized",
+    "kind": "host",
+    "input": "api.github.com.",
+    "rule": "api.github.com",
+    "expected": true
+  },
+  {
+    "name": "host_subdomain_wildcard",
+    "kind": "host",
+    "input": "api.github.com",
+    "rule": "*.github.com",
+    "expected": true
+  },
+  {
+    "name": "host_subdomain_mismatch",
+    "kind": "host",
+    "input": "evil.com",
+    "rule": "*.github.com",
+    "expected": false
+  },
+  {
+    "name": "host_punycode_idn_match",
+    "kind": "host",
+    "input": "münchen.de",
+    "rule": "xn--mnchen-3ya.de",
+    "expected": true
+  },
+  {
+    "name": "host_ipv6_literal_match",
+    "kind": "host",
+    "input": "[::1]",
+    "rule": "[::1]",
+    "expected": true
+  },
+  {
+    "name": "host_invalid_userinfo_at",
+    "kind": "host",
+    "input": "user@evil.com",
+    "rule": "evil.com",
+    "expected": "invalid"
+  },
+  {
+    "name": "host_invalid_leading_space",
+    "kind": "host",
+    "input": " evil.com",
+    "rule": "evil.com",
+    "expected": "invalid"
+  },
+  {
+    "name": "host_invalid_nul_byte",
+    "kind": "host",
+    "input": "evil\u0000.com",
+    "rule": "evil.com",
+    "expected": "invalid"
+  },
+  {
+    "name": "identifier_exact_match",
+    "kind": "identifier",
+    "input": "database.users",
+    "rule": "database.users",
+    "expected": true
+  },
+  {
+    "name": "identifier_exact_mismatch",
+    "kind": "identifier",
+    "input": "database.orders",
+    "rule": "database.users",
+    "expected": false
+  },
+  {
+    "name": "identifier_wildcard_suffix",
+    "kind": "identifier",
+    "input": "user_read_123",
+    "rule": "user_*",
+    "expected": true
+  },
+  {
+    "name": "identifier_wildcard_suffix_mismatch",
+    "kind": "identifier",
+    "input": "admin_read_123",
+    "rule": "user_*",
+    "expected": false
+  },
+  {
+    "name": "identifier_wildcard_middle",
+    "kind": "identifier",
+    "input": "service:billing:admin",
+    "rule": "service:*:admin",
+    "expected": true
+  },
+  {
+    "name": "identifier_wildcard_character_restricted",
+    "kind": "identifier",
+    "input": "user@malicious",
+    "rule": "user_*",
+    "expected": false
+  },
+  {
+    "name": "identifier_invalid_leading_whitespace",
+    "kind": "identifier",
+    "input": "  my_id",
+    "rule": "my_id",
+    "expected": "invalid"
+  },
+  {
+    "name": "identifier_invalid_trailing_whitespace",
+    "kind": "identifier",
+    "input": "my_id  ",
+    "rule": "my_id",
+    "expected": "invalid"
+  },
+  {
+    "name": "identifier_invalid_nul_byte",
+    "kind": "identifier",
+    "input": "my_id\u0000",
+    "rule": "my_id",
+    "expected": "invalid"
+  },
+  {
+    "name": "unknown_exact_match",
+    "kind": "unknown",
+    "input": "arbitrary:value*1",
+    "rule": "arbitrary:value*1",
+    "expected": true
+  },
+  {
+    "name": "unknown_no_glob_expansion",
+    "kind": "unknown",
+    "input": "arbitrary:valueXYZ1",
+    "rule": "arbitrary:value*1",
+    "expected": false
+  },
+  {
+    "name": "unregistered_kind_exact_only",
+    "kind": "custom_asset",
+    "input": "asset_123",
+    "rule": "asset_123",
+    "expected": true
+  },
+  {
+    "name": "unregistered_kind_mismatch",
+    "kind": "custom_asset",
+    "input": "asset_456",
+    "rule": "asset_123",
+    "expected": false
+  }
+]

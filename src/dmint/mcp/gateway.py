@@ -17,11 +17,11 @@ from mcp.server import Server
 from mcp.server.context import ServerRequestContext
 from mcp.server.stdio import stdio_server
 from mcp.shared.exceptions import MCPError as SDKMCPError, ErrorData
-import rfc8785
-
 from mcp.server.transport_security import TransportSecuritySettings
 from starlette.applications import Starlette
 import uvicorn
+
+from dmint.core.canonicalize import canonicalize_bytes
 
 from dmint.core.approvals import ApprovalRecord, PolicyProvenance
 from dmint.core.verification import ApprovalAssertion, ApprovalVerifier, public_key_from_hex
@@ -518,7 +518,7 @@ class MCPGateway:
                 if isinstance(approval_cred, str):
                     approval_cred = approval_cred.encode("utf-8")
                 elif isinstance(approval_cred, dict):
-                    approval_cred = rfc8785.dumps(approval_cred)
+                    approval_cred = canonicalize_bytes(approval_cred)
 
                 return await self.retry_call(
                     tool_name=tool_name,

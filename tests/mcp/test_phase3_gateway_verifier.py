@@ -149,9 +149,9 @@ class TestGatewayDoesNotExposePrivateKeyLoader:
     def test_gateway_module_does_not_expose_load_private_key_from_file(self) -> None:
         import dmint.mcp.gateway as gw
 
-        assert not hasattr(gw, "load_private_key_from_file"), (
-            "gateway module must not expose load_private_key_from_file"
-        )
+        assert not hasattr(
+            gw, "load_private_key_from_file"
+        ), "gateway module must not expose load_private_key_from_file"
 
     def test_gateway_module_does_not_expose_write_private_key_atomic(self) -> None:
         import dmint.mcp.gateway as gw
@@ -169,13 +169,15 @@ class TestGatewayDoesNotExposePrivateKeyLoader:
         assert not hasattr(gw, "LocalApprovalAuthority"), "gateway module must not expose LocalApprovalAuthority"
 
     def test_gateway_does_not_import_signing_or_private_key_code(self) -> None:
-        """Isolated process test: importing dmint.mcp.gateway must NOT import signing or private-key modules."""
+        """Isolated process test: importing dmint.mcp modules must NOT import signing or private-key modules."""
         import subprocess
         import sys
 
         code = (
             "import sys\n"
             "import dmint.mcp.gateway as gw\n"
+            "import dmint.mcp.__main__ as main_mod\n"
+            "import dmint.mcp.config_loader as cfg_mod\n"
             "# 1. Neither signing nor private-key loader modules may be in sys.modules\n"
             "banned_modules = {'dmint.core.authority', 'dmint.core.keys'}\n"
             "loaded_banned = banned_modules & set(sys.modules.keys())\n"
@@ -195,6 +197,25 @@ class TestGatewayDoesNotExposePrivateKeyLoader:
             env={**os.environ, "PYTHONPATH": src_dir},
         )
         assert proc.returncode == 0, f"Subprocess failed:\n{proc.stderr}\n{proc.stdout}"
+
+    def test_canonicalize_rfc8785_byte_for_byte_equivalence(self) -> None:
+        """Prove that Dmint's canonicalize_bytes produces identical bytes to external rfc8785.dumps."""
+        import rfc8785
+        from dmint.core.canonicalize import canonicalize_bytes
+
+        test_payloads = [
+            {"tool": "db", "action": "read", "resource": "/users/1"},
+            {"numbers": [0, -0.0, 1.5, 1e20, -1e-5, 9007199254740991]},
+            {"unicode": "hello \u2028 \u2029 \u007f \U0001f600", "escapes": '\b\f\n\r\t"\\'},
+            {"nested": {"a": [True, False, None], "b": {"c": 123}}},
+            {"sorted_keys": {"\u00e9": 1, "e\u0301": 2, "z": 3, "a": 4}},
+        ]
+        for payload in test_payloads:
+            external_bytes = rfc8785.dumps(payload)
+            dmint_bytes = canonicalize_bytes(payload)
+            assert (
+                dmint_bytes == external_bytes
+            ), f"Mismatch for payload {payload}: {dmint_bytes!r} vs {external_bytes!r}"
 
     def test_gateway_importable_without_private_key_on_disk_or_in_env(self) -> None:
         """Importing the gateway module must not fail when no private key is present."""

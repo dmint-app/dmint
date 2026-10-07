@@ -305,9 +305,10 @@ class Dmint:
     def _evaluate(self, request: ToolRequest) -> Decision:
         decision = self._evaluate_decision(request)
         if decision is Decision.DENY:
+            err_code = getattr(self._policy, "last_error_code", None) or "DMT_POLICY_DENIED"
             raise AuthorizationError(
                 "policy denied the request",
-                code="DMT_POLICY_DENIED",
+                code=err_code,
                 request_id=request.request_id,
                 decision=decision.value,
             )

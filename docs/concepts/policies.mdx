@@ -84,6 +84,42 @@ Rules are evaluated deterministically using standard Dmint security precedence: 
 
 ---
 
+## Deterministic Resource Matching
+
+Policy rules can specify a `resource_kind` (`path`, `url`, `host`, `identifier`, or omit for exact match). Dmint evaluates matching through strict kind-specific deterministic algorithms:
+
+### Fail-Closed Normalization Pre-Check
+Before any rule matching occurs, Dmint verifies that the request's resource can be legally normalized for all relevant rule kinds configured in the policy. If the request resource cannot be safely normalized (e.g., path root escape `/../etc/passwd`, NUL byte `\x00`, backslash `\`, encoded traversal sequences `%2f` / `%2e%2e`, URL userinfo tricks, or unsupported schemes), policy evaluation immediately returns `DENY` with code `DMT_RESOURCE_INVALID`. This fail-closed pre-check occurs before any matching, preventing malformed inputs from slipping through to permissive fallback rules such as `ALLOW *`.
+
+### Path Matching (`path`)
+- **POSIX Path Normalization**: Resolves `.` and `..` segments, collapses duplicate slashes, strips trailing slashes, and fixes the POSIX implementation-defined `//` quirk (collapsing multiple leading slashes to `/`).
+- **Fail-Closed Security Rejection**: Paths that escape the root directory (e.g. `/../etc/passwd`), contain NUL bytes (`\x00`), Windows backslashes (`\`), or encoded traversal sequences (`%2f`, `%2e%2e`) fail normalization and fail closed immediately.
+- **Unicode NFC Normalization**: Both rule patterns and incoming path arguments are normalized to Unicode Normalization Form C (NFC).
+- **Segment Globs**:
+  - `*` matches zero or more characters within a single path segment (never crosses `/`).
+  - `**` matches zero or more complete path segments across slashes (e.g. `/workspace/**/*.py`).
+  - Single-character `?` wildcards are explicitly not supported to maintain deterministic predictability.
+- **Case Sensitivity & OS Filesystems**: Path matching is strictly case-sensitive by default. Deployments running on case-insensitive filesystems (such as macOS APFS or Windows NTFS) require setting `case_sensitive=False` to prevent case-variation bypasses (e.g. `/ETC/PASSWD`).
+- **Filesystem & Symlink Boundary**: String-based path matching cannot inspect the host filesystem. Resolving symbolic links (e.g., via `os.path.realpath()`) is strictly the tool resolver's responsibility before passing request parameters to Dmint.
+- **Identical Normalization Across Effects**: Both `DENY` and `ALLOW` rules undergo the exact same normalization pipeline. Even if an attacker uses obfuscated paths such as `//workspace//secrets/../secrets/key.pem`, `DENY` rules match the normalized path and override any broader `ALLOW` rules.
+
+### URL & Host Matching (`url`, `host`)
+- **Scheme Validation**: Strictly permits `http` and `https` schemes; non-HTTP schemes (`file:`, `ftp:`, `javascript:`, etc.) fail closed immediately.
+- **Userinfo Rejection**: Rejects userinfo tricks containing `@` or `\` in authority/path (`https://api.github.com@evil.com/`, `https://evil.com\@github.com`).
+- **Host Canonicalization**: Normalizes hostnames to lowercase, strips DNS trailing dots (`api.github.com.` -> `api.github.com`), converts internationalized domain names (IDN) to Punycode, and safely handles bracketed IPv6 literals (e.g. `[::1]`).
+- **Port Normalization**: Strips default protocol ports (`:80` for HTTP, `:443` for HTTPS).
+- **Path Traversal Defense**: URL paths undergo full path normalization and reject `%2f` or `%2e%2e` sequences.
+- **Wildcards**: Supports domain wildcards (e.g. `*.github.com`) and path segment globs (e.g. `https://api.github.com/repos/**`).
+
+### Plain Identifiers (`identifier`)
+- **Whitespace Rejection**: Leading or trailing whitespace is strictly rejected rather than stripped, failing closed on irregular inputs.
+- **Restricted Wildcard**: The `*` wildcard strictly matches alphanumeric, underscore, hyphen, and period characters (`[A-Za-z0-9_.-]*`).
+
+### Unknown & Omitted Kinds (Exact Match)
+- If `resource_kind` is omitted or unrecognized, Dmint defaults strictly to an **exact string match** (`input == rule`), with zero wildcard expansion.
+
+---
+
 ## Offline Validation (LLM-Free)
 
 Before deploying a policy to production, always verify its syntactic and semantic integrity using the `dmint` CLI:
