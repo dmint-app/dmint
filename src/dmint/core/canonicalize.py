@@ -53,6 +53,9 @@ def _serialize_str(s: str) -> str:
     return f'"{_ESCAPE.sub(_replace, s)}"'
 
 
+import decimal
+
+
 def _serialize_number(val: int | float) -> str:
     """Serialize an integer or float per RFC 8785 Section 3.2.2.3 and ECMAScript 7.1.12.1.
 
@@ -60,7 +63,10 @@ def _serialize_number(val: int | float) -> str:
       - Integers must be within IEEE 754 safe integer range [-2^53 + 1, 2^53 - 1].
       - Floats must be finite (no NaN, +Infinity, -Infinity).
       - Zero and negative zero are serialized as '0'.
-      - Floats follow ECMAScript ToString() rules.
+      - Direct ECMAScript Number::toString implementation: shortest round-trip
+        digit string s from repr(val) (via decimal.Decimal(repr(val)).as_tuple(),
+        no float formatting with fixed precision), k = len(s),
+        n = decimal point position (value = 0.s * 10^n).
     """
     if type(val) is int:
         if val < MIN_SAFE_INTEGER or val > MAX_SAFE_INTEGER:
@@ -72,54 +78,33 @@ def _serialize_number(val: int | float) -> str:
         raise CanonicalizationError(f"non-finite number {f} cannot be canonicalized")
     if f == 0.0:
         return "0"
+
+    prefix = ""
     if f < 0.0:
-        return "-" + _serialize_number(-f)
+        prefix = "-"
+        f = -f
 
-    stringified = str(f)
-    exponent_str = ""
-    exponent_value = 0
-    q = stringified.find("e")
-    if q > 0:
-        exponent_str = stringified[q:]
-        if exponent_str[2:3] == "0":
-            exponent_str = exponent_str[:2] + exponent_str[3:]
-        stringified = stringified[:q]
-        exponent_value = int(exponent_str[1:])
+    d = decimal.Decimal(repr(f)).normalize().as_tuple()
+    s = "".join(str(digit) for digit in d.digits)
+    k = len(s)
+    exp = int(d.exponent) if isinstance(d.exponent, int) else 0
+    n = exp + k
 
-    dot = ""
-    last = ""
-    q = stringified.find(".")
-    if q > 0:
-        dot = "."
-        first = stringified[:q]
-        last = stringified[q + 1 :]
+    if k <= n <= 21:
+        res = s + "0" * (n - k)
+    elif 0 < n <= 21:
+        res = s[:n] + "." + s[n:]
+    elif -6 < n <= 0:
+        res = "0." + "0" * (-n) + s
     else:
-        first = stringified
+        e = n - 1
+        sign = "+" if e >= 0 else "-"
+        if k == 1:
+            res = s + "e" + sign + str(abs(e))
+        else:
+            res = s[0] + "." + s[1:] + "e" + sign + str(abs(e))
 
-    if last == "0":
-        dot = ""
-        last = ""
-
-    if 0 < exponent_value < 21:
-        first += last
-        last = ""
-        dot = ""
-        exponent_str = ""
-        q = exponent_value - len(first)
-        while q >= 0:
-            q -= 1
-            first += "0"
-    elif -7 < exponent_value < 0:
-        last = first + last
-        first = "0"
-        dot = "."
-        exponent_str = ""
-        q = exponent_value
-        while q < -1:
-            q += 1
-            last = "0" + last
-
-    return f"{first}{dot}{last}{exponent_str}"
+    return prefix + res
 
 
 def canonicalize(value: Any) -> str:
@@ -130,7 +115,8 @@ def canonicalize(value: Any) -> str:
       - Numbers formatted per ECMAScript 7.1.12.1 ToString with safe integer validation.
       - Strings escaped strictly per RFC 8785 (no unnecessary non-ASCII escapes).
       - Whitespace completely eliminated.
-      - Rejects non-string object keys, non-finite floats, non-safe integers, and unhandled types.
+      - Only JSON-native Python types accepted: dict, list, str, bool, int, float, None.
+      - Tuples, custom Mappings, and other non-JSON types are strictly rejected.
     """
     return _canonicalize_value(value)
 
@@ -145,14 +131,14 @@ def _canonicalize_value(value: Any) -> str:
         return "null"
     if type(value) is bool:
         return "true" if value else "false"
-    if isinstance(value, (int, float)):
+    if type(value) in (int, float):
         return _serialize_number(value)
     if type(value) is str:
         return _serialize_str(value)
-    if isinstance(value, (list, tuple)):
+    if type(value) is list:
         items = [_canonicalize_value(item) for item in value]
         return "[" + ",".join(items) + "]"
-    if isinstance(value, (dict, Mapping, MappingProxyType)):
+    if type(value) is dict:
         sorted_pairs = []
         for k, v in value.items():
             if type(k) is not str:
@@ -186,7 +172,7 @@ def thaw_json(value: Any) -> Any:
 
 def canonicalize_frozen(value: Any) -> str:
     """Canonicalize Dmint's internal immutable representation."""
-    return canonicalize(value)
+    return canonicalize(thaw_json(value))
 
 
 def canonicalize_request(request: Any) -> str:
@@ -199,8 +185,8 @@ def canonicalize_request(request: Any) -> str:
         {
             "action": request.action,
             "agent_id": request.agent_id,
-            "arguments": request.arguments,
-            "context": request.context.values,
+            "arguments": thaw_json(request.arguments),
+            "context": thaw_json(request.context.values),
             "request_id": request.request_id,
             "resource": request.resource,
             "tool": request.tool,

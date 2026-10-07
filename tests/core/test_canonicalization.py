@@ -204,3 +204,303 @@ class CanonicalizationTests(unittest.TestCase):
         self.assertEqual(frozen.arguments["nested"]["value"], 1)
         with self.assertRaises(TypeError):
             frozen.arguments["nested"]["value"] = 3
+
+    def test_lone_surrogates_raise_canonicalization_error(self):
+        """Lone surrogates must raise CanonicalizationError, not UnicodeEncodeError."""
+        for s in ["\ud800", "\udfff", "before\ud800after"]:
+            with self.assertRaises(CanonicalizationError) as ctx:
+                canonicalize(s)
+            self.assertIn("lone surrogates", str(ctx.exception))
+            self.assertNotIsInstance(ctx.exception, UnicodeEncodeError)
+
+    def test_serialize_str_edge_cases_and_node_parity(self):
+        """Test DEL unescaped, U+2028/2029 unescaped, control chars lowercase \\u00xx,
+
+        short forms, quotes/backslash, non-ASCII raw, emoji (surrogate pair),
+        and keys sorting differently in UTF-16 vs code point order. Compare against Node.
+        """
+        # DEL (0x7f) unescaped: \x7f
+        del_char = "\x7f"
+        self.assertEqual(canonicalize(del_char), f'"{del_char}"')
+
+        # U+2028 / U+2029 unescaped
+        u2028 = "\u2028"
+        u2029 = "\u2029"
+        self.assertEqual(canonicalize(u2028), f'"{u2028}"')
+        self.assertEqual(canonicalize(u2029), f'"{u2029}"')
+
+        # Control chars as lowercase \u00xx
+        self.assertEqual(canonicalize("\x00"), '"\\u0000"')
+        self.assertEqual(canonicalize("\x01"), '"\\u0001"')
+        self.assertEqual(canonicalize("\x1f"), '"\\u001f"')
+
+        # Short forms \b, \t, \n, \f, \r
+        self.assertEqual(canonicalize("\b\t\n\f\r"), '"\\b\\t\\n\\f\\r"')
+
+        # Quotes and backslash
+        self.assertEqual(canonicalize('"\\'), '"\\"\\\\"')
+
+        # Non-ASCII raw (e.g. accented Latin, Asian characters)
+        raw_non_ascii = "café 漢字"
+        self.assertEqual(canonicalize(raw_non_ascii), f'"{raw_non_ascii}"')
+
+        # Emoji (surrogate pair in UTF-16)
+        emoji = "🚀"  # U+1F680 -> UTF-16 \uD83D\uDE80
+        self.assertEqual(canonicalize(emoji), f'"{emoji}"')
+
+        # Keys that sort differently in UTF-16 vs code point order
+        # In Unicode code points: \U00010000 (0x10000) > \uE000 (0xE000)
+        # In UTF-16 code units: \U00010000 is \uD800\uDC00, and 0xD800 < 0xE000
+        obj = {"\ue000": 1, "\U00010000": 2}
+        expected = '{"\\ud800\\udc00":2,"\\ue000":1}' if False else f'{{"\U00010000":2,"\ue000":1}}'
+        self.assertEqual(canonicalize(obj), expected)
+
+        # Cross-check each against Node JSON.stringify
+        test_strings = [
+            del_char,
+            u2028,
+            u2029,
+            "\x00\x01\x1f",
+            "\b\t\n\f\r",
+            '"\\',
+            raw_non_ascii,
+            emoji,
+        ]
+        node_script = """
+        const fs = require('fs');
+        const items = JSON.parse(fs.readFileSync(0, 'utf8'));
+        console.log(JSON.stringify(items.map(s => JSON.stringify(s))));
+        """
+        proc = subprocess.run(
+            ["node", "-e", node_script],
+            input=json.dumps(test_strings),
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        node_results = json.loads(proc.stdout.strip())
+        for s, node_str in zip(test_strings, node_results):
+            self.assertEqual(canonicalize(s), node_str)
+
+    def test_tuples_and_mappings_rejected_as_originally_specified(self):
+        """Tuples and non-dict mappings must be strictly rejected by canonicalize."""
+        from types import MappingProxyType
+
+        with self.assertRaises(CanonicalizationError):
+            canonicalize((1, 2))
+        with self.assertRaises(CanonicalizationError):
+            canonicalize({"a": (1, 2)})
+        with self.assertRaises(CanonicalizationError):
+            canonicalize(MappingProxyType({"a": 1}))
+
+    def test_v1_record_in_sqlite_store_skipped_without_crashing_list_pending_or_dashboard(self):
+        """A v1 record sitting in the SQLite store does not crash list_pending or the dashboard."""
+        import tempfile
+        import sqlite3
+        from dmint.core.storage.sqlite import SQLiteApprovalStore
+        from dmint.core.storage.sqlite import _integrity_checksum
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "store.db"
+            epoch = "test-epoch"
+            store = SQLiteApprovalStore(db_path, deployment_epoch=epoch)
+
+            # Insert a valid v2 record
+            req = ToolRequest(
+                request_id="req_0123456789abcdef0123456789abcdef01234567892",
+                agent_id="agent-a",
+                tool="database",
+                action="read",
+                resource="users/123",
+                arguments={"action": "allowed"},
+                context=TrustedContext.from_mapping({"environment": "development"}),
+            )
+            rec2 = ApprovalRecord.create(
+                request=req,
+                integration_id="local",
+                capability_id="database.read",
+                policy_provenance=PolicyProvenance("pol-1", "0" * 64, datetime.now(timezone.utc)),
+            )
+            store.save_pending(rec2)
+
+            # Manually inject a v1 record into SQLite
+            conn = sqlite3.connect(str(db_path))
+            v1_row = {
+                "schema_version": "dmint/approval-record/v1",
+                "approval_id": "apr_0123456789abcdef0123456789abcdef01234567891",
+                "request_id": "req_0123456789abcdef0123456789abcdef01234567891",
+                "request_fingerprint": "0" * 64,
+                "binding_version": "dmint/request-binding/v1",
+                "canonicalization_profile": "dmint/jcs-v1",
+                "integration_id": "local",
+                "capability_id": "database.read",
+                "principal_id": "agent-a",
+                "tool": "database",
+                "action": "read",
+                "resource_kind": "value",
+                "resource_value": "users/123",
+                "arguments_json": '{"action":"allowed"}',
+                "trusted_context_json": '{"environment":"development"}',
+                "policy_version_id": "pol-1",
+                "policy_digest": "0" * 64,
+                "policy_evaluated_at": "2026-10-07T12:00:00+00:00",
+                "created_at": "2026-10-07T12:00:00+00:00",
+                "expires_at": "2026-10-07T14:00:00+00:00",
+                "state": "PENDING",
+                "decision_authority_id": None,
+                "decision_authority_subject": None,
+                "decision_authority_kind": None,
+                "decision_at": None,
+                "state_reason": None,
+                "state_at": "2026-10-07T12:00:00+00:00",
+                "consumed_at": None,
+                "deployment_epoch": epoch,
+            }
+            checksum = _integrity_checksum(v1_row)
+            cols = list(v1_row.keys()) + ["record_checksum"]
+            vals = list(v1_row.values()) + [checksum]
+            placeholders = ", ".join("?" * len(cols))
+            conn.execute(
+                f"INSERT INTO approval_records ({', '.join(cols)}) VALUES ({placeholders})",
+                vals,
+            )
+            conn.commit()
+            conn.close()
+
+            # list_pending should succeed and return only the valid v2 record
+            pending = store.list_pending()
+            self.assertEqual(len(pending), 1)
+            self.assertEqual(pending[0].approval_id, rec2.approval_id)
+
+            # list_records should also succeed without crashing
+            records = store.list_records()
+            self.assertEqual(len(records), 1)
+            self.assertEqual(records[0].approval_id, rec2.approval_id)
+            store.close()
+
+    def test_200k_doubles_fuzz_against_node(self):
+        """Fuzz test at least 200,000 doubles against Node JSON.stringify."""
+        import struct
+        import random
+
+        rng = random.Random(1337)
+        doubles = [
+            0.0,
+            -0.0,
+            1.0,
+            -1.0,
+            1.5,
+            -2.5,
+            1e-7,
+            1e-6,
+            1e-5,
+            9.999999999999997e-7,
+            0.000001,
+            1e15,
+            1e16,
+            float(2**53),
+            float(2**53 - 1),
+            float(-(2**53 - 1)),
+            1e20,
+            1e21,
+            1e22,
+            1e23,
+            5e-324,
+            -5e-324,
+            1.7976931348623157e308,
+            -1.7976931348623157e308,
+            2.2250738585072014e-308,
+        ]
+
+        for center in [1e-7, 1e-6, 1e-5, 1e15, 1e16, float(2**53), 1e21, 1e22]:
+            for delta in [-1e-12, -1e-15, 0.0, 1e-15, 1e-12]:
+                doubles.append(center * (1.0 + delta))
+
+        # Appendix B vectors
+        hex_samples = [
+            "0000000000000000",
+            "8000000000000000",
+            "0000000000000001",
+            "8000000000000001",
+            "7fefffffffffffff",
+            "ffefffffffffffff",
+            "4340000000000000",
+            "c340000000000000",
+            "4430000000000000",
+            "44b52d02c7e14af5",
+            "44b52d02c7e14af6",
+            "44b52d02c7e14af7",
+            "444b1ae4d6e2ef4e",
+            "444b1ae4d6e2ef4f",
+            "444b1ae4d6e2ef50",
+            "3eb0c6f7a0b5ed8c",
+            "3eb0c6f7a0b5ed8d",
+            "41b3de4355555553",
+            "41b3de4355555554",
+            "41b3de4355555555",
+            "41b3de4355555556",
+            "41b3de4355555557",
+            "becbf647612f3696",
+            "43143ff3c1cb0959",
+        ]
+        for h in hex_samples:
+            doubles.append(struct.unpack(">d", bytes.fromhex(h))[0])
+
+        for _ in range(5000):
+            mantissa = rng.getrandbits(52)
+            sign = rng.choice([0, 1])
+            raw = (sign << 63) | mantissa
+            doubles.append(struct.unpack(">d", struct.pack(">Q", raw))[0])
+
+        target_count = 200_000
+        while len(doubles) < target_count:
+            raw = rng.getrandbits(64)
+            v = struct.unpack(">d", struct.pack(">Q", raw))[0]
+            if not math.isnan(v) and not math.isinf(v):
+                doubles.append(v)
+
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            doubles_file = Path(tmpdir) / "doubles.txt"
+            node_out_file = Path(tmpdir) / "node_out.txt"
+            script_file = Path(tmpdir) / "script.js"
+
+            with open(doubles_file, "w") as f:
+                for x in doubles:
+                    f.write(repr(x) + "\n")
+
+            with open(script_file, "w") as f:
+                f.write("""const fs = require("fs");
+const readline = require("readline");
+
+const rl = readline.createInterface({
+    input: fs.createReadStream(process.argv[2]),
+    crlfDelay: Infinity
+});
+
+const out = fs.createWriteStream(process.argv[3]);
+rl.on("line", (line) => {
+    if (!line) return;
+    const n = parseFloat(line);
+    out.write(JSON.stringify(n) + "\\n");
+});
+rl.on("close", () => {
+    out.end();
+});
+""")
+
+            subprocess.run(["node", str(script_file), str(doubles_file), str(node_out_file)], check=True)
+            import time
+
+            time.sleep(0.5)
+
+            with open(node_out_file, "r") as f_node:
+                for idx, (x, node_line) in enumerate(zip(doubles, f_node)):
+                    node_exp = node_line.strip()
+                    py_act = canonicalize(x)
+                    self.assertEqual(
+                        py_act,
+                        node_exp,
+                        f"Mismatch at index {idx} for {x} (repr={repr(x)}): py={py_act} != node={node_exp}",
+                    )

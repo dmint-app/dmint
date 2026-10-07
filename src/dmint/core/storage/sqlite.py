@@ -44,6 +44,7 @@ from ..errors import (
     ApprovalStoreError,
     CorruptApprovalRecordError,
     MalformedApprovalError,
+    UnknownApprovalVersionError,
 )
 from ..models import NO_RESOURCE, NoResource, ToolRequest, TrustedContext
 from ..request_binding import request_binding_fingerprint
@@ -702,7 +703,14 @@ class SQLiteApprovalStore(ApprovalStore):
             ).fetchall()
         except sqlite3.Error as exc:
             raise ApprovalStoreError("could not list pending approval records") from exc
-        return [self._deserialize(row) for row in rows]
+        results: list[ApprovalRecord] = []
+        for row in rows:
+            try:
+                results.append(self._deserialize(row))
+            except UnknownApprovalVersionError:
+                # Old/unsupported schema versions fail closed and are safely skipped from active pending list
+                continue
+        return results
 
     def list_records(
         self,
@@ -753,7 +761,13 @@ class SQLiteApprovalStore(ApprovalStore):
                 ).fetchall()
             except sqlite3.Error as exc:
                 raise ApprovalStoreError("could not list approval records") from exc
-        return [self._deserialize(row) for row in rows]
+        records: list[ApprovalRecord] = []
+        for row in rows:
+            try:
+                records.append(self._deserialize(row))
+            except UnknownApprovalVersionError:
+                continue
+        return records
 
     def approve_pending(
         self,
@@ -1036,7 +1050,7 @@ class SQLiteApprovalStore(ApprovalStore):
                     _load_timestamp(row["consumed_at"], "consumed_at") if row["consumed_at"] is not None else None
                 ),
             )
-        except CorruptApprovalRecordError:
+        except (CorruptApprovalRecordError, UnknownApprovalVersionError):
             raise
         except (MalformedApprovalError, TypeError, ValueError, KeyError, IndexError) as exc:
             raise CorruptApprovalRecordError("stored approval record is invalid") from exc

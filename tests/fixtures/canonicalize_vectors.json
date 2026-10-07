@@ -210,5 +210,125 @@
       "request_id": "req_abcdef1234567890abcdef1234567890abcdef12345"
     },
     "expected_canonical": "{\"approval_id\":\"apr_abcdef1234567890abcdef1234567890abcdef12345\",\"audience\":\"dmint/dashboard/v1\",\"decision\":\"APPROVED\",\"expires_at\":\"2026-10-07T14:00:00Z\",\"integration_id\":\"github-prod\",\"issued_at\":\"2026-10-07T13:00:00Z\",\"issuer\":\"ops-authority\",\"nonce\":\"nonce_abcdef1234567890abcdef1234567890abcde\",\"principal_id\":\"agent-prod-1\",\"request_fingerprint\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\",\"request_id\":\"req_abcdef1234567890abcdef1234567890abcdef12345\"}"
+  },
+  {
+    "name": "rfc8785_b_zero",
+    "input": 0.0,
+    "expected_canonical": "0"
+  },
+  {
+    "name": "rfc8785_b_minus_zero",
+    "input": -0.0,
+    "expected_canonical": "0"
+  },
+  {
+    "name": "rfc8785_b_min_pos",
+    "input": 5e-324,
+    "expected_canonical": "5e-324"
+  },
+  {
+    "name": "rfc8785_b_min_neg",
+    "input": -5e-324,
+    "expected_canonical": "-5e-324"
+  },
+  {
+    "name": "rfc8785_b_max_pos",
+    "input": 1.7976931348623157e+308,
+    "expected_canonical": "1.7976931348623157e+308"
+  },
+  {
+    "name": "rfc8785_b_max_neg",
+    "input": -1.7976931348623157e+308,
+    "expected_canonical": "-1.7976931348623157e+308"
+  },
+  {
+    "name": "rfc8785_b_max_pos_int",
+    "input": 9007199254740992.0,
+    "expected_canonical": "9007199254740992"
+  },
+  {
+    "name": "rfc8785_b_max_neg_int",
+    "input": -9007199254740992.0,
+    "expected_canonical": "-9007199254740992"
+  },
+  {
+    "name": "rfc8785_b_2_68",
+    "input": 2.9514790517935283e+20,
+    "expected_canonical": "295147905179352830000"
+  },
+  {
+    "name": "rfc8785_b_e22_pre",
+    "input": 9.999999999999997e+22,
+    "expected_canonical": "9.999999999999997e+22"
+  },
+  {
+    "name": "rfc8785_b_e23",
+    "input": 1e+23,
+    "expected_canonical": "1e+23"
+  },
+  {
+    "name": "rfc8785_b_e23_post",
+    "input": 1.0000000000000001e+23,
+    "expected_canonical": "1.0000000000000001e+23"
+  },
+  {
+    "name": "rfc8785_b_e20_pre",
+    "input": 9.999999999999997e+20,
+    "expected_canonical": "999999999999999700000"
+  },
+  {
+    "name": "rfc8785_b_e20_post",
+    "input": 9.999999999999999e+20,
+    "expected_canonical": "999999999999999900000"
+  },
+  {
+    "name": "rfc8785_b_e21",
+    "input": 1e+21,
+    "expected_canonical": "1e+21"
+  },
+  {
+    "name": "rfc8785_b_e_minus_7",
+    "input": 9.999999999999997e-07,
+    "expected_canonical": "9.999999999999997e-7"
+  },
+  {
+    "name": "rfc8785_b_e_minus_6",
+    "input": 1e-06,
+    "expected_canonical": "0.000001"
+  },
+  {
+    "name": "rfc8785_b_fraction_1",
+    "input": 333333333.3333332,
+    "expected_canonical": "333333333.3333332"
+  },
+  {
+    "name": "rfc8785_b_fraction_2",
+    "input": 333333333.33333325,
+    "expected_canonical": "333333333.33333325"
+  },
+  {
+    "name": "rfc8785_b_fraction_3",
+    "input": 333333333.3333333,
+    "expected_canonical": "333333333.3333333"
+  },
+  {
+    "name": "rfc8785_b_fraction_4",
+    "input": 333333333.3333334,
+    "expected_canonical": "333333333.3333334"
+  },
+  {
+    "name": "rfc8785_b_fraction_5",
+    "input": 333333333.33333343,
+    "expected_canonical": "333333333.33333343"
+  },
+  {
+    "name": "rfc8785_b_neg_fraction",
+    "input": -3.3333333333333333e-06,
+    "expected_canonical": "-0.0000033333333333333333"
+  },
+  {
+    "name": "rfc8785_b_round_to_even",
+    "input": 1424953923781206.2,
+    "expected_canonical": "1424953923781206.2"
   }
 ]
