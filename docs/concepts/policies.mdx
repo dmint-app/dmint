@@ -185,6 +185,88 @@ When using PostgreSQL, `dmint approve` without `--policy` will re-verify against
 
 ---
 
+## Argument Constraints
+
+Dmint rules support deterministic argument constraints evaluated by the pure policy engine before matching effects.
+
+> **Prompt injection cannot change what is allowed; it can only act within the argument limits your policy sets.**
+
+### Pure Constraint Evaluation & Fail-Closed Errors
+- **Pure Evaluation**: All argument validation is purely deterministic with zero external calls, zero LLM dependencies, and zero argument mutations.
+- **Fail-Closed Default**: Any constraint violation (missing required parameter, disallowed extra argument, type mismatch, number out of bounds, regex mismatch) immediately yields `DENY` with error code `DMT_CONSTRAINT_VIOLATION`. It never throws an unhandled exception or silently skips the rule.
+- **Exact Request Binding**: Constraints apply to the exact arguments serialized into the cryptographic RFC 8785 request fingerprint. Mutating arguments after evaluation invalidates the assertion.
+
+### Integer and Float Rules
+- **Boolean Rejection**: In Python and JSON engines, booleans (`True`, `False`) are subclasses of integers. Dmint's numeric validator strictly rejects booleans where numbers or integers are expected.
+- **NaN and Infinity**: `NaN`, `Infinity`, and `-Infinity` are strictly rejected.
+- **Safe Integer Limits**: Integers must reside within RFC 8785 safe 53-bit range (`-9,007,199,254,740,991` to `9,007,199,254,740,991` / `2^53 - 1`). Larger IDs must be passed as strings.
+- **Safe Numeric Comparison**: Float and integer bounds are evaluated using exact arbitrary-precision decimal representations (`Decimal`) without floating-point rounding errors.
+
+### Pattern Constraints
+- **Anchored Matching**: All string patterns are strictly anchored full-string matches (`fullmatch`). Partial substring matching is rejected.
+- **ReDoS Protection**: Pattern length is capped at 256 characters, input length is capped at 4096 characters, and nested quantifiers with catastrophic backtracking risk are rejected at policy load time.
+
+### Examples
+
+#### 1. Refund Limit
+Restrict customer refunds to a maximum amount and approved currencies:
+```json
+{
+  "effect": "allow",
+  "tool": "payments",
+  "action": "refund",
+  "resource": "*",
+  "constraints": {
+    "required": ["amount", "currency"],
+    "additionalProperties": false,
+    "properties": {
+      "amount": { "type": "number", "minimum": 0.01, "maximum": 500.0 },
+      "currency": { "type": "string", "enum": ["USD", "EUR", "GBP"] }
+    }
+  }
+}
+```
+
+#### 2. Read-Only SQL Guard
+Permit database queries only if they strictly begin with `SELECT`, preventing destructive DDL or DML statements:
+```json
+{
+  "effect": "allow",
+  "tool": "database",
+  "action": "query",
+  "resource": "*",
+  "constraints": {
+    "required": ["sql"],
+    "properties": {
+      "sql": {
+        "type": "string",
+        "pattern": "(?i)^\\s*SELECT\\s+[\\s\\S]+$"
+      }
+    }
+  }
+}
+```
+
+#### 3. Allowed-Values Enum
+Constrain cloud server provisioning to approved regions and instance sizes:
+```json
+{
+  "effect": "allow",
+  "tool": "cloud",
+  "action": "provision_vm",
+  "resource": "*",
+  "constraints": {
+    "required": ["region", "instance_type"],
+    "properties": {
+      "region": { "type": "string", "enum": ["us-east-1", "us-west-2", "eu-west-1"] },
+      "instance_type": { "type": "string", "enum": ["t3.micro", "t3.small", "t3.medium"] }
+    }
+  }
+}
+```
+
+---
+
 ## Next Steps
 
 <CardGroup cols={2}>

@@ -99,6 +99,8 @@ from .core import (
     request_binding_envelope,
     request_binding_fingerprint,
     request_fingerprint,
+    evaluate_constraints,
+    validate_constraints_schema,
 )
 import importlib
 from typing import TYPE_CHECKING
@@ -226,4 +228,6 @@ __all__ = [
     "mcp",
     "dashboard",
     "skills",
+    "evaluate_constraints",
+    "validate_constraints_schema",
 ]

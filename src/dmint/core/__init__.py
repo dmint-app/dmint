@@ -100,6 +100,7 @@ from .resources import (
     normalize_path,
     normalize_url,
 )
+from .constraints import evaluate_constraints, validate_constraints_schema
 from .request_binding import (
     canonical_request_binding,
     request_binding_envelope,
@@ -232,6 +233,8 @@ __all__ = [
     "public_key_hex",
     "public_key_pem",
     "write_private_key_atomic",
+    "evaluate_constraints",
+    "validate_constraints_schema",
 ]
 
 

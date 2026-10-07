@@ -19,6 +19,7 @@ from .models import (
     validate_text,
 )
 from .resources import ResourceMatchingError, match_resource, validate_resource_syntax
+from .constraints import evaluate_constraints, validate_constraints_schema
 
 ConditionOperator = Literal["equals", "notEquals", "in", "contains", "startsWith", "endsWith"]
 _OPERATORS: set[str] = {"equals", "notEquals", "in", "contains", "startsWith", "endsWith"}
@@ -110,6 +111,7 @@ class Rule:
     resource_kind: str | None = None
     case_sensitive: bool = True
     conditions: tuple[Condition, ...] = ()
+    constraints: Mapping[str, Any] | None = None
 
     def __post_init__(self) -> None:
         if type(self.effect) is not Decision:
@@ -151,6 +153,10 @@ class Rule:
             raise PolicyError("rule contains an invalid condition")
         object.__setattr__(self, "conditions", tuple(self.conditions))
 
+        if self.constraints is not None:
+            validate_constraints_schema(self.constraints)
+            object.__setattr__(self, "constraints", freeze_json(self.constraints, "rule.constraints"))
+
     @classmethod
     def allow(
         cls,
@@ -162,8 +168,19 @@ class Rule:
         resource_kind: str | None = None,
         case_sensitive: bool = True,
         conditions: Sequence[Condition] = (),
+        constraints: Mapping[str, Any] | None = None,
     ) -> "Rule":
-        return cls(Decision.ALLOW, tool, action, agent_id, resource, resource_kind, case_sensitive, tuple(conditions))
+        return cls(
+            Decision.ALLOW,
+            tool,
+            action,
+            agent_id,
+            resource,
+            resource_kind,
+            case_sensitive,
+            tuple(conditions),
+            constraints,
+        )
 
     @classmethod
     def deny(
@@ -176,8 +193,19 @@ class Rule:
         resource_kind: str | None = None,
         case_sensitive: bool = True,
         conditions: Sequence[Condition] = (),
+        constraints: Mapping[str, Any] | None = None,
     ) -> "Rule":
-        return cls(Decision.DENY, tool, action, agent_id, resource, resource_kind, case_sensitive, tuple(conditions))
+        return cls(
+            Decision.DENY,
+            tool,
+            action,
+            agent_id,
+            resource,
+            resource_kind,
+            case_sensitive,
+            tuple(conditions),
+            constraints,
+        )
 
     @classmethod
     def approval_required(
@@ -190,6 +218,7 @@ class Rule:
         resource_kind: str | None = None,
         case_sensitive: bool = True,
         conditions: Sequence[Condition] = (),
+        constraints: Mapping[str, Any] | None = None,
     ) -> "Rule":
         return cls(
             Decision.APPROVAL_REQUIRED,
@@ -200,6 +229,7 @@ class Rule:
             resource_kind,
             case_sensitive,
             tuple(conditions),
+            constraints,
         )
 
     approve = approval_required
@@ -285,6 +315,7 @@ class Policy:
                 "resource_kind",
                 "case_sensitive",
                 "conditions",
+                "constraints",
             },
             "rule",
         )
@@ -346,6 +377,10 @@ class Policy:
         else:
             case_sensitive = True
 
+        constraints = value.get("constraints")
+        if constraints is not None:
+            validate_constraints_schema(constraints)
+
         return Rule(
             effect,
             value["tool"],
@@ -355,6 +390,7 @@ class Policy:
             resource_kind,
             case_sensitive=case_sensitive,
             conditions=tuple(conditions),
+            constraints=constraints,
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -387,6 +423,8 @@ class Policy:
                         }
                     )
                 rule_dict["conditions"] = conds
+            if r.constraints is not None:
+                rule_dict["constraints"] = thaw_json(r.constraints)
             rules_list.append(rule_dict)
         return {"rules": rules_list}
 
@@ -453,13 +491,24 @@ class Policy:
             except ResourceMatchingError:
                 return Decision.DENY, "DMT_RESOURCE_INVALID"
 
-        # 3. Deterministic rule evaluation among matching rules
-        matches = [rule for rule in candidate_rules if rule.matches(request)]
-        if any(rule.effect is Decision.DENY for rule in matches):
+        # 3. Evaluate argument constraints for candidate rules matching resource & conditions
+        # Any constraint error => DENY DMT_CONSTRAINT_VIOLATION before matching effects
+        matching_rules: list[Rule] = []
+        for rule in candidate_rules:
+            if not rule.matches(request):
+                continue
+            if rule.constraints is not None:
+                passed, _ = evaluate_constraints(rule.constraints, request.arguments)
+                if not passed:
+                    return Decision.DENY, "DMT_CONSTRAINT_VIOLATION"
+            matching_rules.append(rule)
+
+        # 4. Deterministic decision precedence among matching rules
+        if any(rule.effect is Decision.DENY for rule in matching_rules):
             return Decision.DENY, "DMT_POLICY_DENIED"
-        if any(rule.effect is Decision.APPROVAL_REQUIRED for rule in matches):
+        if any(rule.effect is Decision.APPROVAL_REQUIRED for rule in matching_rules):
             return Decision.APPROVAL_REQUIRED, "DMT_APPROVAL_REQUIRED"
-        if any(rule.effect is Decision.ALLOW for rule in matches):
+        if any(rule.effect is Decision.ALLOW for rule in matching_rules):
             return Decision.ALLOW, None
         return Decision.DENY, "DMT_DEFAULT_DENIED"
 
