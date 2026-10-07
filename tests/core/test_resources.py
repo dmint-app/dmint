@@ -273,21 +273,81 @@ class TestResourceMatching(unittest.TestCase):
         self.assertEqual(policy.evaluate(make_req("/workspace/main.py")), Decision.ALLOW)
 
         # Unnormalizable inputs: root escape, NUL byte, backslash
-        # Each must evaluate to DENY immediately, NOT matching ALLOW *!
-        self.assertEqual(policy.evaluate(make_req("/../etc/passwd")), Decision.DENY)
-        self.assertEqual(policy.last_error_code, "DMT_RESOURCE_INVALID")
+        # Each must evaluate to DENY immediately with DMT_RESOURCE_INVALID!
+        for invalid_res in (
+            "/../etc/passwd",
+            "/etc/passwd\x00",
+            "/etc\\passwd",
+            "/var/%2f/passwd",
+            "/var/%2e%2e/passwd",
+            "/var/%2E%2E/passwd",
+            "/var/%252e%252e/passwd",
+        ):
+            dec, code = policy.evaluate_detailed(make_req(invalid_res))
+            self.assertEqual(dec, Decision.DENY)
+            self.assertEqual(code, "DMT_RESOURCE_INVALID")
 
-        self.assertEqual(policy.evaluate(make_req("/etc/passwd\x00")), Decision.DENY)
-        self.assertEqual(policy.last_error_code, "DMT_RESOURCE_INVALID")
+    def test_evaluator_never_calls_unchecked_matcher_with_unvalidated_input(self) -> None:
+        """Prove that the evaluator fails closed on invalid input before calling unchecked helpers."""
+        from unittest.mock import patch
 
-        self.assertEqual(policy.evaluate(make_req("/etc\\passwd")), Decision.DENY)
-        self.assertEqual(policy.last_error_code, "DMT_RESOURCE_INVALID")
+        policy = Policy(
+            [
+                Rule.deny("fs", "read", resource="/etc/passwd", resource_kind="path"),
+                Rule.allow("fs", "read", resource="*"),
+            ]
+        )
+        req = ToolRequest(
+            request_id="req_0123456789abcdef0123456789abcdef01234567890",
+            agent_id="test-agent",
+            tool="fs",
+            action="read",
+            resource="/../etc/passwd",
+            arguments={},
+            context=TrustedContext.from_mapping({}),
+        )
 
-        self.assertEqual(policy.evaluate(make_req("/var/%2f/passwd")), Decision.DENY)
-        self.assertEqual(policy.last_error_code, "DMT_RESOURCE_INVALID")
+        with patch("dmint.core.resources._match_path_unchecked") as mock_match:
+            decision, code = policy.evaluate_detailed(req)
+            self.assertEqual(decision, Decision.DENY)
+            self.assertEqual(code, "DMT_RESOURCE_INVALID")
+            mock_match.assert_not_called()
 
-        self.assertEqual(policy.evaluate(make_req("/var/%2e%2e/passwd")), Decision.DENY)
-        self.assertEqual(policy.last_error_code, "DMT_RESOURCE_INVALID")
+    def test_url_wildcard_against_evil_subdomains_and_hyphens(self) -> None:
+        """Verify *.github.com does not match evil-github.com or github.com.evil.com."""
+        self.assertFalse(match_url("https://*.github.com/repos", "https://evil-github.com/repos"))
+        self.assertFalse(match_url("https://*.github.com/repos", "https://github.com.evil.com/repos"))
+        self.assertFalse(match_host("*.github.com", "evil-github.com"))
+        self.assertFalse(match_host("*.github.com", "github.com.evil.com"))
+        self.assertTrue(match_url("https://*.github.com/repos", "https://api.github.com/repos"))
+        self.assertTrue(match_host("*.github.com", "api.github.com"))
+
+    def test_double_encoded_and_uppercase_traversal(self) -> None:
+        """Verify double-encoded %252e%252e and uppercase %2E%2E raise ResourceMatchingError."""
+        with self.assertRaises(ResourceMatchingError):
+            normalize_path("/var/%252e%252e/etc/passwd")
+        with self.assertRaises(ResourceMatchingError):
+            normalize_path("/var/%2E%2E/etc/passwd")
+        with self.assertRaises(ResourceMatchingError):
+            normalize_url("https://api.github.com/%252e%252e/admin")
+        with self.assertRaises(ResourceMatchingError):
+            normalize_url("https://api.github.com/%2E%2E/admin")
+
+    def test_ipv4_and_ipv6_zone_ids(self) -> None:
+        """Verify IPv4 host matching and IPv6 zone ID handling."""
+        self.assertTrue(match_host("192.168.1.1", "192.168.1.1"))
+        self.assertFalse(match_host("192.168.1.1", "192.168.1.2"))
+        self.assertFalse(match_host("192.168.1.1", "evil.192.168.1.1.com"))
+        self.assertTrue(match_url("http://192.168.1.1/api", "http://192.168.1.1/api"))
+        self.assertTrue(match_host("[fe80::1%eth0]", "[fe80::1%eth0]"))
+        self.assertTrue(match_url("http://[fe80::1%eth0]/api", "http://[fe80::1%eth0]/api"))
+
+    def test_empty_string_resource_fails_closed(self) -> None:
+        """Verify empty string resources raise ResourceMatchingError and fail closed."""
+        for kind in ("path", "url", "host", "identifier"):
+            with self.assertRaises(ResourceMatchingError):
+                validate_resource_syntax("", kind=kind)
+            self.assertFalse(match_resource("dummy", "", kind=kind))
 
 
 if __name__ == "__main__":

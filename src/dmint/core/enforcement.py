@@ -303,19 +303,39 @@ class Dmint:
         return decision
 
     def _evaluate(self, request: ToolRequest) -> Decision:
-        decision = self._evaluate_decision(request)
+        if type(request) is not ToolRequest:
+            raise AuthorizationError("invalid authorization request", code="DMT_INVALID_REQUEST")
+        if request.agent_id != self._agent_id or request.context.values != self._context.values:
+            raise AuthorizationError(
+                "request identity or trusted context mismatch",
+                code="DMT_INVALID_REQUEST",
+                request_id=request.request_id,
+            )
+        try:
+            decision, code = self._policy.evaluate_detailed(request)
+        except Exception as exc:
+            raise AuthorizationError(
+                "authorization failed",
+                code="DMT_AUTHORIZATION_ERROR",
+                request_id=request.request_id,
+            ) from exc
+        if decision not in (Decision.ALLOW, Decision.DENY, Decision.APPROVAL_REQUIRED):
+            raise AuthorizationError(
+                "authorization returned an invalid decision",
+                code="DMT_AUTHORIZATION_ERROR",
+                request_id=request.request_id,
+            )
         if decision is Decision.DENY:
-            err_code = getattr(self._policy, "last_error_code", None) or "DMT_POLICY_DENIED"
             raise AuthorizationError(
                 "policy denied the request",
-                code=err_code,
+                code=code or "DMT_POLICY_DENIED",
                 request_id=request.request_id,
                 decision=decision.value,
             )
         if decision is Decision.APPROVAL_REQUIRED:
             raise AuthorizationError(
                 "approval is required",
-                code="DMT_APPROVAL_REQUIRED",
+                code=code or "DMT_APPROVAL_REQUIRED",
                 request_id=request.request_id,
             )
         return decision
@@ -428,13 +448,13 @@ class Dmint:
             capability=capability,
             resource=resource,
         )
-        decision = self._evaluate_decision(request)
+        decision, code = self._policy.evaluate_detailed(request)
         if decision is Decision.APPROVAL_REQUIRED:
             self._persist_pending(request)
         if decision is Decision.DENY:
             raise AuthorizationError(
                 "policy denied the request",
-                code="DMT_POLICY_DENIED",
+                code=code or "DMT_POLICY_DENIED",
                 request_id=request.request_id,
                 decision=decision.value,
             )

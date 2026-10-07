@@ -161,3 +161,125 @@ class PolicyTests(unittest.TestCase):
         rule2 = Rule.approve("db", "delete")
         self.assertEqual(rule1, rule2)
         self.assertIs(rule2.effect, Decision.APPROVAL_REQUIRED)
+
+    def test_concurrent_evaluations_thread_safety(self):
+        """Verify thread-safety and isolation of error codes across concurrent evaluations."""
+        import concurrent.futures
+
+        policy = Policy(
+            [
+                Rule.deny("fs", "read", resource="/etc/passwd", resource_kind="path"),
+                Rule.allow("fs", "read", resource="/var/log/*.log", resource_kind="path"),
+                Rule.approval_required("admin", "restart", resource="*"),
+                Rule.deny("admin", "nuke", resource="*"),
+            ]
+        )
+
+        test_cases = [
+            # (tool, action, resource, expected_decision, expected_code)
+            ("fs", "read", "/../etc/passwd", Decision.DENY, "DMT_RESOURCE_INVALID"),
+            ("fs", "read", "/etc/passwd", Decision.DENY, "DMT_POLICY_DENIED"),
+            ("fs", "read", "/var/log/app.log", Decision.ALLOW, None),
+            ("admin", "restart", "cluster-1", Decision.APPROVAL_REQUIRED, "DMT_APPROVAL_REQUIRED"),
+            ("admin", "nuke", "all", Decision.DENY, "DMT_POLICY_DENIED"),
+            ("unknown", "action", "res", Decision.DENY, "DMT_POLICY_DENIED"),
+        ]
+
+        def worker(idx: int) -> None:
+            # Deterministically cycle through test cases
+            tc = test_cases[idx % len(test_cases)]
+            tool, action, res, expected_dec, expected_code = tc
+            req = make_request(tool=tool, action=action, resource=res)
+            dec, code = policy.evaluate_detailed(req)
+            self.assertEqual(dec, expected_dec, f"Thread {idx} got unexpected decision {dec}")
+            self.assertEqual(code, expected_code, f"Thread {idx} got unexpected code {code}")
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=50) as executor:
+            futures = [executor.submit(worker, i) for i in range(200)]
+            for future in concurrent.futures.as_completed(futures):
+                future.result()
+
+    def test_evaluator_fails_closed_when_any_candidate_rule_kind_fails(self):
+        """ALLOW fs.read on '*' + DENY on '/etc/passwd' (path) + request '/../etc/passwd' => DENY DMT_RESOURCE_INVALID."""
+        policy = Policy(
+            [
+                Rule.allow("fs", "read", resource="*"),
+                Rule.deny("fs", "read", resource="/etc/passwd", resource_kind="path"),
+            ]
+        )
+        req = make_request(tool="fs", action="read", resource="/../etc/passwd")
+        decision, code = policy.evaluate_detailed(req)
+        self.assertEqual(decision, Decision.DENY)
+        self.assertEqual(code, "DMT_RESOURCE_INVALID")
+
+    def test_relative_paths_without_slash_escapes(self):
+        """Relative paths escaping start directory fail closed with DMT_RESOURCE_INVALID."""
+        policy = Policy(
+            [
+                Rule.allow("fs", "read", resource="*"),
+                Rule.deny("fs", "read", resource="secret.txt", resource_kind="path"),
+            ]
+        )
+        for bad_rel in ("../secret.txt", "dir/../../secret.txt"):
+            req = make_request(tool="fs", action="read", resource=bad_rel)
+            decision, code = policy.evaluate_detailed(req)
+            self.assertEqual(decision, Decision.DENY)
+            self.assertEqual(code, "DMT_RESOURCE_INVALID")
+
+    def test_mixed_kind_candidate_rules(self):
+        """If ANY candidate rule's kind fails syntax validation, evaluation fails closed."""
+        policy = Policy(
+            [
+                Rule.allow("net", "fetch", resource="api.github.com", resource_kind="host"),
+                Rule.deny("net", "fetch", resource="https://api.github.com/admin", resource_kind="url"),
+            ]
+        )
+        # Invalid URL syntax with double-encoded traversal
+        req = make_request(tool="net", action="fetch", resource="https://api.github.com/%252e%252e")
+        decision, code = policy.evaluate_detailed(req)
+        self.assertEqual(decision, Decision.DENY)
+        self.assertEqual(code, "DMT_RESOURCE_INVALID")
+
+    def test_case_insensitive_option_from_policy_json(self):
+        """Verify case_sensitive option is configured from policy.json and enforced."""
+        import json
+
+        policy_json = json.dumps(
+            {
+                "rules": [
+                    {
+                        "effect": "allow",
+                        "tool": "fs",
+                        "action": "read",
+                        "resource": "/var/log/*.log",
+                        "resource_kind": "path",
+                        "case_sensitive": False,
+                    }
+                ]
+            }
+        )
+        policy = Policy.from_json(policy_json)
+        self.assertEqual(len(policy.rules), 1)
+        self.assertFalse(policy.rules[0].case_sensitive)
+
+        # Uppercase input matches when case_sensitive=False
+        req = make_request(tool="fs", action="read", resource="/VAR/LOG/APP.LOG")
+        decision, code = policy.evaluate_detailed(req)
+        self.assertEqual(decision, Decision.ALLOW)
+        self.assertIsNone(code)
+
+        # Non-boolean case_sensitive must be rejected
+        bad_json = json.dumps(
+            {
+                "rules": [
+                    {
+                        "effect": "allow",
+                        "tool": "fs",
+                        "action": "read",
+                        "case_sensitive": "false",
+                    }
+                ]
+            }
+        )
+        with self.assertRaises(PolicyError):
+            Policy.from_json(bad_json)

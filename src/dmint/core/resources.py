@@ -41,6 +41,9 @@ class ResourceKind(str, Enum):
     URL = "url"
     HOST = "host"
     IDENTIFIER = "identifier"
+    EXACT = "exact"
+    ANY = "any"
+    NONE = "none"
     UNKNOWN = "unknown"
 
 
@@ -50,7 +53,17 @@ MAX_INPUT_LENGTH = 65536
 MAX_SEGMENTS = 10000
 MAX_WILDCARDS = 64
 
-_ENCODED_TRAVERSAL_TOKENS = ("%2f", "%2e%2e", "%2e.", ".%2e")
+_ENCODED_TRAVERSAL_TOKENS = (
+    "%2f",
+    "%2e%2e",
+    "%2e.",
+    ".%2e",
+    "%252f",
+    "%252e%252e",
+    "%252e.",
+    ".%252e",
+    "%252e",
+)
 _IDENTIFIER_PATTERN_REGEX = re.compile(r"^[A-Za-z0-9_.*:\-]+$")
 
 
@@ -218,7 +231,7 @@ def _parse_pattern_segments(pattern: str, case_sensitive: bool = True) -> tuple[
     return is_abs, collapsed
 
 
-def match_path_segments(pat_segs: list[str], input_segs: list[str]) -> bool:
+def _match_path_segments_unchecked(pat_segs: list[str], input_segs: list[str]) -> bool:
     """Deterministic segment-level wildcard matching algorithm.
 
     Guarantees:
@@ -255,10 +268,12 @@ def match_path_segments(pat_segs: list[str], input_segs: list[str]) -> bool:
     return p_idx == len_p
 
 
-def match_path(rule: str, input_path: str, case_sensitive: bool = True) -> bool:
-    """Match a normalized path against a path rule pattern using segment-based matching."""
+match_path_segments = _match_path_segments_unchecked
+
+
+def _match_path_unchecked(rule: str, norm_input: str, case_sensitive: bool = True) -> bool:
+    """Low-level path matcher. Assumes norm_input has already been validated and normalized."""
     try:
-        norm_input = normalize_path(input_path, case_sensitive=case_sensitive)
         is_abs_pat, pat_segs = _parse_pattern_segments(rule, case_sensitive=case_sensitive)
     except ResourceMatchingError:
         return False
@@ -267,7 +282,17 @@ def match_path(rule: str, input_path: str, case_sensitive: bool = True) -> bool:
     if is_abs_pat != is_abs_in:
         return False
 
-    return match_path_segments(pat_segs, in_segs)
+    return _match_path_segments_unchecked(pat_segs, in_segs)
+
+
+def match_path(rule: str, input_path: str, case_sensitive: bool = True) -> bool:
+    """Safe public path matcher: validates and normalizes input_path then delegates."""
+    try:
+        norm_input = normalize_path(input_path, case_sensitive=case_sensitive)
+    except ResourceMatchingError:
+        return False
+
+    return _match_path_unchecked(rule, norm_input, case_sensitive=case_sensitive)
 
 
 @functools.lru_cache(maxsize=1024)
@@ -588,7 +613,7 @@ def match_url(rule: str, input_url: str) -> bool:
 
 def validate_resource_syntax(resource: str, kind: str) -> None:
     """Validate resource syntax according to kind; raises ResourceMatchingError if invalid."""
-    kind_lower = (kind or "unknown").lower()
+    kind_lower = (kind or "exact").lower()
     if kind_lower == "path":
         normalize_path(resource)
     elif kind_lower == "url":
@@ -597,6 +622,8 @@ def validate_resource_syntax(resource: str, kind: str) -> None:
         normalize_host(resource)
     elif kind_lower == "identifier":
         normalize_identifier(resource)
+    elif kind_lower in ("any", "none"):
+        return
     else:
         if "\x00" in resource:
             raise ResourceMatchingError("resource contains NUL byte")
@@ -604,25 +631,40 @@ def validate_resource_syntax(resource: str, kind: str) -> None:
             raise ResourceMatchingError(f"resource exceeds maximum length of {MAX_INPUT_LENGTH}")
 
 
-def match_resource(rule: str, input_resource: str, kind: str = "unknown", case_sensitive: bool = True) -> bool:
-    """Match input_resource against rule according to resource kind.
-
-    Supported kinds:
-    - 'path': POSIX path matching with segment-based * / ** matching and NFC normalization.
-    - 'url': URL matching with scheme, host, and path matching.
-    - 'host': Hostname matching with domain globs.
-    - 'identifier': Alphanumeric identifier matching with * globs.
-    - unknown (default): Strictly exact string match.
-    """
-    kind_lower = (kind or "unknown").lower()
+def _match_resource_unchecked(rule: str, norm_resource: str, kind: str = "exact", case_sensitive: bool = True) -> bool:
+    """Low-level resource matcher. Assumes norm_resource has already been validated."""
+    kind_lower = (kind or "exact").lower()
     if kind_lower == "path":
-        return match_path(rule, input_resource, case_sensitive=case_sensitive)
+        return _match_path_unchecked(rule, norm_resource, case_sensitive=case_sensitive)
     elif kind_lower == "url":
-        return match_url(rule, input_resource)
+        return match_url(rule, norm_resource)
     elif kind_lower == "host":
-        return match_host(rule, input_resource)
+        return match_host(rule, norm_resource)
     elif kind_lower == "identifier":
-        return match_identifier(rule, input_resource)
+        return match_identifier(rule, norm_resource)
+    elif kind_lower == "any":
+        return True
+    elif kind_lower == "none":
+        return False
     else:
-        # Unknown kind = strictly exact match
-        return rule == input_resource
+        if not case_sensitive:
+            return rule.lower() == norm_resource.lower()
+        return rule == norm_resource
+
+
+def match_resource(rule: str, input_resource: str, kind: str = "exact", case_sensitive: bool = True) -> bool:
+    """Safe public resource matcher: validates syntax first then delegates to unchecked matcher."""
+    try:
+        validate_resource_syntax(input_resource, kind=kind)
+    except ResourceMatchingError:
+        return False
+
+    kind_lower = (kind or "exact").lower()
+    if kind_lower == "path":
+        try:
+            norm_in = normalize_path(input_resource, case_sensitive=case_sensitive)
+        except ResourceMatchingError:
+            return False
+        return _match_path_unchecked(rule, norm_in, case_sensitive=case_sensitive)
+
+    return _match_resource_unchecked(rule, input_resource, kind=kind, case_sensitive=case_sensitive)

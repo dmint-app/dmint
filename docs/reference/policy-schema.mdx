@@ -66,6 +66,7 @@ Each element in the `rules` array defines an authorization rule for an agent act
 | `action` | string | **Yes** | Specific action or method name (e.g. `"query"`, `"transfer"`, `"read"`). |
 | `resource` | string | No | Targeted resource string or wildcard (`"*"`). Defaults to matching requests with no resource concept if omitted. |
 | `resource_kind` | string | No | Deterministic matching engine kind: `"path"`, `"url"`, `"host"`, or `"identifier"`. Defaults to exact string match if omitted. |
+| `case_sensitive` | boolean | No | Case sensitivity for resource matching (defaults to `true`). Set to `false` on case-insensitive filesystems (macOS, Windows). |
 | `agent_id` | string | No | Optional agent identifier to restrict this rule to a specific agent identity. |
 | `conditions` | array | No | Optional trusted context conditions evaluated against environmental attributes. |
 
@@ -132,6 +133,10 @@ Each element in the `rules` array defines an authorization rule for an agent act
           "resource_kind": {
             "type": "string",
             "enum": ["path", "url", "host", "identifier"]
+          },
+          "case_sensitive": {
+            "type": "boolean",
+            "default": true
           },
           "agent_id": {
             "type": "string"

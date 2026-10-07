@@ -175,10 +175,45 @@
     "expected": "invalid"
   },
   {
+    "name": "path_invalid_uppercase_encoded_slash",
+    "kind": "path",
+    "input": "/var/%2F/log",
+    "rule": "/var/**",
+    "expected": "invalid"
+  },
+  {
+    "name": "path_invalid_double_encoded_slash",
+    "kind": "path",
+    "input": "/var/%252f/log",
+    "rule": "/var/**",
+    "expected": "invalid"
+  },
+  {
     "name": "path_invalid_encoded_dot_dot",
     "kind": "path",
     "input": "/var/%2e%2e/etc/passwd",
     "rule": "/etc/passwd",
+    "expected": "invalid"
+  },
+  {
+    "name": "path_invalid_uppercase_encoded_dot_dot",
+    "kind": "path",
+    "input": "/var/%2E%2E/etc/passwd",
+    "rule": "/etc/passwd",
+    "expected": "invalid"
+  },
+  {
+    "name": "path_invalid_double_encoded_dot_dot",
+    "kind": "path",
+    "input": "/var/%252e%252e/etc/passwd",
+    "rule": "/etc/passwd",
+    "expected": "invalid"
+  },
+  {
+    "name": "path_invalid_empty_string",
+    "kind": "path",
+    "input": "",
+    "rule": "/any/path",
     "expected": "invalid"
   },
   {
@@ -231,10 +266,24 @@
     "expected": true
   },
   {
+    "name": "url_ipv4_host_match",
+    "kind": "url",
+    "input": "http://192.168.1.1/api",
+    "rule": "http://192.168.1.1/api",
+    "expected": true
+  },
+  {
     "name": "url_ipv6_literal_match",
     "kind": "url",
     "input": "http://[::1]:8080/api",
     "rule": "http://[::1]:8080/api",
+    "expected": true
+  },
+  {
+    "name": "url_ipv6_zone_id_match",
+    "kind": "url",
+    "input": "http://[fe80::1%eth0]/api",
+    "rule": "http://[fe80::1%eth0]/api",
     "expected": true
   },
   {
@@ -257,6 +306,20 @@
     "input": "https://api.github.com/repos",
     "rule": "https://*.github.com/repos",
     "expected": true
+  },
+  {
+    "name": "url_wildcard_against_evil_hyphen_domain",
+    "kind": "url",
+    "input": "https://evil-github.com/repos",
+    "rule": "https://*.github.com/repos",
+    "expected": false
+  },
+  {
+    "name": "url_wildcard_against_subdomain_hijack",
+    "kind": "url",
+    "input": "https://github.com.evil.com/repos",
+    "rule": "https://*.github.com/repos",
+    "expected": false
   },
   {
     "name": "url_scheme_mismatch",
@@ -308,6 +371,20 @@
     "expected": "invalid"
   },
   {
+    "name": "url_invalid_uppercase_encoded_dot_dot",
+    "kind": "url",
+    "input": "https://api.github.com/%2E%2E/admin",
+    "rule": "https://api.github.com/**",
+    "expected": "invalid"
+  },
+  {
+    "name": "url_invalid_double_encoded_dot_dot",
+    "kind": "url",
+    "input": "https://api.github.com/%252e%252e/admin",
+    "rule": "https://api.github.com/**",
+    "expected": "invalid"
+  },
+  {
     "name": "url_invalid_encoded_slash",
     "kind": "url",
     "input": "https://api.github.com/%2f/admin",
@@ -325,6 +402,13 @@
     "name": "url_invalid_nul_byte",
     "kind": "url",
     "input": "https://api.github.com/repos\u0000",
+    "rule": "https://api.github.com/**",
+    "expected": "invalid"
+  },
+  {
+    "name": "url_invalid_empty_string",
+    "kind": "url",
+    "input": "",
     "rule": "https://api.github.com/**",
     "expected": "invalid"
   },
@@ -357,6 +441,20 @@
     "expected": false
   },
   {
+    "name": "host_wildcard_against_hyphen_evil",
+    "kind": "host",
+    "input": "evil-github.com",
+    "rule": "*.github.com",
+    "expected": false
+  },
+  {
+    "name": "host_wildcard_against_subdomain_evil",
+    "kind": "host",
+    "input": "github.com.evil.com",
+    "rule": "*.github.com",
+    "expected": false
+  },
+  {
     "name": "host_punycode_idn_match",
     "kind": "host",
     "input": "münchen.de",
@@ -364,10 +462,24 @@
     "expected": true
   },
   {
+    "name": "host_ipv4_match",
+    "kind": "host",
+    "input": "192.168.1.1",
+    "rule": "192.168.1.1",
+    "expected": true
+  },
+  {
     "name": "host_ipv6_literal_match",
     "kind": "host",
     "input": "[::1]",
     "rule": "[::1]",
+    "expected": true
+  },
+  {
+    "name": "host_ipv6_zone_id_match",
+    "kind": "host",
+    "input": "[fe80::1%eth0]",
+    "rule": "[fe80::1%eth0]",
     "expected": true
   },
   {
@@ -388,6 +500,13 @@
     "name": "host_invalid_nul_byte",
     "kind": "host",
     "input": "evil\u0000.com",
+    "rule": "evil.com",
+    "expected": "invalid"
+  },
+  {
+    "name": "host_invalid_empty_string",
+    "kind": "host",
+    "input": "",
     "rule": "evil.com",
     "expected": "invalid"
   },
@@ -451,6 +570,13 @@
     "name": "identifier_invalid_nul_byte",
     "kind": "identifier",
     "input": "my_id\u0000",
+    "rule": "my_id",
+    "expected": "invalid"
+  },
+  {
+    "name": "identifier_invalid_empty_string",
+    "kind": "identifier",
+    "input": "",
     "rule": "my_id",
     "expected": "invalid"
   },
