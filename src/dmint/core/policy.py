@@ -282,23 +282,30 @@ class Policy:
     """
 
     rules: tuple[Rule, ...] = ()
+    strict_arguments: bool = False
 
     def __post_init__(self) -> None:
         if not isinstance(self.rules, Sequence) or isinstance(self.rules, (str, bytes)):
             raise PolicyError("policy rules must be a sequence")
         if not all(type(rule) is Rule for rule in self.rules):
             raise PolicyError("policy contains an invalid rule")
+        if type(self.strict_arguments) is not bool:
+            raise PolicyError("strict_arguments must be a boolean")
         object.__setattr__(self, "rules", tuple(self.rules))
+        object.__setattr__(self, "strict_arguments", bool(self.strict_arguments))
 
     @classmethod
     def from_mapping(cls, value: Mapping[str, Any]) -> "Policy":
         if not isinstance(value, Mapping):
             raise PolicyError("policy must be a mapping")
-        _strict_keys(value, {"rules"}, "policy")
+        _strict_keys(value, {"rules", "strict_arguments"}, "policy")
         rules = value.get("rules")
         if not isinstance(rules, Sequence) or isinstance(rules, (str, bytes)):
             raise PolicyError("policy rules must be an array")
-        return cls(tuple(cls._rule_from_mapping(item) for item in rules))
+        strict_args = value.get("strict_arguments", False)
+        if type(strict_args) is not bool:
+            raise PolicyError("strict_arguments must be a boolean")
+        return cls(tuple(cls._rule_from_mapping(item) for item in rules), strict_arguments=strict_args)
 
     @staticmethod
     def _rule_from_mapping(value: Any) -> Rule:
@@ -426,7 +433,10 @@ class Policy:
             if r.constraints is not None:
                 rule_dict["constraints"] = thaw_json(r.constraints)
             rules_list.append(rule_dict)
-        return {"rules": rules_list}
+        res: dict[str, Any] = {"rules": rules_list}
+        if self.strict_arguments:
+            res["strict_arguments"] = True
+        return res
 
     @classmethod
     def from_dict(cls, value: Mapping[str, Any]) -> "Policy":
@@ -498,7 +508,11 @@ class Policy:
             if not rule.matches(request):
                 continue
             if rule.constraints is not None:
-                passed, _ = evaluate_constraints(rule.constraints, request.arguments)
+                passed, _ = evaluate_constraints(
+                    rule.constraints,
+                    request.arguments,
+                    default_additional_properties=not self.strict_arguments,
+                )
                 if not passed:
                     return Decision.DENY, "DMT_CONSTRAINT_VIOLATION"
             matching_rules.append(rule)

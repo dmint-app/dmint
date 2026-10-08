@@ -176,7 +176,7 @@ class EnforcementGate:
         request: ToolRequest,
         *,
         expected_agent_id: str | None = None,
-    ) -> Decision:
+    ) -> tuple[Decision, str | None]:
         """Evaluate policy on a validated ToolRequest using Core's policy engine."""
         if type(request) is not ToolRequest:
             raise AuthorizationError("invalid authorization request", code="DMT_INVALID_REQUEST")
@@ -188,7 +188,11 @@ class EnforcementGate:
                 request_id=request.request_id,
             )
         try:
-            decision = self._policy.evaluate(request)
+            if type(self._policy).evaluate is not Policy.evaluate:
+                decision = self._policy.evaluate(request)
+                code = None
+            else:
+                decision, code = self._policy.evaluate_detailed(request)
         except Exception as exc:
             raise AuthorizationError(
                 "authorization failed",
@@ -201,7 +205,7 @@ class EnforcementGate:
                 code="DMT_AUTHORIZATION_ERROR",
                 request_id=request.request_id,
             )
-        return decision
+        return decision, code
 
     def _persist_pending(self, request: ToolRequest) -> ApprovalRecord:
         """Persist a pending approval record using Core's ApprovalRecord and SQLiteApprovalStore."""
@@ -275,16 +279,17 @@ class EnforcementGate:
         )
         self._last_mapped_request = mapped
 
-        decision = self._evaluate_request(
+        decision, code = self._evaluate_request(
             mapped.tool_request,
             expected_agent_id=effective_agent_id,
         )
 
         if decision is Decision.DENY:
             self._notify_denial(mapped.tool_request)
+            deny_code = code if code in ("DMT_CONSTRAINT_VIOLATION", "DMT_RESOURCE_INVALID") else "DMT_POLICY_DENIED"
             raise AuthorizationError(
                 "policy denied the request",
-                code="DMT_POLICY_DENIED",
+                code=deny_code,
                 request_id=mapped.tool_request.request_id,
                 decision=decision.value,
             )
@@ -407,7 +412,7 @@ class EnforcementGate:
                 self._approval_store.invalidate_approved(record, reason="policy provenance changed")
             raise ApprovalPolicyInvalidError("approval policy provenance is stale")
 
-        decision = self._evaluate_request(expected_request, expected_agent_id=effective_agent_id)
+        decision, _ = self._evaluate_request(expected_request, expected_agent_id=effective_agent_id)
         if decision is Decision.DENY:
             if record.state is ApprovalState.APPROVED:
                 self._approval_store.invalidate_approved(record, reason="current policy denied request")

@@ -12,11 +12,17 @@ from decimal import Decimal, InvalidOperation
 import functools
 import math
 import re
-import sre_constants
-import sre_parse
 from typing import Any
 
 from .errors import PolicyError
+
+try:
+    import re2  # type: ignore[import-untyped,import-not-found]
+
+    _HAS_RE2 = True
+except ImportError:
+    re2 = None  # type: ignore[assignment]
+    _HAS_RE2 = False
 
 MAX_PATTERN_LENGTH = 256
 MAX_STRING_INPUT_LENGTH = 4096
@@ -90,61 +96,242 @@ def _is_valid_integer(val: Any) -> bool:
     return type(val) is int
 
 
+class _RegexNode:
+    pass
+
+
+class _AnchorNode(_RegexNode):
+    def __init__(self, char: str) -> None:
+        self.char = char
+
+
+class _AtomNode(_RegexNode):
+    def __init__(self, text: str) -> None:
+        self.text = text
+
+
+class _CharClassNode(_RegexNode):
+    def __init__(self, negated: bool, content: str) -> None:
+        self.negated = negated
+        self.content = content
+
+
+class _QuantifierNode(_RegexNode):
+    def __init__(self, child: _RegexNode, min_r: int, max_r: int | None, lazy: bool) -> None:
+        self.child = child
+        self.min_r = min_r
+        self.max_r = max_r
+        self.lazy = lazy
+
+    @property
+    def is_unbounded(self) -> bool:
+        if self.max_r is None:
+            return True
+        return (self.max_r - self.min_r) > 50 or self.max_r > 50
+
+
+class _GroupNode(_RegexNode):
+    def __init__(self, branches: list[list[_RegexNode]], capturing: bool) -> None:
+        self.branches = branches
+        self.capturing = capturing
+
+
+def _parse_regex_ast(pattern: str) -> list[list[_RegexNode]]:
+    """Parse regex into AST of branches and nodes using strict allowlist grammar."""
+    pos = 0
+    length = len(pattern)
+
+    # Strip recognized inline flags at start: (?i), (?s), (?m)
+    while pos < length and pattern[pos : pos + 2] == "(?":
+        flag_match = re.match(r"\(\?[aiLmsux]+(?:\-[imsx]+)?\)", pattern[pos:])
+        if flag_match:
+            pos += len(flag_match.group(0))
+        else:
+            break
+
+    def parse_branches(until_paren: bool) -> list[list[_RegexNode]]:
+        nonlocal pos
+        branches: list[list[_RegexNode]] = [[]]
+        while pos < length:
+            c = pattern[pos]
+            pos += 1
+            if c == "|":
+                branches.append([])
+            elif c == ")":
+                if until_paren:
+                    return branches
+                raise PolicyError("unmatched ')' in regex pattern")
+            elif c in "^$":
+                branches[-1].append(_AnchorNode(c))
+            elif c == "\\":
+                if pos >= length:
+                    raise PolicyError("trailing backslash in regex pattern")
+                nc = pattern[pos]
+                pos += 1
+                if nc in "123456789":
+                    raise PolicyError("backreferences are not allowed")
+                if nc == "g" and pos < length and pattern[pos] == "<":
+                    raise PolicyError("backreferences are not allowed")
+                branches[-1].append(_AtomNode("\\" + nc))
+            elif c == "[":
+                start_c = pos
+                negated = False
+                if pos < length and pattern[pos] == "^":
+                    negated = True
+                    pos += 1
+                if pos < length and pattern[pos] == "]":
+                    pos += 1
+                while pos < length and pattern[pos] != "]":
+                    if pattern[pos] == "\\":
+                        pos += 2
+                    else:
+                        pos += 1
+                if pos >= length:
+                    raise PolicyError("unterminated character class '[...]'")
+                content = pattern[start_c:pos]
+                pos += 1
+                branches[-1].append(_CharClassNode(negated, content))
+            elif c == "(":
+                if pos < length and pattern[pos] == "?":
+                    if pattern[pos : pos + 2] in ("?=", "?!", "?<"):
+                        raise PolicyError("lookaround assertions are not allowed")
+                    if pattern[pos : pos + 3] in ("?<=", "?<!"):
+                        raise PolicyError("lookaround assertions are not allowed")
+                    if pattern[pos : pos + 3] == "?P=":
+                        raise PolicyError("backreferences are not allowed")
+                    if pattern[pos : pos + 3] == "?P<":
+                        raise PolicyError("named capture groups with backreferences are not allowed")
+                    if pattern[pos : pos + 2] == "?:":
+                        pos += 2
+                        capturing = False
+                    else:
+                        raise PolicyError(f"unsupported group construct '(?{pattern[pos]}'")
+                else:
+                    capturing = True
+                inner_branches = parse_branches(until_paren=True)
+                branches[-1].append(_GroupNode(inner_branches, capturing))
+            elif c in "*+?{":
+                if not branches[-1]:
+                    raise PolicyError(f"quantifier '{c}' without preceding token")
+                prev = branches[-1][-1]
+                if isinstance(prev, (_AnchorNode, _QuantifierNode)):
+                    raise PolicyError(f"cannot apply quantifier '{c}' to anchor or quantifier")
+                if c == "*":
+                    min_r, max_r = 0, None
+                elif c == "+":
+                    min_r, max_r = 1, None
+                elif c == "?":
+                    min_r, max_r = 0, 1
+                else:
+                    end_b = pattern.find("}", pos)
+                    if end_b == -1:
+                        raise PolicyError("unterminated range quantifier '{'")
+                    spec = pattern[pos:end_b]
+                    pos = end_b + 1
+                    parts = spec.split(",")
+                    if len(parts) == 1:
+                        try:
+                            min_r = max_r = int(parts[0].strip())
+                        except ValueError:
+                            raise PolicyError(f"invalid range quantifier '{{{spec}}}'")
+                    elif len(parts) == 2:
+                        try:
+                            min_r = int(parts[0].strip()) if parts[0].strip() else 0
+                            max_r = int(parts[1].strip()) if parts[1].strip() else None
+                        except ValueError:
+                            raise PolicyError(f"invalid range quantifier '{{{spec}}}'")
+                        if max_r is not None and min_r > max_r:
+                            raise PolicyError(f"min repeat cannot exceed max repeat in '{{{spec}}}'")
+                    else:
+                        raise PolicyError(f"invalid range quantifier '{{{spec}}}'")
+                lazy = False
+                if pos < length and pattern[pos] == "?":
+                    lazy = True
+                    pos += 1
+                branches[-1][-1] = _QuantifierNode(prev, min_r, max_r, lazy)
+            else:
+                branches[-1].append(_AtomNode(c))
+        if until_paren:
+            raise PolicyError("unterminated group '(' in regex pattern")
+        return branches
+
+    return parse_branches(until_paren=False)
+
+
 def validate_pattern_safety(pattern: str) -> None:
-    """Validate regex pattern safety using sre_parse AST analysis.
+    """Validate regex pattern safety using allowlist grammar AST analysis.
 
     Rejects patterns that pose catastrophic backtracking (ReDoS) risk:
     - No nested repeats (repeat inside repeat)
     - No unbounded repeats inside groups
     - No alternation inside repeats
-    - No excessive consecutive unbounded repeats
+    - When google-re2 is unavailable, cap TOTAL unbounded repeats at 2
     - No backreferences
     - No lookarounds
     """
+    if len(pattern) > MAX_PATTERN_LENGTH:
+        raise PolicyError(f"pattern exceeds maximum allowed length of {MAX_PATTERN_LENGTH}")
+
+    if _HAS_RE2 and re2 is not None:
+        try:
+            re2.compile(pattern)
+        except Exception as exc:
+            raise PolicyError(f"re2 rejected regex pattern: {exc}") from exc
+
     try:
-        parsed = sre_parse.parse(pattern)
+        branches = _parse_regex_ast(pattern)
+    except PolicyError:
+        raise
     except Exception as exc:
         raise PolicyError(f"invalid regex pattern syntax: {exc}") from exc
 
-    def check_seq(seq: Any, inside_repeat: bool = False, inside_group: bool = False) -> None:
-        consecutive_repeats = 0
-        for op, av in seq:
-            if op in (sre_constants.MAX_REPEAT, sre_constants.MIN_REPEAT):
-                _min_r, max_r, sub = av
-                is_unbounded = max_r == sre_constants.MAXREPEAT
-                if inside_repeat:
-                    raise PolicyError("nested repeat is not allowed (catastrophic backtracking risk)")
-                if inside_group and is_unbounded:
-                    raise PolicyError("unbounded repeat inside group is not allowed (catastrophic backtracking risk)")
-                consecutive_repeats += 1
-                if consecutive_repeats > 2:
-                    raise PolicyError("excessive consecutive repeats in sequence are not allowed (ReDoS risk)")
-                check_seq(sub, inside_repeat=True, inside_group=inside_group)
-            elif op == sre_constants.SUBPATTERN:
-                consecutive_repeats = 0
-                _group_num, _syn_flags, _val_flags, sub = av
-                check_seq(sub, inside_repeat=inside_repeat, inside_group=True)
-            elif op == sre_constants.BRANCH:
-                consecutive_repeats = 0
-                if inside_repeat:
+    def _check_node(node: _RegexNode, inside_repeat: bool) -> int:
+        if isinstance(node, _QuantifierNode):
+            if inside_repeat:
+                raise PolicyError("nested repeat is not allowed (catastrophic backtracking risk)")
+            if isinstance(node.child, _GroupNode):
+                if len(node.child.branches) > 1:
                     raise PolicyError("alternation inside repeat is not allowed (catastrophic backtracking risk)")
-                for alt in av[1]:
-                    check_seq(alt, inside_repeat=inside_repeat, inside_group=inside_group)
-            elif op in (sre_constants.GROUPREF, sre_constants.GROUPREF_EXISTS, sre_constants.GROUPREF_IGNORE):
-                raise PolicyError("backreferences are not allowed")
-            elif op in (sre_constants.ASSERT, sre_constants.ASSERT_NOT):
-                raise PolicyError("lookaround assertions are not allowed")
-            else:
-                if op != sre_constants.AT:
-                    consecutive_repeats = 0
+                for br in node.child.branches:
+                    for el in br:
+                        if isinstance(el, _QuantifierNode):
+                            raise PolicyError("nested repeat is not allowed (catastrophic backtracking risk)")
+            unbounded = 1 if node.is_unbounded else 0
+            return unbounded + _check_node(node.child, inside_repeat=True)
+        elif isinstance(node, _GroupNode):
+            tot = 0
+            for br in node.branches:
+                for el in br:
+                    tot += _check_node(el, inside_repeat=inside_repeat)
+            return tot
+        return 0
 
-    check_seq(parsed.data)
+    total_unbounded = 0
+    for br in branches:
+        for el in br:
+            total_unbounded += _check_node(el, inside_repeat=False)
+
+    if not _HAS_RE2 and total_unbounded > 2:
+        raise PolicyError(f"pattern exceeds maximum of 2 unbounded repeats (ReDoS protection): found {total_unbounded}")
 
 
 @functools.lru_cache(maxsize=512)
-def _compile_anchored_pattern(pattern: str) -> re.Pattern[str]:
+def _compile_anchored_pattern(pattern: str) -> Any:
     """Compile pattern for anchored fullmatch evaluation."""
+    if _HAS_RE2 and re2 is not None:
+        return re2.compile(pattern)
     return re.compile(pattern)
+
+
+def _reject_tuples_in_schema(val: Any, path: str = "constraints") -> None:
+    if type(val) is tuple:
+        raise PolicyError(f"{path} cannot be a tuple; use a JSON array (list)")
+    if isinstance(val, Mapping):
+        for k, v in val.items():
+            _reject_tuples_in_schema(v, f"{path}.{k}")
+    elif isinstance(val, list):
+        for idx, item in enumerate(val):
+            _reject_tuples_in_schema(item, f"{path}[{idx}]")
 
 
 def validate_constraints_schema(schema: Any, depth: int = 0) -> None:
@@ -158,6 +345,8 @@ def validate_constraints_schema(schema: Any, depth: int = 0) -> None:
 
     if not isinstance(schema, Mapping):
         raise PolicyError("constraints must be an object mapping")
+
+    _reject_tuples_in_schema(schema)
 
     unknown_top = set(schema) - _TOP_LEVEL_KEYS
     if unknown_top:
@@ -195,10 +384,30 @@ def validate_constraints_schema(schema: Any, depth: int = 0) -> None:
                 )
 
             # Validate type
+            has_numeric = bool(set(prop_spec) & _NUMERIC_CONSTRAINT_KEYS)
+            has_string = bool(set(prop_spec) & _STRING_CONSTRAINT_KEYS)
+            has_array = bool(set(prop_spec) & _ARRAY_CONSTRAINT_KEYS)
+            has_object = bool(set(prop_spec) & _OBJECT_CONSTRAINT_KEYS)
+
             if "type" in prop_spec:
                 type_name = prop_spec["type"]
                 if type_name not in _SUPPORTED_TYPES:
                     raise PolicyError(f"unknown constraint type '{type_name}' on argument '{prop_name}'")
+            else:
+                active_kinds = [
+                    k
+                    for k, active in (
+                        ("numeric", has_numeric),
+                        ("string", has_string),
+                        ("array", has_array),
+                        ("object", has_object),
+                    )
+                    if active
+                ]
+                if len(active_kinds) > 1:
+                    raise PolicyError(
+                        f"property '{prop_name}' has conflicting constraint types ({', '.join(active_kinds)}) without an explicit 'type'"
+                    )
 
             # Validate numeric bounds
             bounds: dict[str, int | float] = {}
@@ -291,6 +500,8 @@ def validate_constraints_schema(schema: Any, depth: int = 0) -> None:
 def evaluate_constraints(
     constraints: Mapping[str, Any],
     arguments: Mapping[str, Any],
+    *,
+    default_additional_properties: bool = True,
     depth: int = 0,
 ) -> tuple[bool, str | None]:
     """Evaluate request arguments against rule constraints.
@@ -311,7 +522,8 @@ def evaluate_constraints(
                 return False, f"missing required argument '{req_field}'"
 
     # 2. Additional properties
-    if constraints.get("additionalProperties") is False:
+    allow_additional = constraints.get("additionalProperties", default_additional_properties)
+    if allow_additional is False:
         allowed_properties = set(constraints.get("properties", {}).keys())
         for arg_key in arguments:
             if arg_key not in allowed_properties:
@@ -413,6 +625,7 @@ def evaluate_constraints(
                     elem_ok, elem_err = evaluate_constraints(
                         {"properties": {"item": item_spec}},
                         {"item": elem},
+                        default_additional_properties=default_additional_properties,
                         depth=depth + 1,
                     )
                     if not elem_ok:
@@ -423,9 +636,14 @@ def evaluate_constraints(
             nested_schema = {
                 "properties": rule_spec.get("properties", {}),
                 "required": rule_spec.get("required", []),
-                "additionalProperties": rule_spec.get("additionalProperties", True),
+                "additionalProperties": rule_spec.get("additionalProperties", default_additional_properties),
             }
-            sub_ok, sub_err = evaluate_constraints(nested_schema, val, depth=depth + 1)
+            sub_ok, sub_err = evaluate_constraints(
+                nested_schema,
+                val,
+                default_additional_properties=default_additional_properties,
+                depth=depth + 1,
+            )
             if not sub_ok:
                 return False, f"nested object in '{field_name}' failed constraint: {sub_err}"
 

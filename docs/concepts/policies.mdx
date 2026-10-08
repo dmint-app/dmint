@@ -196,6 +196,31 @@ Dmint rules support deterministic argument constraints evaluated by the pure pol
 - **Fail-Closed Default**: Any constraint violation (missing required parameter, disallowed extra argument, type mismatch, number out of bounds, regex mismatch) immediately yields `DENY` with error code `DMT_CONSTRAINT_VIOLATION`. It never throws an unhandled exception or silently skips the rule.
 - **Exact Request Binding**: Constraints apply to the exact arguments serialized into the cryptographic RFC 8785 request fingerprint. Mutating arguments after evaluation invalidates the assertion.
 
+### Multi-Rule Precedence & Evaluation Order
+1. **Candidate Rule Filtering**: Rules are filtered by `tool` and `action` matching the request.
+2. **Resource Normalization & Fail-Closed Pre-Check**: The request's resource is validated against the required `resource_kind` for each candidate rule. Any normalization failure immediately DENIES the entire request with `DMT_RESOURCE_INVALID`.
+3. **Constraint Evaluation**: All candidate rules matching the tool and action have their argument constraints evaluated.
+   - **Crucial Invariant**: If a candidate rule has constraints and the request's arguments violate those constraints (e.g. missing required field, type mismatch, regex mismatch, bound error), evaluation immediately **DENIES the entire request with `DMT_CONSTRAINT_VIOLATION`**.
+   - An unconstrained broader `ALLOW` rule will **not** rescue a request that fails a narrower constrained rule.
+   - For a `DENY` rule with constraints: arguments that violate the constraint schema yield `DMT_CONSTRAINT_VIOLATION`; arguments that satisfy the constraints match the rule and yield `DMT_POLICY_DENIED`.
+   - For an `APPROVAL_REQUIRED` rule with constraints: arguments that violate constraints yield `DMT_CONSTRAINT_VIOLATION` before any approval record is created.
+4. **Effect Matching**: Rules are evaluated in strict order: `DENY` > `APPROVAL_REQUIRED` > `ALLOW`.
+5. **Default Deny**: If no rules match, the request is rejected with `DMT_DEFAULT_DENIED`.
+
+### Additional Properties & Policy-Level `strict_arguments`
+<Warning>
+**`additionalProperties` Defaults to `true`**: In JSON Schema, object schemas without an explicit `"additionalProperties": false` permit unlisted properties by default. In security policies, unconstrained arguments can permit attacker-controlled parameters to slip through. We strongly recommend always setting `"additionalProperties": false` on your argument constraint objects.
+</Warning>
+
+To enforce strict arguments across your entire policy without repeating `"additionalProperties": false` in every rule, set the optional top-level policy setting:
+```json
+{
+  "strict_arguments": true,
+  "rules": [...]
+}
+```
+When `"strict_arguments": true` is enabled, all constraint schemas default `additionalProperties` to `false` unless explicitly opted out with `"additionalProperties": true`.
+
 ### Integer and Float Rules
 - **Boolean Rejection**: In Python and JSON engines, booleans (`True`, `False`) are subclasses of integers. Dmint's numeric validator strictly rejects booleans where numbers or integers are expected.
 - **Strict Integer Types**: For fields marked with `"type": "integer"`, whole floating-point numbers like `1.0` or `100.0` are strictly rejected. Integer fields require explicit, exact integers (`type(val) is int`). Float types with integer values must not masquerade as integers.
@@ -203,9 +228,14 @@ Dmint rules support deterministic argument constraints evaluated by the pure pol
 - **Safe Integer Limits**: Integers must reside within RFC 8785 safe 53-bit range (`-9,007,199,254,740,991` to `9,007,199,254,740,991` / `2^53 - 1`). Larger IDs must be passed as strings.
 - **Safe Numeric Comparison**: Float and integer bounds are evaluated using exact arbitrary-precision decimal representations (`Decimal`) without floating-point rounding errors.
 
-### Pattern Constraints
-- **Anchored Matching**: All string patterns are strictly anchored full-string matches (`fullmatch`). Partial substring matching is rejected.
-- **ReDoS Protection**: Pattern length is capped at 256 characters, input length is capped at 4096 characters, and patterns are validated via AST inspection (`sre_parse`) to reject nested repeats, alternation inside repeats, and lookarounds at policy load time.
+### Pattern Constraints & ReDoS Protection
+- **Anchored Matching**: All string patterns are strictly anchored full-string matches (`fullmatch` / `^...$`). Partial substring matching is rejected.
+- **Linear-Time & ReDoS Safe Grammar**: Patterns are verified at policy load time against a strict allowlist grammar:
+  - If `google-re2` is available, it guarantees linear-time $O(N)$ execution.
+  - If using standard regex engines, total unbounded quantifiers (`*`, `+`, `{m,}`) across the entire pattern are strictly capped at 2.
+  - Nested quantifiers (e.g. `(a*)*`, `(a+)+`), alternations inside repeats (e.g. `(a|b)+`), backreferences, and lookarounds (`(?=...)`, `(?!...)`) are strictly rejected with `PolicyError` at load time.
+  - Pattern length is capped at 256 characters, and input evaluation length is capped at 4096 characters.
+  - Tested to guarantee sub-millisecond evaluation across adversarial input strings.
 
 ### Examples
 
