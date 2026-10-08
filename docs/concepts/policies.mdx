@@ -197,14 +197,13 @@ Dmint rules support deterministic argument constraints evaluated by the pure pol
 - **Exact Request Binding**: Constraints apply to the exact arguments serialized into the cryptographic RFC 8785 request fingerprint. Mutating arguments after evaluation invalidates the assertion.
 
 ### Multi-Rule Precedence & Evaluation Order
-1. **Candidate Rule Filtering**: Rules are filtered by `tool` and `action` matching the request.
+1. **Candidate Rule Filtering**: Rules are filtered by `tool`, `action`, and optional `agent_id` matching the request.
 2. **Resource Normalization & Fail-Closed Pre-Check**: The request's resource is validated against the required `resource_kind` for each candidate rule. Any normalization failure immediately DENIES the entire request with `DMT_RESOURCE_INVALID`.
-3. **Constraint Evaluation**: All candidate rules matching the tool and action have their argument constraints evaluated.
-   - **Crucial Invariant**: If a candidate rule has constraints and the request's arguments violate those constraints (e.g. missing required field, type mismatch, regex mismatch, bound error), evaluation immediately **DENIES the entire request with `DMT_CONSTRAINT_VIOLATION`**.
-   - An unconstrained broader `ALLOW` rule will **not** rescue a request that fails a narrower constrained rule.
-   - For a `DENY` rule with constraints: arguments that violate the constraint schema yield `DMT_CONSTRAINT_VIOLATION`; arguments that satisfy the constraints match the rule and yield `DMT_POLICY_DENIED`.
-   - For an `APPROVAL_REQUIRED` rule with constraints: arguments that violate constraints yield `DMT_CONSTRAINT_VIOLATION` before any approval record is created.
-4. **Effect Matching**: Rules are evaluated in strict order: `DENY` > `APPROVAL_REQUIRED` > `ALLOW`.
+3. **Constraint Evaluation**: All candidate rules matching the tool, action, and agent_id have their argument constraints evaluated:
+   - **Multiple Matching ALLOW Rules (AND Semantics)**: Multiple matching `ALLOW` rules must **all** pass their constraints. If multiple candidate rules apply to the request, every single rule's constraints must be satisfied. If any rule's constraints fail (e.g. missing required field, type mismatch, regex mismatch, bound error), evaluation immediately **DENIES the entire request with `DMT_CONSTRAINT_VIOLATION`**. A broader or unconstrained `ALLOW` rule will **never** override or rescue a request that fails a narrower constrained rule.
+   - **Constraints on DENY Rules Never Loosen a Denial**: Adding constraints to a `DENY` rule specifies the prohibited argument envelope. If arguments violate the constraint schema (missing required key, wrong type, extra property under strict schemas), evaluation fails closed with `DMT_CONSTRAINT_VIOLATION`. If arguments satisfy the prohibited envelope, the rule matches and rejects with `DMT_POLICY_DENIED`. In **neither** case can a constrained `DENY` rule allow a request to fall through to an `ALLOW` rule.
+   - **APPROVAL_REQUIRED Rules with Constraints**: Arguments that violate constraints yield `DMT_CONSTRAINT_VIOLATION` before any approval record is created; a human cannot approve an invalid request.
+4. **Effect Matching**: Candidate rules that pass constraints are evaluated in strict order: `DENY` > `APPROVAL_REQUIRED` > `ALLOW`.
 5. **Default Deny**: If no rules match, the request is rejected with `DMT_DEFAULT_DENIED`.
 
 ### Additional Properties & Policy-Level `strict_arguments`
@@ -230,12 +229,15 @@ When `"strict_arguments": true` is enabled, all constraint schemas default `addi
 
 ### Pattern Constraints & ReDoS Protection
 - **Anchored Matching**: All string patterns are strictly anchored full-string matches (`fullmatch` / `^...$`). Partial substring matching is rejected.
-- **Linear-Time & ReDoS Safe Grammar**: Patterns are verified at policy load time against a strict allowlist grammar:
-  - If `google-re2` is available, it guarantees linear-time $O(N)$ execution.
-  - If using standard regex engines, total unbounded quantifiers (`*`, `+`, `{m,}`) across the entire pattern are strictly capped at 2.
-  - Nested quantifiers (e.g. `(a*)*`, `(a+)+`), alternations inside repeats (e.g. `(a|b)+`), backreferences, and lookarounds (`(?=...)`, `(?!...)`) are strictly rejected with `PolicyError` at load time.
-  - Pattern length is capped at 256 characters, and input evaluation length is capped at 4096 characters.
-  - Tested to guarantee sub-millisecond evaluation across adversarial input strings.
+- **Deterministic Single Engine**: Evaluated deterministically with Python's standard regular expression engine across all environments.
+- **Strict Grammar & Repetition Budget Caps**: Patterns are verified at policy load time against a strict allowlist grammar:
+  - **Bounded Repeats Cap**: Every bounded count `{m}` or `{m,n}` is capped at a maximum of 64 (`MAX_QUANTIFIER_BOUND = 64`).
+  - **Total Quantifier Cap**: At most 3 quantifiers of any kind are permitted in total across the pattern (`MAX_TOTAL_QUANTIFIERS = 3`).
+  - **Unbounded Repeats Cap**: At most 2 unbounded repeats (`*`, `+`, `{m,}`) across the entire pattern (`MAX_UNBOUNDED_QUANTIFIERS = 2`), and multiple unbounded repeats require an intervening literal delimiter to prevent overlapping ambiguity.
+  - **Repetition Budget**: The product of bounded quantifier upper bounds cannot exceed $1,000,000$ (`MAX_REPETITION_BUDGET = 1_000_000`).
+  - **No Hostile Constructs**: Nested quantifiers (e.g. `(a*)*`, `(a+)+`), alternations inside repeats (e.g. `(a|b)+`), backreferences, and lookarounds (`(?=...)`, `(?!...)`) are strictly rejected with `PolicyError` at load time.
+  - **Input & Length Limits**: Pattern length is capped at 256 characters, and input evaluation length is capped at 4096 characters.
+  - All patterns guaranteed to evaluate in sub-millisecond time bound ($< 50\text{ ms}$).
 
 ### Examples
 
@@ -299,6 +301,67 @@ Constrain cloud server provisioning to approved regions and instance sizes:
   }
 }
 ```
+
+#### 4. Multiple Matching ALLOW Rules (AND Semantics)
+When multiple `ALLOW` rules match the same tool and action, the request must satisfy **all** candidate rules' constraints simultaneously:
+```json
+[
+  {
+    "effect": "allow",
+    "tool": "billing",
+    "action": "refund",
+    "resource": "*",
+    "constraints": {
+      "properties": {
+        "amount": { "type": "number", "maximum": 500.0 }
+      }
+    }
+  },
+  {
+    "effect": "allow",
+    "tool": "billing",
+    "action": "refund",
+    "resource": "*",
+    "constraints": {
+      "required": ["reason"],
+      "properties": {
+        "reason": { "type": "string", "minLength": 5 }
+      }
+    }
+  }
+]
+```
+- A refund of `$100.00` with reason `"Customer dissatisfaction"` satisfies both rules and is **ALLOWED**.
+- A refund of `$600.00` with reason `"Customer dissatisfaction"` violates Rule 1's `$500.00` maximum bound and is **DENIED** (`DMT_CONSTRAINT_VIOLATION`), even though it fully satisfies Rule 2.
+- A refund of `$100.00` with no reason violates Rule 2's required field and is **DENIED** (`DMT_CONSTRAINT_VIOLATION`), even though it fully satisfies Rule 1.
+
+#### 5. Constrained DENY Rule (Denial Never Loosened)
+Adding constraints to a `DENY` rule specifies the prohibited envelope. It cannot be bypassed by sending invalid arguments:
+```json
+[
+  {
+    "effect": "deny",
+    "tool": "orders",
+    "action": "cancel",
+    "resource": "*",
+    "constraints": {
+      "required": ["order_status"],
+      "properties": {
+        "order_status": { "type": "string", "enum": ["shipped", "delivered"] }
+      }
+    }
+  },
+  {
+    "effect": "allow",
+    "tool": "orders",
+    "action": "cancel",
+    "resource": "*"
+  }
+]
+```
+- Request with `{"order_status": "shipped"}` matches the prohibited envelope and is **DENIED** (`DMT_POLICY_DENIED`).
+- Request with malformed arguments `{"order_status": 123}` (type mismatch) or missing `order_status` fails constraint validation and is **DENIED** (`DMT_CONSTRAINT_VIOLATION`). It does **not** fall through to the `ALLOW` rule.
+- Request with `{"order_status": "pending"}` satisfies the constraint schema and does not match the forbidden enum; it falls through to the `ALLOW` rule and is **ALLOWED**.
 
 ---
 

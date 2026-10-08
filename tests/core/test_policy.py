@@ -367,3 +367,26 @@ class PolicyTests(unittest.TestCase):
         self.assertFalse(rule_path.case_sensitive)
         rule_exact = Rule.allow("fs", "read", resource="test", resource_kind="exact", case_sensitive=False)
         self.assertFalse(rule_exact.case_sensitive)
+
+    def test_agent_id_candidate_rule_isolation_on_resource_validation(self):
+        """Another agent's path-kind rule must not affect this agent's request resource validation."""
+        policy = Policy(
+            rules=(
+                # Rule for agent-b with path kind (which would reject /../outside)
+                Rule.allow("fs", "read", resource="/safe/*", resource_kind="path", agent_id="agent-b"),
+                # Rule for agent-a with exact kind and wildcard resource
+                Rule.allow("fs", "read", resource="*", resource_kind="exact", agent_id="agent-a"),
+            )
+        )
+        # agent-a request with invalid path syntax '/../outside'
+        req_agent_a = make_request(tool="fs", action="read", resource="/../outside", agent_id="agent-a")
+        dec_a, code_a = policy.evaluate_detailed(req_agent_a)
+        # agent-b's rule is NOT a candidate rule for agent-a, so path validation is not run
+        self.assertEqual(dec_a, Decision.ALLOW)
+        self.assertIsNone(code_a)
+
+        # But for agent-b, the path rule IS a candidate, so it fails closed with DMT_RESOURCE_INVALID
+        req_agent_b = make_request(tool="fs", action="read", resource="/../outside", agent_id="agent-b")
+        dec_b, code_b = policy.evaluate_detailed(req_agent_b)
+        self.assertEqual(dec_b, Decision.DENY)
+        self.assertEqual(code_b, "DMT_RESOURCE_INVALID")

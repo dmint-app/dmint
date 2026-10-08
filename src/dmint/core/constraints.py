@@ -16,16 +16,12 @@ from typing import Any
 
 from .errors import PolicyError
 
-try:
-    import re2  # type: ignore[import-untyped,import-not-found]
-
-    _HAS_RE2 = True
-except ImportError:
-    re2 = None  # type: ignore[assignment]
-    _HAS_RE2 = False
-
 MAX_PATTERN_LENGTH = 256
 MAX_STRING_INPUT_LENGTH = 4096
+MAX_QUANTIFIER_BOUND = 64
+MAX_TOTAL_QUANTIFIERS = 3
+MAX_UNBOUNDED_QUANTIFIERS = 2
+MAX_REPETITION_BUDGET = 1_000_000
 MAX_SAFE_INTEGER = 9007199254740991  # 2^53 - 1 per RFC 8785
 MIN_SAFE_INTEGER = -9007199254740991
 MAX_CONSTRAINT_DEPTH = 32
@@ -125,9 +121,7 @@ class _QuantifierNode(_RegexNode):
 
     @property
     def is_unbounded(self) -> bool:
-        if self.max_r is None:
-            return True
-        return (self.max_r - self.min_r) > 50 or self.max_r > 50
+        return self.max_r is None
 
 
 class _GroupNode(_RegexNode):
@@ -234,12 +228,24 @@ def _parse_regex_ast(pattern: str) -> list[list[_RegexNode]]:
                             min_r = max_r = int(parts[0].strip())
                         except ValueError:
                             raise PolicyError(f"invalid range quantifier '{{{spec}}}'")
+                        if max_r > MAX_QUANTIFIER_BOUND:
+                            raise PolicyError(
+                                f"quantifier count {max_r} exceeds maximum limit of {MAX_QUANTIFIER_BOUND}"
+                            )
                     elif len(parts) == 2:
                         try:
                             min_r = int(parts[0].strip()) if parts[0].strip() else 0
                             max_r = int(parts[1].strip()) if parts[1].strip() else None
                         except ValueError:
                             raise PolicyError(f"invalid range quantifier '{{{spec}}}'")
+                        if min_r > MAX_QUANTIFIER_BOUND:
+                            raise PolicyError(
+                                f"quantifier lower bound {min_r} exceeds maximum limit of {MAX_QUANTIFIER_BOUND}"
+                            )
+                        if max_r is not None and max_r > MAX_QUANTIFIER_BOUND:
+                            raise PolicyError(
+                                f"quantifier upper bound {max_r} exceeds maximum limit of {MAX_QUANTIFIER_BOUND}"
+                            )
                         if max_r is not None and min_r > max_r:
                             raise PolicyError(f"min repeat cannot exceed max repeat in '{{{spec}}}'")
                     else:
@@ -262,21 +268,18 @@ def validate_pattern_safety(pattern: str) -> None:
     """Validate regex pattern safety using allowlist grammar AST analysis.
 
     Rejects patterns that pose catastrophic backtracking (ReDoS) risk:
+    - Every bounded count capped at MAX_QUANTIFIER_BOUND (64)
+    - Total quantifiers of ANY kind across pattern capped at MAX_TOTAL_QUANTIFIERS (3)
+    - Total unbounded repeats (*, +, {m,}) capped at MAX_UNBOUNDED_QUANTIFIERS (2)
+    - Multiple unbounded repeats cannot combine with other quantifiers
+    - Repetition budget across bounded quantifiers capped below 1,000,000
     - No nested repeats (repeat inside repeat)
-    - No unbounded repeats inside groups
     - No alternation inside repeats
-    - When google-re2 is unavailable, cap TOTAL unbounded repeats at 2
     - No backreferences
     - No lookarounds
     """
     if len(pattern) > MAX_PATTERN_LENGTH:
         raise PolicyError(f"pattern exceeds maximum allowed length of {MAX_PATTERN_LENGTH}")
-
-    if _HAS_RE2 and re2 is not None:
-        try:
-            re2.compile(pattern)
-        except Exception as exc:
-            raise PolicyError(f"re2 rejected regex pattern: {exc}") from exc
 
     try:
         branches = _parse_regex_ast(pattern)
@@ -285,10 +288,25 @@ def validate_pattern_safety(pattern: str) -> None:
     except Exception as exc:
         raise PolicyError(f"invalid regex pattern syntax: {exc}") from exc
 
-    def _check_node(node: _RegexNode, inside_repeat: bool) -> int:
+    total_quantifiers = 0
+    total_unbounded = 0
+    bounded_upper_product = 1
+
+    def _check_node(node: _RegexNode, inside_repeat: bool) -> None:
+        nonlocal total_quantifiers, total_unbounded, bounded_upper_product
         if isinstance(node, _QuantifierNode):
             if inside_repeat:
                 raise PolicyError("nested repeat is not allowed (catastrophic backtracking risk)")
+            total_quantifiers += 1
+            if node.max_r is not None:
+                if node.max_r > MAX_QUANTIFIER_BOUND:
+                    raise PolicyError(
+                        f"quantifier upper bound {node.max_r} exceeds maximum limit of {MAX_QUANTIFIER_BOUND}"
+                    )
+                bounded_upper_product *= max(1, node.max_r)
+            else:
+                total_unbounded += 1
+
             if isinstance(node.child, _GroupNode):
                 if len(node.child.branches) > 1:
                     raise PolicyError("alternation inside repeat is not allowed (catastrophic backtracking risk)")
@@ -296,30 +314,45 @@ def validate_pattern_safety(pattern: str) -> None:
                     for el in br:
                         if isinstance(el, _QuantifierNode):
                             raise PolicyError("nested repeat is not allowed (catastrophic backtracking risk)")
-            unbounded = 1 if node.is_unbounded else 0
-            return unbounded + _check_node(node.child, inside_repeat=True)
+
+            _check_node(node.child, inside_repeat=True)
         elif isinstance(node, _GroupNode):
-            tot = 0
             for br in node.branches:
                 for el in br:
-                    tot += _check_node(el, inside_repeat=inside_repeat)
-            return tot
-        return 0
+                    _check_node(el, inside_repeat=inside_repeat)
 
-    total_unbounded = 0
     for br in branches:
+        saw_unbounded = False
+        saw_delimiter = False
         for el in br:
-            total_unbounded += _check_node(el, inside_repeat=False)
+            _check_node(el, inside_repeat=False)
+            if isinstance(el, _QuantifierNode) and el.is_unbounded:
+                if saw_unbounded and not saw_delimiter:
+                    raise PolicyError(
+                        "multiple unbounded quantifiers without intervening literal delimiter rejected (ReDoS protection)"
+                    )
+                saw_unbounded = True
+                saw_delimiter = False
+            elif isinstance(el, _AtomNode) and el.text:
+                saw_delimiter = True
 
-    if not _HAS_RE2 and total_unbounded > 2:
-        raise PolicyError(f"pattern exceeds maximum of 2 unbounded repeats (ReDoS protection): found {total_unbounded}")
+    if total_quantifiers > MAX_TOTAL_QUANTIFIERS:
+        raise PolicyError(
+            f"pattern exceeds maximum of {MAX_TOTAL_QUANTIFIERS} quantifiers of any kind: found {total_quantifiers}"
+        )
+    if total_unbounded > MAX_UNBOUNDED_QUANTIFIERS:
+        raise PolicyError(
+            f"pattern exceeds maximum of {MAX_UNBOUNDED_QUANTIFIERS} unbounded repeats: found {total_unbounded}"
+        )
+    if bounded_upper_product > MAX_REPETITION_BUDGET:
+        raise PolicyError(
+            f"repetition budget across bounded quantifiers ({bounded_upper_product}) exceeds maximum of {MAX_REPETITION_BUDGET}"
+        )
 
 
 @functools.lru_cache(maxsize=512)
-def _compile_anchored_pattern(pattern: str) -> Any:
-    """Compile pattern for anchored fullmatch evaluation."""
-    if _HAS_RE2 and re2 is not None:
-        return re2.compile(pattern)
+def _compile_anchored_pattern(pattern: str) -> re.Pattern[str]:
+    """Compile pattern for anchored fullmatch evaluation using the stdlib re engine."""
     return re.compile(pattern)
 
 

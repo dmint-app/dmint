@@ -18,9 +18,11 @@ from dmint.core.constraints import (
     MAX_CONTAINER_SIZE,
     MAX_PATTERN_LENGTH,
     MAX_STRING_INPUT_LENGTH,
+    _compile_anchored_pattern,
     evaluate_constraints,
     safe_compare,
     validate_constraints_schema,
+    validate_pattern_safety,
 )
 from dmint.core.enforcement import Dmint
 from dmint.core.errors import ApprovalRequiredError, AuthorizationError, PolicyError
@@ -231,7 +233,10 @@ class TestConstraintsEvaluation(unittest.TestCase):
                 )
             except PolicyError as ctx:
                 self.assertTrue(
-                    any(keyword in str(ctx).lower() for keyword in ["backtracking", "repeat", "alternation", "redos"]),
+                    any(
+                        keyword in str(ctx).lower()
+                        for keyword in ["backtracking", "repeat", "alternation", "redos", "quantifier"]
+                    ),
                     f"Unexpected exception message for {hostile_pat}: {ctx}",
                 )
 
@@ -262,18 +267,21 @@ class TestConstraintsEvaluation(unittest.TestCase):
             unbounded_quants = ["*", "+"]
 
             parts = ["^"]
-            num_segments = rng.randint(2, 4)
-            unbounded_left = 2
+            num_segments = rng.randint(2, 3)
+            quants_left = 3
+            unbounded_left = 1
             for i in range(num_segments):
                 atom = rng.choice(atoms)
                 roll = rng.random()
-                if roll < 0.4 and unbounded_left > 0:
+                if roll < 0.4 and quants_left > 0 and unbounded_left > 0:
                     q = rng.choice(unbounded_quants)
                     parts.append(atom + q)
+                    quants_left -= 1
                     unbounded_left -= 1
-                elif roll < 0.7:
+                elif roll < 0.7 and quants_left > 0:
                     q = rng.choice(bounded_quants)
                     parts.append(atom + q)
+                    quants_left -= 1
                 else:
                     parts.append(atom)
                 if i < num_segments - 1 and rng.random() < 0.6:
@@ -310,6 +318,389 @@ class TestConstraintsEvaluation(unittest.TestCase):
             f"\n[ReDoS Fuzz Timing Output] Tested {len(patterns)} patterns against 4096 chars ({len(timings)} evaluations): "
             f"min={min_ms:.4f}ms, avg={avg_ms:.4f}ms, max={max_ms:.4f}ms (all strictly < 50ms)"
         )
+
+    def test_bounded_repeats_and_repetition_budget_caps(self) -> None:
+        """Test bounded repeats caps (max 64 per quantifier, total budget <= 10^6, at most 3 quantifiers in total)."""
+        # 1. {0, 50} x 4: exceeds max 3 quantifiers -> must be rejected at load time
+        pat_50_x4 = r"^[a-z]{0,50}[a-z]{0,50}[a-z]{0,50}[a-z]{0,50}b$"
+        with self.assertRaises(PolicyError) as ctx:
+            validate_constraints_schema({"properties": {"text": {"type": "string", "pattern": pat_50_x4}}})
+        self.assertIn("quantifier", str(ctx.exception).lower())
+
+        # 2. {0, 500} x 4: exceeds bound 64 and exceeds max 3 quantifiers -> must be rejected at load time
+        pat_500_x4 = r"^[a-z]{0,500}[a-z]{0,500}[a-z]{0,500}[a-z]{0,500}b$"
+        with self.assertRaises(PolicyError) as ctx:
+            validate_constraints_schema({"properties": {"text": {"type": "string", "pattern": pat_500_x4}}})
+        self.assertIn("quantifier", str(ctx.exception).lower())
+
+        # 3. Single quantifier exceeding bound 64: {0, 500} -> rejected at load time
+        pat_500_single = r"^[a-z]{0,500}$"
+        with self.assertRaises(PolicyError) as ctx:
+            validate_constraints_schema({"properties": {"text": {"type": "string", "pattern": pat_500_single}}})
+        self.assertIn("exceeds maximum limit of 64", str(ctx.exception))
+
+        # 4. Mixed combinations:
+        # 4a. 4 quantifiers mixed (2 unbounded + 2 bounded) -> rejected at load time
+        pat_mixed_4 = r"^[a-z]*[a-z]{0,50}[a-z]*[a-z]{0,50}b$"
+        with self.assertRaises(PolicyError):
+            validate_constraints_schema({"properties": {"text": {"type": "string", "pattern": pat_mixed_4}}})
+
+        # 4b. 2 unbounded + 1 bounded -> rejected at load time
+        pat_mixed_2unb_1bnd = r"^[a-z]*[a-z]{0,32}[a-z]+b$"
+        with self.assertRaises(PolicyError):
+            validate_constraints_schema({"properties": {"text": {"type": "string", "pattern": pat_mixed_2unb_1bnd}}})
+
+        # 4c. Valid bounded combination: 3 bounded repeats with bounds <= 64
+        # Accepted at load time, and must match in under 50 ms on 4096 'a' characters
+        pat_valid_3bnd = r"^[a-z]{0,32}[a-z]{0,32}[a-z]{0,32}b$"
+        validate_constraints_schema({"properties": {"text": {"type": "string", "pattern": pat_valid_3bnd}}})
+        t0 = time.perf_counter()
+        evaluate_constraints(
+            {"properties": {"text": {"type": "string", "pattern": pat_valid_3bnd}}},
+            {"text": "a" * 4096},
+        )
+        elapsed = time.perf_counter() - t0
+        self.assertLess(elapsed, 0.05, f"Valid 3-bounded pattern took {elapsed * 1000:.2f} ms (bound 50 ms)")
+
+        # 4d. Valid mixed combination: 1 unbounded + 2 bounded repeats with bounds <= 50
+        # Accepted at load time, and must match in under 50 ms on 4096 'a' characters
+        pat_valid_mixed = r"^[a-z]*[a-z]{0,50}[a-z]{0,50}b$"
+        validate_constraints_schema({"properties": {"text": {"type": "string", "pattern": pat_valid_mixed}}})
+        t0 = time.perf_counter()
+        evaluate_constraints(
+            {"properties": {"text": {"type": "string", "pattern": pat_valid_mixed}}},
+            {"text": "a" * 4096},
+        )
+        elapsed = time.perf_counter() - t0
+        self.assertLess(elapsed, 0.05, f"Valid mixed pattern took {elapsed * 1000:.2f} ms (bound 50 ms)")
+
+        # 4e. Valid mixed combination: 1 unbounded + 1 bounded
+        pat_valid_unb_bnd = r"^[a-z]+[0-9]{1,32}b$"
+        validate_constraints_schema({"properties": {"text": {"type": "string", "pattern": pat_valid_unb_bnd}}})
+        t0 = time.perf_counter()
+        evaluate_constraints(
+            {"properties": {"text": {"type": "string", "pattern": pat_valid_unb_bnd}}},
+            {"text": "a" * 4096},
+        )
+        elapsed = time.perf_counter() - t0
+        self.assertLess(elapsed, 0.05, f"Valid unb+bnd pattern took {elapsed * 1000:.2f} ms (bound 50 ms)")
+
+    def test_engine_determinism_corpus_200_pairs(self) -> None:
+        """Assert deterministic identical decisions on a corpus of >= 200 pattern/input pairs.
+
+        Covers \\d, \\w, \\s, unicode classes, and case flags (?i).
+        """
+        corpus: list[tuple[str, str, bool]] = []
+
+        # 1. Digits \d and [0-9] (40 pairs)
+        digit_patterns = [
+            r"^\d+$",
+            r"^\d{3,5}$",
+            r"^[0-9]{2}$",
+            r"^\d{1,4}[a-z]$",
+        ]
+        digit_cases = [
+            (digit_patterns[0], "123", True),
+            (digit_patterns[0], "0", True),
+            (digit_patterns[0], "1234567890", True),
+            (digit_patterns[0], "12a3", False),
+            (digit_patterns[0], "", False),
+            (digit_patterns[0], "abc", False),
+            (digit_patterns[0], " 123 ", False),
+            (digit_patterns[0], "12.3", False),
+            (digit_patterns[0], "-5", False),
+            (digit_patterns[0], "+5", False),
+            (digit_patterns[1], "123", True),
+            (digit_patterns[1], "1234", True),
+            (digit_patterns[1], "12345", True),
+            (digit_patterns[1], "12", False),
+            (digit_patterns[1], "123456", False),
+            (digit_patterns[1], "12a4", False),
+            (digit_patterns[1], "", False),
+            (digit_patterns[1], " 123", False),
+            (digit_patterns[1], "123 ", False),
+            (digit_patterns[1], "9999", True),
+            (digit_patterns[2], "00", True),
+            (digit_patterns[2], "99", True),
+            (digit_patterns[2], "42", True),
+            (digit_patterns[2], "1", False),
+            (digit_patterns[2], "123", False),
+            (digit_patterns[2], "ab", False),
+            (digit_patterns[2], "0a", False),
+            (digit_patterns[2], "", False),
+            (digit_patterns[2], " 99", False),
+            (digit_patterns[2], "99 ", False),
+            (digit_patterns[3], "1a", True),
+            (digit_patterns[3], "12b", True),
+            (digit_patterns[3], "123c", True),
+            (digit_patterns[3], "1234d", True),
+            (digit_patterns[3], "12345e", False),
+            (digit_patterns[3], "a", False),
+            (digit_patterns[3], "12", False),
+            (digit_patterns[3], "12A", False),
+            (digit_patterns[3], "1234", False),
+            (digit_patterns[3], "", False),
+        ]
+        corpus.extend(digit_cases)
+
+        # 2. Word chars \w and [a-zA-Z0-9_] (40 pairs)
+        word_patterns = [
+            r"^\w+$",
+            r"^\w{1,8}$",
+            r"^[a-zA-Z0-9_]{3,6}$",
+            r"^prefix_\w{1,4}$",
+        ]
+        word_cases = [
+            (word_patterns[0], "hello", True),
+            (word_patterns[0], "hello_world", True),
+            (word_patterns[0], "var_123", True),
+            (word_patterns[0], "12345", True),
+            (word_patterns[0], "_private", True),
+            (word_patterns[0], "hello world", False),
+            (word_patterns[0], "user@domain", False),
+            (word_patterns[0], "foo-bar", False),
+            (word_patterns[0], "", False),
+            (word_patterns[0], "hello!", False),
+            (word_patterns[1], "a", True),
+            (word_patterns[1], "abcdefgh", True),
+            (word_patterns[1], "test_1", True),
+            (word_patterns[1], "abcdefghi", False),
+            (word_patterns[1], "", False),
+            (word_patterns[1], "ab cd", False),
+            (word_patterns[1], "a-b", False),
+            (word_patterns[1], "12345678", True),
+            (word_patterns[1], "_", True),
+            (word_patterns[1], "special$", False),
+            (word_patterns[2], "abc", True),
+            (word_patterns[2], "abc123", True),
+            (word_patterns[2], "user_1", True),
+            (word_patterns[2], "ab", False),
+            (word_patterns[2], "abcdefg", False),
+            (word_patterns[2], "abc-de", False),
+            (word_patterns[2], "abc def", False),
+            (word_patterns[2], "", False),
+            (word_patterns[2], "ABC_9", True),
+            (word_patterns[2], "XYZ123", True),
+            (word_patterns[3], "prefix_a", True),
+            (word_patterns[3], "prefix_1234", True),
+            (word_patterns[3], "prefix_ok", True),
+            (word_patterns[3], "prefix_", False),
+            (word_patterns[3], "prefix_12345", False),
+            (word_patterns[3], "pre_fix_a", False),
+            (word_patterns[3], "prefix a", False),
+            (word_patterns[3], "", False),
+            (word_patterns[3], "other_a", False),
+            (word_patterns[3], "PREFIX_a", False),
+        ]
+        corpus.extend(word_cases)
+
+        # 3. Whitespace \s and non-whitespace \S (36 pairs)
+        ws_patterns = [
+            r"^hello\s+world$",
+            r"^\s{0,4}[a-z]+\s{0,4}$",
+            r"^[a-z]+ [a-z]+$",
+        ]
+        ws_cases = [
+            (ws_patterns[0], "hello world", True),
+            (ws_patterns[0], "hello\tworld", True),
+            (ws_patterns[0], "hello   world", True),
+            (ws_patterns[0], "hello\nworld", True),
+            (ws_patterns[0], "hello\r\nworld", True),
+            (ws_patterns[0], "helloworld", False),
+            (ws_patterns[0], "hello world!", False),
+            (ws_patterns[0], " hello world", False),
+            (ws_patterns[0], "hello world ", False),
+            (ws_patterns[0], "HELLO WORLD", False),
+            (ws_patterns[0], "", False),
+            (ws_patterns[0], "hello-world", False),
+            (ws_patterns[1], "word", True),
+            (ws_patterns[1], "  word", True),
+            (ws_patterns[1], "word  ", True),
+            (ws_patterns[1], "  word  ", True),
+            (ws_patterns[1], "\tword\t", True),
+            (ws_patterns[1], "  two words  ", False),
+            (ws_patterns[1], "  123  ", False),
+            (ws_patterns[1], "   ", False),
+            (ws_patterns[1], "", False),
+            (ws_patterns[1], "WORD", False),
+            (ws_patterns[1], "a", True),
+            (ws_patterns[1], "     word", False),
+            (ws_patterns[2], "hello world", True),
+            (ws_patterns[2], "foo bar", True),
+            (ws_patterns[2], "a b", True),
+            (ws_patterns[2], "first second", True),
+            (ws_patterns[2], "hello", False),
+            (ws_patterns[2], "hello  world", False),
+            (ws_patterns[2], " hello world", False),
+            (ws_patterns[2], "hello world ", False),
+            (ws_patterns[2], "one two three", False),
+            (ws_patterns[2], "123 456", False),
+            (ws_patterns[2], "", False),
+            (ws_patterns[2], "foo\tbar", False),
+        ]
+        corpus.extend(ws_cases)
+
+        # 4. Unicode classes and multilingual text (40 pairs)
+        unicode_patterns = [
+            r"^[\u00c0-\u017fa-z]+$",
+            r"^[α-ω]+$",
+            r"^[а-яА-Я0-9_]+$",
+            r"^caf[\u00e9e]$",
+        ]
+        unicode_cases = [
+            (unicode_patterns[0], "café", True),
+            (unicode_patterns[0], "naïve", True),
+            (unicode_patterns[0], "über", True),
+            (unicode_patterns[0], "crème", True),
+            (unicode_patterns[0], "normal", True),
+            (unicode_patterns[0], "café123", False),
+            (unicode_patterns[0], "café bar", False),
+            (unicode_patterns[0], "", False),
+            (unicode_patterns[0], "CAFÉ", False),
+            (unicode_patterns[0], "français", True),
+            (unicode_patterns[1], "αβγ", True),
+            (unicode_patterns[1], "ω", True),
+            (unicode_patterns[1], "α", True),
+            (unicode_patterns[1], "abc", False),
+            (unicode_patterns[1], "αβγ1", False),
+            (unicode_patterns[1], "", False),
+            (unicode_patterns[1], "ΑΒΓ", False),
+            (unicode_patterns[1], "α β", False),
+            (unicode_patterns[1], "δεζηθ", True),
+            (unicode_patterns[1], "ικλμν", True),
+            (unicode_patterns[2], "тест", True),
+            (unicode_patterns[2], "Тест123", True),
+            (unicode_patterns[2], "юзер_1", True),
+            (unicode_patterns[2], "русский_язык", True),
+            (unicode_patterns[2], "тест!", False),
+            (unicode_patterns[2], "тест тест", False),
+            (unicode_patterns[2], "", False),
+            (unicode_patterns[2], "english", False),
+            (unicode_patterns[2], "12345", True),
+            (unicode_patterns[2], "_", True),
+            (unicode_patterns[3], "café", True),
+            (unicode_patterns[3], "cafe", True),
+            (unicode_patterns[3], "caff", False),
+            (unicode_patterns[3], "caf", False),
+            (unicode_patterns[3], "cafeé", False),
+            (unicode_patterns[3], "CAFÉ", False),
+            (unicode_patterns[3], "", False),
+            (unicode_patterns[3], "cafée", False),
+            (unicode_patterns[3], "caf1", False),
+            (unicode_patterns[3], "other", False),
+        ]
+        corpus.extend(unicode_cases)
+
+        # 5. Case flags (?i) (35 pairs)
+        case_patterns = [
+            r"(?i)^[a-z]+$",
+            r"(?i)^admin_[0-9]{1,3}$",
+            r"(?i)^[a-z]{2,4}_[a-z]{2,4}$",
+        ]
+        case_cases = [
+            (case_patterns[0], "hello", True),
+            (case_patterns[0], "HELLO", True),
+            (case_patterns[0], "HeLLo", True),
+            (case_patterns[0], "hElLo", True),
+            (case_patterns[0], "a", True),
+            (case_patterns[0], "Z", True),
+            (case_patterns[0], "hello123", False),
+            (case_patterns[0], "hello world", False),
+            (case_patterns[0], "hello_world", False),
+            (case_patterns[0], "", False),
+            (case_patterns[0], "123", False),
+            (case_patterns[0], "!@#", False),
+            (case_patterns[1], "admin_1", True),
+            (case_patterns[1], "ADMIN_1", True),
+            (case_patterns[1], "Admin_99", True),
+            (case_patterns[1], "aDmIn_123", True),
+            (case_patterns[1], "admin_0", True),
+            (case_patterns[1], "ADMIN_1234", False),
+            (case_patterns[1], "admin_", False),
+            (case_patterns[1], "user_1", False),
+            (case_patterns[1], "admin-1", False),
+            (case_patterns[1], "admin_abc", False),
+            (case_patterns[1], "", False),
+            (case_patterns[1], "ADMIN_000", True),
+            (case_patterns[2], "us_east", True),
+            (case_patterns[2], "US_EAST", True),
+            (case_patterns[2], "Us_East", True),
+            (case_patterns[2], "eu_west", True),
+            (case_patterns[2], "ap_east", True),
+            (case_patterns[2], "u_east", False),
+            (case_patterns[2], "us_easting", False),
+            (case_patterns[2], "us-east", False),
+            (case_patterns[2], "us east", False),
+            (case_patterns[2], "", False),
+            (case_patterns[2], "US_WEST", True),
+        ]
+        corpus.extend(case_cases)
+
+        # 6. Additional edge cases & complex combinations (30 pairs)
+        edge_patterns = [
+            r"^[a-z]?$",
+            r"^(?:read|write|delete)$",
+            r"^https?://[a-z.]+$",
+        ]
+        edge_cases = [
+            (edge_patterns[0], "", True),
+            (edge_patterns[0], "a", True),
+            (edge_patterns[0], "z", True),
+            (edge_patterns[0], "ab", False),
+            (edge_patterns[0], "1", False),
+            (edge_patterns[0], " ", False),
+            (edge_patterns[0], "A", False),
+            (edge_patterns[0], "\n", False),
+            (edge_patterns[0], "-", False),
+            (edge_patterns[0], "abc", False),
+            (edge_patterns[1], "read", True),
+            (edge_patterns[1], "write", True),
+            (edge_patterns[1], "delete", True),
+            (edge_patterns[1], "update", False),
+            (edge_patterns[1], "READ", False),
+            (edge_patterns[1], "read ", False),
+            (edge_patterns[1], " read", False),
+            (edge_patterns[1], "", False),
+            (edge_patterns[1], "delete_all", False),
+            (edge_patterns[1], "read_write", False),
+            (edge_patterns[2], "http://example.com", True),
+            (edge_patterns[2], "https://example.com", True),
+            (edge_patterns[2], "https://api.github.com", True),
+            (edge_patterns[2], "ftp://example.com", False),
+            (edge_patterns[2], "https://", False),
+            (edge_patterns[2], "http://", False),
+            (edge_patterns[2], "https://example.com/path", False),
+            (edge_patterns[2], "https://example.com:8080", False),
+            (edge_patterns[2], "", False),
+            (edge_patterns[2], "http://localhost", True),
+        ]
+        corpus.extend(edge_cases)
+
+        self.assertGreaterEqual(len(corpus), 200, f"Expected >= 200 pairs, found {len(corpus)}")
+
+        for pat, inp, expected in corpus:
+            # 1. Grammar validation check
+            validate_pattern_safety(pat)
+
+            # 2. Engine compilation
+            compiled = _compile_anchored_pattern(pat)
+
+            # 3. Match execution
+            match_res = bool(compiled.fullmatch(inp))
+            self.assertEqual(
+                match_res,
+                expected,
+                f"Mismatch for pattern {pat!r} on input {inp!r}: expected {expected}, got {match_res}",
+            )
+
+            # 4. evaluate_constraints integration check
+            rule_schema = {"properties": {"val": {"type": "string", "pattern": pat}}}
+            ok, _ = evaluate_constraints(rule_schema, {"val": inp})
+            self.assertEqual(
+                ok,
+                expected,
+                f"evaluate_constraints mismatch for pattern {pat!r} on input {inp!r}: expected {expected}, got {ok}",
+            )
 
     def test_required_fields_and_no_additional_properties(self) -> None:
         """Support for 'required' fields and 'additionalProperties': False."""
