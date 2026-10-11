@@ -4,17 +4,20 @@ from __future__ import annotations
 
 import argparse
 import os
+import secrets
 import sys
 from pathlib import Path
 
 from dmint.core.keys import (
     DEFAULT_KEY_FILE,
+    DEFAULT_INTEGRITY_KEY_FILE,
     KeyExistsError,
     KeyLoadError,
     load_private_key_from_file,
     public_key_hex,
     public_key_pem,
     write_private_key_atomic,
+    write_integrity_key_atomic,
 )
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -23,35 +26,20 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 
 def main_init_keys(args: list[str]) -> int:
-    """Generate and persist a new Ed25519 signing key for the approval authority.
-
-    Usage:
-        dmint init-keys [--key-file PATH] [--issuer-id ID] [--force]
-
-    The key file is created with mode 0600 atomically — there is no window
-    during which it is world-readable.  Use ``dmint export-public-key`` to
-    get the public key for pasting into the gateway's ``trusted_issuers``.
-
-    Key rotation procedure:
-        1. Run ``dmint init-keys --key-file new.key --issuer-id my-auth-v2``
-        2. Run ``dmint export-public-key --key-file new.key --issuer-id my-auth-v2``
-        3. Add the new issuer entry to the gateway ``trusted_issuers`` config.
-        4. Deploy the updated gateway config (supports both old and new keys).
-        5. Switch the authority process to use the new key file.
-        6. Wait for all pending assertions signed with the old key to expire or
-           be consumed, then remove the old issuer from ``trusted_issuers``.
-
-    WARNING: Use --force only if you understand that overwriting the key file
-    will invalidate any pending approvals signed with the old key.
-    """
+    """Generate and persist a new Ed25519 signing key and HMAC integrity key."""
     parser = argparse.ArgumentParser(
         prog="dmint init-keys",
-        description="Generate and persist a new Ed25519 signing key.",
+        description="Generate and persist new signing and HMAC storage integrity keys.",
     )
     parser.add_argument(
         "--key-file",
         default=str(DEFAULT_KEY_FILE),
-        help=f"Destination for the private key file (default: {DEFAULT_KEY_FILE})",
+        help=f"Destination for the signing key file (default: {DEFAULT_KEY_FILE})",
+    )
+    parser.add_argument(
+        "--integrity-key-file",
+        default=None,
+        help="Destination for the HMAC storage integrity key file (default: integrity.key next to key-file)",
     )
     parser.add_argument(
         "--issuer-id",
@@ -61,15 +49,18 @@ def main_init_keys(args: list[str]) -> int:
     parser.add_argument(
         "--force",
         action="store_true",
-        help=("Overwrite an existing key file. WARNING: invalidates pending approvals signed with the old key."),
+        help=("Overwrite existing key files. WARNING: invalidates pending approvals signed with the old key."),
     )
     opts = parser.parse_args(args)
 
     key_path = Path(opts.key_file)
+    integrity_path = Path(opts.integrity_key_file) if opts.integrity_key_file else key_path.parent / "integrity.key"
 
     try:
         private_key = Ed25519PrivateKey.generate()
         write_private_key_atomic(key_path, private_key, force=opts.force)
+        integrity_bytes = secrets.token_bytes(32)
+        write_integrity_key_atomic(integrity_path, integrity_bytes, force=opts.force)
     except KeyExistsError as exc:
         print(f"error: {exc}", file=sys.stderr)
         print(
@@ -80,7 +71,7 @@ def main_init_keys(args: list[str]) -> int:
     except OSError:
         # Do NOT include exc in output — it may contain path details.
         print(
-            "error: could not write key file (check directory permissions).",
+            "error: could not write key files (check directory permissions).",
             file=sys.stderr,
         )
         return 1
@@ -88,9 +79,10 @@ def main_init_keys(args: list[str]) -> int:
     pub_hex = public_key_hex(private_key.public_key())
     pub_pem = public_key_pem(private_key.public_key())
 
-    print("Ed25519 signing key generated successfully.", file=sys.stderr)
-    print(f"  Key file:  {key_path}", file=sys.stderr)
-    print(f"  Issuer ID: {opts.issuer_id}", file=sys.stderr)
+    print("Ed25519 signing key and HMAC integrity key generated successfully.", file=sys.stderr)
+    print(f"  Signing key file:   {key_path}", file=sys.stderr)
+    print(f"  Integrity key file: {integrity_path}", file=sys.stderr)
+    print(f"  Issuer ID:          {opts.issuer_id}", file=sys.stderr)
     print(file=sys.stderr)
     print("Public key (paste into gateway trusted_issuers):", file=sys.stderr)
     print(f'  public_key_hex: "{pub_hex}"', file=sys.stderr)

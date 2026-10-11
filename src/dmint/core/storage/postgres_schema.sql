@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS approval_records (
     state_reason TEXT,
     consumed_at TEXT,
     deployment_epoch TEXT NOT NULL,
+    row_version INTEGER NOT NULL DEFAULT 1,
     record_checksum TEXT NOT NULL,
     CHECK (
         (resource_kind = 'none' AND resource_value IS NULL)

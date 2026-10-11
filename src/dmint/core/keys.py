@@ -53,6 +53,10 @@ __all__ = [
     "load_private_key_from_file",
     "load_private_key",
     "write_private_key_atomic",
+    "DEFAULT_INTEGRITY_KEY_FILE",
+    "write_integrity_key_atomic",
+    "load_integrity_key_from_file",
+    "load_integrity_key_source",
     "KeyExistsError",
     "KeyLoadError",
     "KeyPermissionError",
@@ -60,8 +64,11 @@ __all__ = [
 
 DEFAULT_KEY_DIR = Path.home() / ".config" / "dmint"
 DEFAULT_KEY_FILE = DEFAULT_KEY_DIR / "signing.key"
+DEFAULT_INTEGRITY_KEY_FILE = DEFAULT_KEY_DIR / "integrity.key"
 _PRIVATE_KEY_ENV = "DMINT_PRIVATE_KEY"
 _KEY_FILE_ENV = "DMINT_KEY_FILE"
+_INTEGRITY_KEY_FILE_ENV = "DMINT_INTEGRITY_KEY_FILE"
+_INTEGRITY_KEY_ENV = "DMINT_INTEGRITY_KEY"
 _ALLOW_INLINE_KEY_ENV = "DMINT_ALLOW_INLINE_KEY"
 _ALLOW_INSECURE_PERMS_ENV = "DMINT_ALLOW_INSECURE_KEY_PERMISSIONS"
 _POSIX = platform.system() != "Windows"
@@ -409,3 +416,183 @@ def write_private_key_atomic(
     # Final permission set (in case the rename destination had other perms).
     if _POSIX:
         path.chmod(0o600)
+
+
+def write_integrity_key_atomic(
+    path: Path | str,
+    key_bytes: bytes,
+    *,
+    force: bool = False,
+    allow_insecure_permissions: bool = False,
+) -> None:
+    """Write an HMAC integrity key (32 bytes) to a file atomically with mode 0600."""
+    path = Path(path).resolve()
+    if not _POSIX:
+        env_allowed = os.environ.get(_ALLOW_INSECURE_PERMS_ENV, "").lower() in ("1", "true", "yes")
+        if not (allow_insecure_permissions or env_allowed):
+            raise KeyPermissionError(
+                "Key file permission enforcement is not supported on non-POSIX platforms; "
+                f"set {_ALLOW_INSECURE_PERMS_ENV}=1 or pass --allow-insecure-key-permissions to allow."
+            )
+
+    if path.exists() and not force:
+        raise KeyExistsError("integrity key file already exists; pass --force to overwrite.")
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if len(key_bytes) != 32:
+        raise ValueError("integrity key must be exactly 32 bytes")
+    hex_content = key_bytes.hex() + "\n"
+
+    try:
+        fd, tmp_path_str = tempfile.mkstemp(dir=path.parent, prefix=".dmint_integrity_tmp_")
+        tmp_path = Path(tmp_path_str)
+        try:
+            if _POSIX:
+                os.chmod(fd, 0o600)
+            os.write(fd, hex_content.encode("ascii"))
+        finally:
+            os.close(fd)
+        tmp_path.replace(path)
+    except Exception:
+        try:
+            Path(tmp_path_str).unlink(missing_ok=True)
+        except Exception:
+            pass
+        raise
+
+    if _POSIX:
+        path.chmod(0o600)
+
+
+def _parse_integrity_key(raw: str | bytes) -> bytes:
+    if isinstance(raw, bytes):
+        if len(raw) == 32:
+            return raw
+        try:
+            raw = raw.decode("ascii").strip()
+        except Exception:
+            raise KeyLoadError("integrity key must be 32 bytes (64 hex characters)") from None
+    raw = raw.strip()
+    if len(raw) == 64:
+        try:
+            parsed = bytes.fromhex(raw)
+            if len(parsed) == 32:
+                return parsed
+        except ValueError:
+            pass
+    raise KeyLoadError("integrity key must be 32 bytes (64 hex characters)")
+
+
+def load_integrity_key_from_file(
+    path: Path | str,
+    *,
+    allow_insecure_permissions: bool = False,
+) -> bytes:
+    """Load an HMAC integrity key from a file using secure descriptor operations (0600/0400, O_NOFOLLOW, fstat)."""
+    path = Path(path)
+    if not _POSIX:
+        env_allowed = os.environ.get(_ALLOW_INSECURE_PERMS_ENV, "").lower() in ("1", "true", "yes")
+        if not (allow_insecure_permissions or env_allowed):
+            raise KeyLoadError(
+                "Key file permission enforcement is not supported on non-POSIX platforms; "
+                f"set {_ALLOW_INSECURE_PERMS_ENV}=1 or pass --allow-insecure-key-permissions to allow."
+            )
+        try:
+            raw_text = path.read_text(encoding="ascii").strip()
+        except FileNotFoundError:
+            raise KeyLoadError("integrity key file does not exist") from None
+        except Exception:
+            raise KeyLoadError("failed to read integrity key file") from None
+        return _parse_integrity_key(raw_text)
+
+    try:
+        parent = path.absolute().parent
+        _check_parent_dir_permissions(parent)
+    except KeyPermissionError as exc:
+        raise KeyLoadError(str(exc)) from None
+    except Exception:
+        raise KeyLoadError("cannot verify integrity key file parent directory") from None
+
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0)
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+
+    try:
+        fd = os.open(str(path), flags)
+    except FileNotFoundError:
+        raise KeyLoadError(f"integrity key file does not exist: {path.name}") from None
+    except OSError as exc:
+        import errno
+
+        if exc.errno == errno.ELOOP or os.path.islink(path):
+            raise KeyLoadError("integrity key file is a symlink; symlinks are rejected for security") from None
+        raise KeyLoadError("cannot open integrity key file") from exc
+
+    try:
+        file_stat = os.fstat(fd)
+        if not stat.S_ISREG(file_stat.st_mode):
+            raise KeyLoadError("integrity key file is not a regular file")
+        if hasattr(os, "geteuid"):
+            current_uid = os.geteuid()
+            if file_stat.st_uid != current_uid:
+                raise KeyLoadError(
+                    f"integrity key file owner UID {file_stat.st_uid} does not match current process UID {current_uid}"
+                )
+        file_mode = stat.S_IMODE(file_stat.st_mode)
+        if file_mode & 0o077:
+            raise KeyLoadError(
+                f"integrity key file has unsafe permissions {oct(file_mode)}; expected 0600 or 0400"
+            )
+        raw_bytes = os.read(fd, 256)
+    finally:
+        os.close(fd)
+
+    try:
+        raw_text = raw_bytes.decode("ascii").strip()
+    except Exception:
+        raise KeyLoadError("failed to decode integrity key file content") from None
+    return _parse_integrity_key(raw_text)
+
+
+def load_integrity_key_source(
+    integrity_key: bytes | Path | str | None = None,
+    *,
+    allow_insecure_permissions: bool = False,
+) -> bytes:
+    """Load an HMAC integrity key from parameter, environment, or default file."""
+    if integrity_key is not None:
+        if isinstance(integrity_key, bytes):
+            return _parse_integrity_key(integrity_key)
+        if isinstance(integrity_key, str):
+            candidate = integrity_key.strip()
+            if len(candidate) == 64:
+                try:
+                    return _parse_integrity_key(candidate)
+                except KeyLoadError:
+                    pass
+            p = Path(integrity_key)
+            if not p.exists():
+                return _parse_integrity_key(candidate)
+            return load_integrity_key_from_file(p, allow_insecure_permissions=allow_insecure_permissions)
+        p = Path(integrity_key)
+        return load_integrity_key_from_file(p, allow_insecure_permissions=allow_insecure_permissions)
+
+    env_file = os.environ.get(_INTEGRITY_KEY_FILE_ENV, "").strip()
+    if env_file:
+        return load_integrity_key_from_file(env_file, allow_insecure_permissions=allow_insecure_permissions)
+
+    if DEFAULT_INTEGRITY_KEY_FILE.exists():
+        return load_integrity_key_from_file(
+            DEFAULT_INTEGRITY_KEY_FILE, allow_insecure_permissions=allow_insecure_permissions
+        )
+
+    env_raw = os.environ.get(_INTEGRITY_KEY_ENV, "").strip()
+    if env_raw:
+        return _parse_integrity_key(env_raw)
+
+    raise KeyLoadError(
+        "no integrity key source found; an integrity key must be provided via integrity_key argument, "
+        f"{_INTEGRITY_KEY_FILE_ENV}, {DEFAULT_INTEGRITY_KEY_FILE}, or {_INTEGRITY_KEY_ENV}. "
+        "Generate one with 'dmint init-keys'."
+    )
+

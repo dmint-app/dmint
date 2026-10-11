@@ -107,6 +107,12 @@ class CorruptApprovalRecordError(ApprovalStoreError):
     code = "DMT_APPROVAL_CORRUPT"
 
 
+class DeprecatedStorageFormatError(CorruptApprovalRecordError):
+    """The stored record uses a deprecated storage format or checksum (upgrade required)."""
+
+    code = "DMT_APPROVAL_DEPRECATED_FORMAT"
+
+
 class ApprovalInvalidError(ApprovalError):
     """The approval assertion is not valid for the requested operation."""
 

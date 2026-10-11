@@ -37,6 +37,7 @@ class ThreadSafeApprovalStore(ApprovalStore):
         database: str | Path | None = None,
         *,
         deployment_epoch: str = "default",
+        integrity_key: bytes | Path | str | None = None,
         database_url: str | None = None,
         default_sqlite_path: str | Path = "dmint.db",
         recovery_epoch_file: str | Path | None = None,
@@ -52,6 +53,7 @@ class ThreadSafeApprovalStore(ApprovalStore):
 
         self._database_url = database_url
         self._deployment_epoch = deployment_epoch
+        self._integrity_key = integrity_key
         self._default_sqlite_path = default_sqlite_path
         self._recovery_epoch_file = recovery_epoch_file
         self._redact_keys = redact_keys
@@ -62,6 +64,7 @@ class ThreadSafeApprovalStore(ApprovalStore):
         self._initial_store = create_approval_store(
             database_url=self._database_url,
             deployment_epoch=self._deployment_epoch,
+            integrity_key=self._integrity_key,
             default_sqlite_path=self._default_sqlite_path,
             recovery_epoch_file=self._recovery_epoch_file,
             redact_keys=self._redact_keys,
@@ -99,6 +102,7 @@ class ThreadSafeApprovalStore(ApprovalStore):
             store = SQLiteApprovalStore(
                 self._default_sqlite_path,
                 deployment_epoch=self._deployment_epoch,
+                integrity_key=self._integrity_key,
                 recovery_epoch_file=self._recovery_epoch_file,
                 redact_keys=self._redact_keys,
                 max_pending_per_principal=self._max_pending_per_principal,

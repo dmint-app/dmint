@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import hashlib
+import hmac
 import logging
 import os
 import re
@@ -31,6 +32,7 @@ from ..approvals import (
     PolicyProvenance,
     parse_approval_state,
 )
+from ..keys import load_integrity_key_source
 from ..verification import ApprovalAssertion, ApprovalVerifier
 from ..errors import (
     ApprovalConcurrentConsumeError,
@@ -44,6 +46,7 @@ from ..errors import (
     ApprovalRequestMismatchError,
     ApprovalStoreError,
     CorruptApprovalRecordError,
+    DeprecatedStorageFormatError,
     MalformedApprovalError,
     UnknownApprovalVersionError,
 )
@@ -53,7 +56,43 @@ from ..versions import CANONICALIZATION_PROFILE, REQUEST_BINDING_VERSION
 
 logger = logging.getLogger(__name__)
 
+_STORAGE_FORMAT_VERSION = "dmint/storage/v2"
+_INTEGRITY_DOMAIN_SEPARATOR = b"dmint/approval-record-integrity/v2\x00"
+
 _ID_PATTERN = re.compile(r"^(?:req|apr)_[A-Za-z0-9_-]{43}$")
+
+_OLD_V1_STORED_COLUMNS = (
+    "schema_version",
+    "approval_id",
+    "request_id",
+    "request_fingerprint",
+    "binding_version",
+    "canonicalization_profile",
+    "integration_id",
+    "capability_id",
+    "principal_id",
+    "tool",
+    "action",
+    "resource_kind",
+    "resource_value",
+    "arguments_json",
+    "trusted_context_json",
+    "policy_version_id",
+    "policy_digest",
+    "policy_evaluated_at",
+    "created_at",
+    "expires_at",
+    "state",
+    "decision_authority_id",
+    "decision_authority_subject",
+    "decision_authority_kind",
+    "decision_at",
+    "state_reason",
+    "state_at",
+    "consumed_at",
+    "deployment_epoch",
+)
+
 _STORED_COLUMNS = (
     "schema_version",
     "approval_id",
@@ -84,6 +123,7 @@ _STORED_COLUMNS = (
     "state_at",
     "consumed_at",
     "deployment_epoch",
+    "row_version",
 )
 
 _CREATE_TABLE = """
@@ -122,6 +162,7 @@ CREATE TABLE IF NOT EXISTS approval_records (
     state_reason TEXT,
     consumed_at TEXT,
     deployment_epoch TEXT NOT NULL,
+    row_version INTEGER NOT NULL DEFAULT 1,
     record_checksum TEXT NOT NULL,
     CHECK (
         (resource_kind = 'none' AND resource_value IS NULL)
@@ -171,12 +212,23 @@ def _canonical_json(value: Any) -> str:
         raise CorruptApprovalRecordError("value is not valid JCS JSON") from exc
 
 
-def _integrity_checksum(payload: Mapping[str, Any]) -> str:
+def _integrity_checksum(payload: Mapping[str, Any], integrity_key: bytes) -> str:
     try:
         canonical = rfc8785.dumps(dict(payload))
     except (TypeError, ValueError, OverflowError) as exc:
         raise CorruptApprovalRecordError("stored integrity payload is invalid") from exc
-    return hashlib.sha256(b"dmint/approval-record-integrity/v1\x00" + canonical).hexdigest()
+    return hmac.new(integrity_key, _INTEGRITY_DOMAIN_SEPARATOR + canonical, hashlib.sha256).hexdigest()
+
+
+def _is_deprecated_v1_checksum(row: sqlite3.Row | Mapping[str, Any], stored_checksum: str) -> bool:
+    try:
+        keys = row.keys() if hasattr(row, "keys") else row
+        v1_payload = {col: row[col] for col in _OLD_V1_STORED_COLUMNS if col in keys}
+        canonical = rfc8785.dumps(dict(v1_payload))
+        old_checksum = hashlib.sha256(b"dmint/approval-record-integrity/v1\x00" + canonical).hexdigest()
+        return hmac.compare_digest(stored_checksum, old_checksum)
+    except Exception:
+        return False
 
 
 def _load_canonical_object(raw: Any, field: str) -> dict[str, Any]:
@@ -238,6 +290,7 @@ class SQLiteApprovalStore(ApprovalStore):
         database: str | Path,
         *,
         deployment_epoch: str,
+        integrity_key: bytes | Path | str | None = None,
         recovery_epoch_file: str | Path | None = None,
         redact_keys: Collection[str] | None = None,
         max_pending_per_principal: int = 100,
@@ -247,6 +300,7 @@ class SQLiteApprovalStore(ApprovalStore):
             raise ValueError("deployment_epoch must be a non-empty string")
         if type(max_pending_per_principal) is not int or max_pending_per_principal <= 0:
             raise ValueError("max_pending_per_principal must be a positive integer")
+        self._integrity_key = load_integrity_key_source(integrity_key)
         self._deployment_epoch = deployment_epoch
         self._max_pending_per_principal = max_pending_per_principal
         self._clock = clock or (lambda: datetime.now(timezone.utc))
@@ -283,6 +337,9 @@ class SQLiteApprovalStore(ApprovalStore):
             self._connection.execute(_CREATE_TABLE)
             self._connection.execute(_CREATE_POLICY_TABLE)
             self._connection.execute(_CREATE_RECOVERY_TABLE)
+            table_info = [r[1] for r in self._connection.execute("PRAGMA table_info(approval_records)").fetchall()]
+            if table_info and "row_version" not in table_info:
+                self._connection.execute("ALTER TABLE approval_records ADD COLUMN row_version INTEGER NOT NULL DEFAULT 1")
             self._connection.commit()
             self._sync_recovery_counter(increment=False)
         except (sqlite3.Error, ApprovalStoreError) as exc:
@@ -496,20 +553,10 @@ class SQLiteApprovalStore(ApprovalStore):
             raise ApprovalStoreError("could not persist approval record") from exc
 
     def _insert_values(self, values: tuple[Any, ...]) -> None:
+        cols = ", ".join((*_STORED_COLUMNS, "record_checksum"))
+        placeholders = ", ".join("?" * (len(_STORED_COLUMNS) + 1))
         self._connection.execute(
-            """
-            INSERT INTO approval_records (
-                schema_version, approval_id, request_id, request_fingerprint,
-                binding_version, canonicalization_profile, integration_id,
-                capability_id, principal_id, tool, action, resource_kind,
-                resource_value, arguments_json, trusted_context_json,
-                policy_version_id, policy_digest, policy_evaluated_at,
-                created_at, expires_at, state, decision_authority_id,
-                decision_authority_subject, decision_authority_kind,
-                decision_at, state_reason, state_at, consumed_at,
-                deployment_epoch, record_checksum
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
+            f"INSERT INTO approval_records ({cols}) VALUES ({placeholders})",
             values,
         )
 
@@ -711,12 +758,12 @@ class SQLiteApprovalStore(ApprovalStore):
         for row in rows:
             try:
                 results.append(self._deserialize(row))
-            except UnknownApprovalVersionError:
+            except (UnknownApprovalVersionError, DeprecatedStorageFormatError):
                 skipped_unsupported_count += 1
                 continue
         if skipped_unsupported_count > 0:
             logger.warning(
-                "Skipped %d pending approval records with unsupported schema version",
+                "Skipped %d pending approval records with unsupported schema version or deprecated storage format",
                 skipped_unsupported_count,
             )
         return results
@@ -775,12 +822,12 @@ class SQLiteApprovalStore(ApprovalStore):
         for row in rows:
             try:
                 records.append(self._deserialize(row))
-            except UnknownApprovalVersionError:
+            except (UnknownApprovalVersionError, DeprecatedStorageFormatError):
                 skipped_unsupported_count += 1
                 continue
         if skipped_unsupported_count > 0:
             logger.warning(
-                "Skipped %d approval records with unsupported schema version",
+                "Skipped %d approval records with unsupported schema version or deprecated storage format",
                 skipped_unsupported_count,
             )
         return records
@@ -975,15 +1022,26 @@ class SQLiteApprovalStore(ApprovalStore):
             "consumed_at": _timestamp(record.consumed_at) if record.consumed_at is not None else None,
             "state_at": _timestamp(record.state_at),
             "deployment_epoch": self._deployment_epoch,
+            "row_version": record.row_version,
         }
-        return tuple(payload[column] for column in _STORED_COLUMNS) + (_integrity_checksum(payload),)
+        return tuple(payload[column] for column in _STORED_COLUMNS) + (_integrity_checksum(payload, self._integrity_key),)
 
     def _deserialize(self, row: sqlite3.Row) -> ApprovalRecord:
         try:
-            payload = {column: row[column] for column in _STORED_COLUMNS}
             stored_checksum = row["record_checksum"]
-            if type(stored_checksum) is not str or stored_checksum != _integrity_checksum(payload):
+            if type(stored_checksum) is not str:
                 raise CorruptApprovalRecordError("stored approval integrity check failed")
+
+            if _is_deprecated_v1_checksum(row, stored_checksum):
+                raise DeprecatedStorageFormatError(
+                    "stored approval record uses deprecated unkeyed checksum (format v1); upgrade required"
+                )
+
+            payload = {column: row[column] for column in _STORED_COLUMNS}
+            expected_mac = _integrity_checksum(payload, self._integrity_key)
+            if not hmac.compare_digest(stored_checksum, expected_mac):
+                raise CorruptApprovalRecordError("stored approval integrity check failed")
+
             schema_version = _required(row, "schema_version")
             approval_id = _required(row, "approval_id")
             request_id = _required(row, "request_id")
@@ -1043,6 +1101,7 @@ class SQLiteApprovalStore(ApprovalStore):
                 _required(row, "policy_digest"),
                 _load_timestamp(_required(row, "policy_evaluated_at"), "policy_evaluated_at"),
             )
+            row_version = int(row["row_version"]) if "row_version" in row.keys() and row["row_version"] is not None else 1
             return ApprovalRecord._from_storage(
                 schema_version=schema_version,
                 approval_id=approval_id,
@@ -1065,6 +1124,7 @@ class SQLiteApprovalStore(ApprovalStore):
                 consumed_at=(
                     _load_timestamp(row["consumed_at"], "consumed_at") if row["consumed_at"] is not None else None
                 ),
+                row_version=row_version,
             )
         except (CorruptApprovalRecordError, UnknownApprovalVersionError):
             raise

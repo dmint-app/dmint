@@ -28,6 +28,7 @@ def create_approval_store(
     database_url: str | None = None,
     *,
     deployment_epoch: str,
+    integrity_key: bytes | Path | str | None = None,
     default_sqlite_path: str | Path = "dmint.db",
     recovery_epoch_file: str | Path | None = None,
     redact_keys: Collection[str] | None = None,
@@ -55,6 +56,7 @@ def create_approval_store(
         return SQLiteApprovalStore(
             default_sqlite_path,
             deployment_epoch=deployment_epoch,
+            integrity_key=integrity_key,
             recovery_epoch_file=recovery_epoch_file,
             redact_keys=redact_keys,
             max_pending_per_principal=max_pending_per_principal,
@@ -92,6 +94,7 @@ def create_approval_store(
     return SQLAlchemyApprovalStore(
         url_str,
         deployment_epoch=deployment_epoch,
+        integrity_key=integrity_key,
         recovery_epoch_file=recovery_epoch_file,
         redact_keys=redact_keys,
         max_pending_per_principal=max_pending_per_principal,

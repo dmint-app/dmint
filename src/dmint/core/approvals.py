@@ -192,6 +192,7 @@ class ApprovalRecord:
         "_state_at",
         "_state_reason",
         "_consumed_at",
+        "_row_version",
     )
 
     _schema_version: str
@@ -211,6 +212,7 @@ class ApprovalRecord:
     _state_at: datetime
     _state_reason: str | None
     _consumed_at: datetime | None
+    _row_version: int
 
     def __init__(
         self,
@@ -233,6 +235,7 @@ class ApprovalRecord:
         state_at: datetime,
         state_reason: str | None,
         consumed_at: datetime | None,
+        row_version: int = 1,
     ) -> None:
         if token is not _RECORD_TOKEN:
             raise TypeError("ApprovalRecord instances are created by the approval domain")
@@ -272,6 +275,7 @@ class ApprovalRecord:
         object.__setattr__(self, "_state_at", _require_utc(state_at, "state time"))
         object.__setattr__(self, "_state_reason", state_reason)
         object.__setattr__(self, "_consumed_at", _optional_utc(consumed_at, "consumption time"))
+        object.__setattr__(self, "_row_version", int(row_version))
 
     def __setattr__(self, name: str, value: Any) -> None:
         raise AttributeError("ApprovalRecord is immutable")
@@ -343,6 +347,7 @@ class ApprovalRecord:
         decision_at: datetime | None = None,
         state_reason: str | None = None,
         consumed_at: datetime | None = None,
+        row_version: int = 1,
     ) -> "ApprovalRecord":
         expected_fingerprint = request_binding_fingerprint(
             request,
@@ -372,6 +377,7 @@ class ApprovalRecord:
             state_at=state_at,
             state_reason=state_reason,
             consumed_at=consumed_at,
+            row_version=row_version,
         )
 
     @staticmethod
@@ -460,6 +466,7 @@ class ApprovalRecord:
             state_at=state_at,
             state_reason=state_reason,
             consumed_at=consumed_at,
+            row_version=self._row_version + 1,
         )
 
     def _require_not_expired(self, now: datetime | None = None) -> datetime:
@@ -626,6 +633,10 @@ class ApprovalRecord:
     @property
     def consumed_at(self) -> datetime | None:
         return self._consumed_at
+
+    @property
+    def row_version(self) -> int:
+        return self._row_version
 
 
 def _optional_utc(value: datetime | None, field: str) -> datetime | None:

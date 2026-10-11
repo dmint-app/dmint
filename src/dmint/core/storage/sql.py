@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hmac
 import logging
 import os
 from collections.abc import Callable, Collection, Mapping
@@ -44,6 +45,7 @@ from ..approvals import (
     PolicyProvenance,
     parse_approval_state,
 )
+from ..keys import load_integrity_key_source
 from ..verification import ApprovalAssertion, ApprovalVerifier
 from ..errors import (
     ApprovalConcurrentConsumeError,
@@ -58,6 +60,7 @@ from ..errors import (
     ApprovalStoreConfigurationError,
     ApprovalStoreError,
     CorruptApprovalRecordError,
+    DeprecatedStorageFormatError,
     MalformedApprovalError,
     UnknownApprovalVersionError,
 )
@@ -70,6 +73,7 @@ from .sqlite import (
     _STORED_COLUMNS,
     _canonical_json,
     _integrity_checksum,
+    _is_deprecated_v1_checksum,
     _load_canonical_object,
     _load_timestamp,
     _thaw_object,
@@ -120,6 +124,7 @@ def _build_tables(metadata: MetaData) -> tuple[Table, Table, Table]:
         Column("state_reason", Text, nullable=True),
         Column("consumed_at", Text, nullable=True),
         Column("deployment_epoch", Text, nullable=False),
+        Column("row_version", Integer, nullable=False, default=1, server_default="1"),
         Column("record_checksum", Text, nullable=False),
         CheckConstraint("resource_kind IN ('none', 'value')", name="ck_approval_records_resource_kind"),
         CheckConstraint(
@@ -183,6 +188,7 @@ class SQLAlchemyApprovalStore(ApprovalStore):
         url_or_engine: str | Engine,
         *,
         deployment_epoch: str,
+        integrity_key: bytes | Path | str | None = None,
         recovery_epoch_file: str | Path | None = None,
         redact_keys: Collection[str] | None = None,
         max_pending_per_principal: int = 100,
@@ -193,6 +199,7 @@ class SQLAlchemyApprovalStore(ApprovalStore):
         if type(max_pending_per_principal) is not int or max_pending_per_principal <= 0:
             raise ValueError("max_pending_per_principal must be a positive integer")
 
+        self._integrity_key = load_integrity_key_source(integrity_key)
         self._deployment_epoch = deployment_epoch
         self._max_pending_per_principal = max_pending_per_principal
         self._clock = clock or (lambda: datetime.now(timezone.utc))
@@ -704,12 +711,12 @@ class SQLAlchemyApprovalStore(ApprovalStore):
         for row in rows:
             try:
                 results.append(self._deserialize(row))
-            except UnknownApprovalVersionError:
+            except (UnknownApprovalVersionError, DeprecatedStorageFormatError):
                 skipped_unsupported_count += 1
                 continue
         if skipped_unsupported_count > 0:
             logger.warning(
-                "Skipped %d pending approval records with unsupported schema version",
+                "Skipped %d pending approval records with unsupported schema version or deprecated storage format",
                 skipped_unsupported_count,
             )
         return results
@@ -751,12 +758,12 @@ class SQLAlchemyApprovalStore(ApprovalStore):
         for row in rows:
             try:
                 records.append(self._deserialize(row))
-            except UnknownApprovalVersionError:
+            except (UnknownApprovalVersionError, DeprecatedStorageFormatError):
                 skipped_unsupported_count += 1
                 continue
         if skipped_unsupported_count > 0:
             logger.warning(
-                "Skipped %d approval records with unsupported schema version",
+                "Skipped %d approval records with unsupported schema version or deprecated storage format",
                 skipped_unsupported_count,
             )
         return records
@@ -952,14 +959,24 @@ class SQLAlchemyApprovalStore(ApprovalStore):
             "consumed_at": _timestamp(record.consumed_at) if record.consumed_at is not None else None,
             "state_at": _timestamp(record.state_at),
             "deployment_epoch": self._deployment_epoch,
+            "row_version": record.row_version,
         }
-        return tuple(payload[column] for column in _STORED_COLUMNS) + (_integrity_checksum(payload),)
+        return tuple(payload[column] for column in _STORED_COLUMNS) + (_integrity_checksum(payload, self._integrity_key),)
 
     def _deserialize(self, row: RowMapping | Mapping[str, Any]) -> ApprovalRecord:
         try:
-            payload = {column: row[column] for column in _STORED_COLUMNS}
             stored_checksum = row["record_checksum"]
-            if type(stored_checksum) is not str or stored_checksum != _integrity_checksum(payload):
+            if type(stored_checksum) is not str:
+                raise CorruptApprovalRecordError("stored approval integrity check failed")
+
+            if _is_deprecated_v1_checksum(row, stored_checksum):
+                raise DeprecatedStorageFormatError(
+                    "stored approval record uses deprecated unkeyed checksum (format v1); upgrade required"
+                )
+
+            payload = {column: row[column] for column in _STORED_COLUMNS}
+            expected_mac = _integrity_checksum(payload, self._integrity_key)
+            if not hmac.compare_digest(stored_checksum, expected_mac):
                 raise CorruptApprovalRecordError("stored approval integrity check failed")
 
             schema_version = _required(row, "schema_version")
@@ -1025,6 +1042,7 @@ class SQLAlchemyApprovalStore(ApprovalStore):
                 _required(row, "policy_digest"),
                 _load_timestamp(_required(row, "policy_evaluated_at"), "policy_evaluated_at"),
             )
+            row_version = int(row["row_version"]) if "row_version" in row and row["row_version"] is not None else 1
             return ApprovalRecord._from_storage(
                 schema_version=schema_version,
                 approval_id=approval_id,
@@ -1047,8 +1065,9 @@ class SQLAlchemyApprovalStore(ApprovalStore):
                 consumed_at=(
                     _load_timestamp(row["consumed_at"], "consumed_at") if row.get("consumed_at") is not None else None
                 ),
+                row_version=row_version,
             )
-        except CorruptApprovalRecordError:
+        except (CorruptApprovalRecordError, UnknownApprovalVersionError):
             raise
         except (MalformedApprovalError, TypeError, ValueError, KeyError, IndexError) as exc:
             raise CorruptApprovalRecordError("stored approval record is invalid") from exc

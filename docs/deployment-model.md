@@ -175,3 +175,24 @@ Rotation replaces one signing key with another while maintaining continuity of s
 7. **Remove old issuer** from `trusted_issuers` and redeploy gateway.
 
 Assertions signed with a revoked key are automatically rejected by the gateway once the issuer is removed from `trusted_issuers`.
+
+---
+
+## 6. Storage Row Integrity & Database Rollback Limitations
+
+Dmint storage backends (`SQLiteApprovalStore` and `SQLAlchemyApprovalStore`) protect every approval record with a domain-separated HMAC-SHA256 (`b"dmint/approval-record-integrity/v2\x00"`) over the entire canonical row payload including `state`, `row_version`, `deployment_epoch`, `principal_id`, and `request_fingerprint`.
+
+The HMAC key resides in a dedicated `integrity.key` file (created with mode 0600 by `dmint init-keys`) and is loaded via descriptor operations enforcing `O_NOFOLLOW` and ownership checks.
+
+### Replay Prevention via Database Write Tampering
+Because row checksums are keyed with HMAC-SHA256:
+- An attacker with direct write access to the database file cannot reset a `CONSUMED` record back to `APPROVED` and recompute the checksum to replay the assertion.
+- State tampering, version counter modification, and moving records across deployment epochs fail HMAC verification and fail closed (`DMT_APPROVAL_CORRUPT`).
+
+### Database Rollback Limitation (Important Notice)
+Restoring an older full snapshot copy of the entire database file (a database rollback attack) **cannot be detected by row-level HMACs alone**, because the row MACs in the older snapshot were valid at the time that snapshot was taken.
+
+**Mitigations Against Rollback Attacks:**
+1. **Short Assertion TTL**: Approval assertions have a short expiration window (default 5 minutes). Even if an older database snapshot is restored, assertions that have passed their `expires_at` timestamp fail validation.
+2. **Strict Filesystem Permissions**: Database files must be owned by the approver/host UID and protected with mode `0600`, preventing untrusted processes or agents from overwriting the database file.
+3. **External Append-Only Audit Log**: In high-assurance environments, pair Dmint with an external append-only log or streaming audit sink to detect discrepancies between consumed assertions and storage snapshots.
