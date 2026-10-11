@@ -32,7 +32,6 @@ from ..approvals import (
     PolicyProvenance,
     parse_approval_state,
 )
-from ..keys import load_integrity_key_source
 from ..verification import ApprovalAssertion, ApprovalVerifier
 from ..errors import (
     ApprovalConcurrentConsumeError,
@@ -220,7 +219,7 @@ def _integrity_checksum(payload: Mapping[str, Any], integrity_key: bytes) -> str
     return hmac.new(integrity_key, _INTEGRITY_DOMAIN_SEPARATOR + canonical, hashlib.sha256).hexdigest()
 
 
-def _is_deprecated_v1_checksum(row: sqlite3.Row | Mapping[str, Any], stored_checksum: str) -> bool:
+def _is_deprecated_v1_checksum(row: Any, stored_checksum: str) -> bool:
     try:
         keys = row.keys() if hasattr(row, "keys") else row
         v1_payload = {col: row[col] for col in _OLD_V1_STORED_COLUMNS if col in keys}
@@ -300,6 +299,8 @@ class SQLiteApprovalStore(ApprovalStore):
             raise ValueError("deployment_epoch must be a non-empty string")
         if type(max_pending_per_principal) is not int or max_pending_per_principal <= 0:
             raise ValueError("max_pending_per_principal must be a positive integer")
+        from ..keys import load_integrity_key_source
+
         self._integrity_key = load_integrity_key_source(integrity_key)
         self._deployment_epoch = deployment_epoch
         self._max_pending_per_principal = max_pending_per_principal
@@ -1032,6 +1033,12 @@ class SQLiteApprovalStore(ApprovalStore):
 
     def _deserialize(self, row: sqlite3.Row) -> ApprovalRecord:
         try:
+            schema_version = _required(row, "schema_version")
+            if schema_version != APPROVAL_RECORD_SCHEMA_VERSION:
+                raise UnknownApprovalVersionError(
+                    f"unsupported approval record schema version: '{schema_version}'"
+                )
+
             stored_checksum = row["record_checksum"]
             if type(stored_checksum) is not str:
                 raise CorruptApprovalRecordError("stored approval integrity check failed")
@@ -1046,7 +1053,6 @@ class SQLiteApprovalStore(ApprovalStore):
             if not hmac.compare_digest(stored_checksum, expected_mac):
                 raise CorruptApprovalRecordError("stored approval integrity check failed")
 
-            schema_version = _required(row, "schema_version")
             approval_id = _required(row, "approval_id")
             request_id = _required(row, "request_id")
             fingerprint = _required(row, "request_fingerprint")

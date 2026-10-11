@@ -296,6 +296,8 @@ class CanonicalizationTests(unittest.TestCase):
 
     def test_v1_record_in_sqlite_store_skipped_without_crashing_list_pending_or_dashboard(self):
         """A v1 record sitting in the SQLite store does not crash list_pending or the dashboard."""
+        import hashlib
+        import rfc8785
         import tempfile
         import sqlite3
         from dmint.core.storage.sqlite import SQLiteApprovalStore
@@ -357,7 +359,9 @@ class CanonicalizationTests(unittest.TestCase):
                 "consumed_at": None,
                 "deployment_epoch": epoch,
             }
-            checksum = _integrity_checksum(v1_row)
+            checksum = hashlib.sha256(
+                b"dmint/approval-record-integrity/v1\x00" + rfc8785.dumps(dict(v1_row))
+            ).hexdigest()
             cols = list(v1_row.keys()) + ["record_checksum"]
             vals = list(v1_row.values()) + [checksum]
             placeholders = ", ".join("?" * len(cols))
