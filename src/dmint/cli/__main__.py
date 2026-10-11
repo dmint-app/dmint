@@ -11,6 +11,7 @@ from dmint.cli.create_policy import main_create
 from dmint.cli.dashboard import main_dashboard
 from dmint.cli.install_skill import main_install_skill
 from dmint.cli.keys import main_export_public_key, main_init_keys
+from dmint.cli.policy_digest import main_policy_digest
 from dmint.cli.verify_policy import main_verify
 from dmint.cli.version import __version__
 
@@ -129,6 +130,11 @@ Compatibility Commands:
         add_help=False,
     )
     subparsers.add_parser(
+        "policy-digest",
+        help="Compute the SHA-256 digest of exact policy file bytes",
+        add_help=False,
+    )
+    subparsers.add_parser(
         "install-skill",
         help="Install Dmint AI coding agent skill into workspace (.agents/skills/) or global config",
         add_help=False,
@@ -191,6 +197,8 @@ Compatibility Commands:
         return _run_create_mcp(cmd_args)
     elif cmd == "verify-policy":
         return main_verify(cmd_args)
+    elif cmd == "policy-digest":
+        return main_policy_digest(cmd_args)
     elif cmd == "compile-policy":
         return main_compile(cmd_args)
     elif cmd == "install-skill":

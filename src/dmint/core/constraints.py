@@ -367,6 +367,31 @@ def _reject_tuples_in_schema(val: Any, path: str = "constraints") -> None:
             _reject_tuples_in_schema(item, f"{path}[{idx}]")
 
 
+def parse_constraints(data: str | bytes) -> dict[str, Any]:
+    """Parse a constraints JSON definition, strictly rejecting duplicate keys at any depth."""
+    import json
+
+    raw_bytes = data.encode("utf-8") if isinstance(data, str) else data
+
+    def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        for k, v in pairs:
+            if k in result:
+                raise PolicyError(f"duplicate JSON key in constraints: {k!r}")
+            result[k] = v
+        return result
+
+    try:
+        parsed = json.loads(raw_bytes, object_pairs_hook=_reject_duplicate_keys)
+    except Exception as exc:
+        if isinstance(exc, PolicyError):
+            raise
+        raise PolicyError(f"invalid JSON for constraints: {exc}") from exc
+
+    validate_constraints_schema(parsed)
+    return parsed
+
+
 def validate_constraints_schema(schema: Any, depth: int = 0) -> None:
     """Validate constraints schema definition at policy loading time.
 

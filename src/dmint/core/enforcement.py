@@ -7,6 +7,7 @@ import logging
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from types import MappingProxyType
 from typing import Any, TypeVar, cast
 
@@ -19,11 +20,12 @@ from .errors import (
     ApprovalRequiredError,
     AuthorizationError,
     ExecutionError,
+    PolicyError,
     RequestValidationError,
 )
 from .hashing import request_fingerprint
 from .models import Decision, NO_RESOURCE, NoResource, ToolRequest, TrustedContext, validate_text
-from .policy import Policy
+from .policy import Policy, policy_digest
 from .approvals import PolicyProvenance
 from .storage import ApprovalStore
 from .webhooks import WebhookNotifier
@@ -209,6 +211,8 @@ class Dmint:
         "_registered",
         "_sealed",
         "_webhook_notifier",
+        "_policy_file",
+        "_expected_policy_digest",
     )
 
     _policy: Policy
@@ -223,10 +227,12 @@ class Dmint:
     _registered: dict[int, _ProtectedBinding]
     _sealed: bool
     _webhook_notifier: WebhookNotifier | None
+    _policy_file: str | Path | None
+    _expected_policy_digest: str | None
 
     def __init__(
         self,
-        policy: Policy,
+        policy: Policy | None = None,
         *,
         agent_id: str,
         context: TrustedContext,
@@ -237,9 +243,30 @@ class Dmint:
         approval_ttl: timedelta | None = None,
         clock: Callable[[], datetime] | None = None,
         webhook_notifier: WebhookNotifier | None = None,
+        policy_file: str | Path | None = None,
+        expected_policy_digest: str | None = None,
     ) -> None:
-        if not isinstance(policy, Policy):
-            raise TypeError("policy must be a Policy")
+        import os
+
+        expected_digest = expected_policy_digest or os.environ.get("DMINT_EXPECTED_POLICY_DIGEST")
+        if policy is None:
+            if policy_file is None:
+                raise TypeError("either policy or policy_file must be provided")
+            policy_path_str = str(policy_file)
+            if policy_path_str.startswith("https://"):
+                if not expected_digest:
+                    raise PolicyError("remote policy loading requires expected_policy_digest")
+                policy = Policy.from_url(policy_path_str, expected_policy_digest=expected_digest)
+            else:
+                policy = Policy.from_file(policy_file, expected_policy_digest=expected_digest)
+        else:
+            if not isinstance(policy, Policy):
+                raise TypeError("policy must be a Policy")
+            if expected_digest:
+                digest = getattr(policy, "file_digest", None) or policy_digest(policy)
+                if digest.lower() != expected_digest.strip().lower():
+                    raise PolicyError(f"policy digest mismatch: expected '{expected_digest}', got '{digest}'")
+
         if type(context) is not TrustedContext:
             raise TypeError("context must be TrustedContext")
         if type(integration_id) is not str or not integration_id or integration_id != integration_id.strip():
@@ -268,9 +295,37 @@ class Dmint:
         object.__setattr__(self, "_registered", {})
         object.__setattr__(self, "_sealed", True)
         object.__setattr__(self, "_webhook_notifier", webhook_notifier)
+        object.__setattr__(self, "_policy_file", policy_file)
+        object.__setattr__(self, "_expected_policy_digest", expected_digest)
         if approval_store is not None and policy_provenance is not None:
             if approval_store.get_authoritative_policy() is None:
                 approval_store.set_authoritative_policy(policy, policy_provenance)
+
+    def reload_policy(self) -> None:
+        """Reload policy from configured policy_file, verifying expected digest."""
+        import os
+        from pathlib import Path
+
+        if self._policy_file is None:
+            raise PolicyError("cannot reload policy: no policy_file was configured")
+        expected_digest = self._expected_policy_digest or os.environ.get("DMINT_EXPECTED_POLICY_DIGEST")
+        policy_path_str = str(self._policy_file)
+        if policy_path_str.startswith("https://"):
+            if not expected_digest:
+                raise PolicyError("remote policy loading requires expected_policy_digest")
+            new_policy = Policy.from_url(policy_path_str, expected_policy_digest=expected_digest)
+        else:
+            new_policy = Policy.from_file(self._policy_file, expected_policy_digest=expected_digest)
+
+        object.__setattr__(self, "_policy", new_policy)
+        if self._approval_store is not None and self._policy_provenance is not None:
+            new_provenance = PolicyProvenance(
+                self._policy_provenance.version_id,
+                policy_digest(new_policy),
+                datetime.now(timezone.utc),
+            )
+            object.__setattr__(self, "_policy_provenance", new_provenance)
+            self._approval_store.set_authoritative_policy(new_policy, new_provenance)
 
     def __setattr__(self, name: str, value: Any) -> None:
         if getattr(self, "_sealed", False):

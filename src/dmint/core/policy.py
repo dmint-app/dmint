@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 import hashlib
+from pathlib import Path
 from typing import Any, Literal
 
 from .canonicalize import canonicalize, canonicalize_bytes, canonicalize_frozen, freeze_json, thaw_json
@@ -283,6 +284,7 @@ class Policy:
 
     rules: tuple[Rule, ...] = ()
     strict_arguments: bool = False
+    _file_digest: str | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.rules, Sequence) or isinstance(self.rules, (str, bytes)):
@@ -293,6 +295,11 @@ class Policy:
             raise PolicyError("strict_arguments must be a boolean")
         object.__setattr__(self, "rules", tuple(self.rules))
         object.__setattr__(self, "strict_arguments", bool(self.strict_arguments))
+
+    @property
+    def file_digest(self) -> str | None:
+        """SHA-256 digest of exact policy file/source bytes if loaded from JSON/file/URL."""
+        return self._file_digest
 
     @classmethod
     def from_mapping(cls, value: Mapping[str, Any]) -> "Policy":
@@ -444,15 +451,98 @@ class Policy:
         return cls.from_mapping(value)
 
     @classmethod
-    def from_json(cls, data: str | bytes) -> "Policy":
-        """Parse and validate a policy from a JSON string or bytes."""
+    def from_json(cls, data: str | bytes, *, expected_policy_digest: str | None = None) -> "Policy":
+        """Parse and validate a policy from a JSON string or bytes, strictly rejecting duplicate keys."""
         import json
 
+        raw_bytes = data.encode("utf-8") if isinstance(data, str) else data
+        actual_digest = hashlib.sha256(raw_bytes).hexdigest()
+
+        if expected_policy_digest is not None:
+            if actual_digest.lower() != expected_policy_digest.strip().lower():
+                raise PolicyError(
+                    f"policy digest mismatch: expected '{expected_policy_digest}', got '{actual_digest}'"
+                )
+
+        def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+            result: dict[str, Any] = {}
+            for k, v in pairs:
+                if k in result:
+                    raise PolicyError(f"duplicate JSON key: {k!r}")
+                result[k] = v
+            return result
+
         try:
-            parsed = json.loads(data)
+            parsed = json.loads(raw_bytes, object_pairs_hook=_reject_duplicate_keys)
         except Exception as exc:
+            if isinstance(exc, PolicyError):
+                raise
             raise PolicyError(f"Invalid JSON for policy: {exc}") from exc
-        return cls.from_mapping(parsed)
+
+        policy = cls.from_mapping(parsed)
+        object.__setattr__(policy, "_file_digest", actual_digest)
+        return policy
+
+    @classmethod
+    def from_file(cls, path: str | Path, *, expected_policy_digest: str | None = None) -> "Policy":
+        """Load, verify digest, and parse a policy from a local filesystem path."""
+        import os
+        from pathlib import Path
+
+        p = Path(path).resolve()
+        if not p.is_file():
+            raise PolicyError(f"policy file '{p}' not found")
+        data = p.read_bytes()
+        digest = expected_policy_digest or os.environ.get("DMINT_EXPECTED_POLICY_DIGEST")
+        return cls.from_json(data, expected_policy_digest=digest)
+
+    @classmethod
+    def from_url(
+        cls,
+        url: str,
+        *,
+        expected_policy_digest: str,
+        timeout: float = 15.0,
+    ) -> "Policy":
+        """Load, SSRF-verify, check digest BEFORE parsing, and load policy from a remote HTTPS URL."""
+        import urllib.parse
+        import urllib.request
+        from dmint.mcp.ssrf import validate_mcp_url
+
+        if not isinstance(url, str) or not url.strip():
+            raise PolicyError("remote policy URL must be a non-empty string")
+        clean_url = url.strip()
+        parsed = urllib.parse.urlparse(clean_url)
+        if parsed.scheme.lower() != "https":
+            raise PolicyError(f"remote policy loading requires HTTPS, got '{parsed.scheme}'")
+
+        try:
+            validate_mcp_url(clean_url, allow_loopback=False, resolve_dns=True)
+        except Exception as exc:
+            raise PolicyError(f"remote policy URL failed SSRF validation: {exc}") from exc
+
+        req = urllib.request.Request(
+            clean_url,
+            headers={"User-Agent": "dmint/2.0.0 (policy-fetcher)", "Accept": "application/json"},
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                status = getattr(resp, "status", None) or resp.getcode()
+                if status and status >= 400:
+                    raise PolicyError(f"remote policy fetch returned HTTP {status}")
+                body_bytes = resp.read()
+        except PolicyError:
+            raise
+        except Exception as exc:
+            raise PolicyError(f"failed to fetch remote policy from '{clean_url}': {exc}") from exc
+
+        actual_digest = hashlib.sha256(body_bytes).hexdigest()
+        if actual_digest.lower() != expected_policy_digest.strip().lower():
+            raise PolicyError(
+                f"remote policy digest mismatch: expected '{expected_policy_digest}', got '{actual_digest}'"
+            )
+
+        return cls.from_json(body_bytes, expected_policy_digest=expected_policy_digest)
 
     def to_json(self, indent: int | None = None) -> str:
         """Serialize policy to a formatted JSON string."""

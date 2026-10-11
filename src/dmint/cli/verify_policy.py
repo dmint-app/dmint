@@ -34,13 +34,10 @@ def verify_policy_file(policy_file: str | Path) -> Policy:
         raise InputFileError(f"policy file is empty: {policy_path}")
 
     try:
-        data = json.loads(content)
-    except json.JSONDecodeError as exc:
-        raise JSONExtractionError(f"invalid JSON in policy file: {exc}") from exc
-
-    try:
-        policy = Policy.from_mapping(data)
+        policy = Policy.from_json(content)
     except PolicyError as exc:
+        if "duplicate" in str(exc).lower() or "invalid json" in str(exc).lower():
+            raise JSONExtractionError(f"invalid JSON in policy file: {exc}") from exc
         raise PolicyValidationError(f"Dmint policy validation failed: {exc}") from exc
     except Exception as exc:
         raise PolicyValidationError(f"invalid policy structure: {exc}") from exc

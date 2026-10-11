@@ -67,6 +67,13 @@ def main(argv: list[str] | None = None) -> None:
         help="Logging level for HTTP server (default: info)",
     )
 
+    parser.add_argument(
+        "--expected-policy-digest",
+        dest="expected_policy_digest",
+        default=None,
+        help="Expected SHA-256 hex digest of the policy file bytes",
+    )
+
     args = parser.parse_args(argv)
 
     config_path = Path(args.config_path).resolve()
@@ -76,7 +83,10 @@ def main(argv: list[str] | None = None) -> None:
         return
 
     try:
-        config = load_protection_config(config_path)
+        config = load_protection_config(
+            config_path,
+            expected_policy_digest=args.expected_policy_digest,
+        )
     except MCPConfigurationError as exc:
         sys.stderr.write(f"Configuration error: {exc}\n")
         sys.exit(1)

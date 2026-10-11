@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+import hashlib
 import json
+import os
 from pathlib import Path
 import re
 from typing import Any
@@ -79,6 +81,7 @@ class MCPGatewayConfig:
     server_name: str = "dmint-mcp-gateway"
     trusted_issuers: tuple[TrustedIssuerConfig, ...] = ()
     approval_audience: str = _DEFAULT_APPROVAL_AUDIENCE
+    expected_policy_digest: str | None = None
 
     def get_integration(self, integration_id: str) -> MCPIntegrationConfig | None:
         """Lookup an integration configuration by ID."""
@@ -92,12 +95,14 @@ def parse_protection_config(
     data: dict[str, Any],
     *,
     base_dir: Path | None = None,
+    expected_policy_digest: str | None = None,
 ) -> MCPGatewayConfig:
     """Parse and strictly validate a protection configuration dictionary.
 
     Args:
         data: dictionary loaded from mcp_protection.json.
         base_dir: directory used to resolve relative file paths (e.g. policy_file).
+        expected_policy_digest: optional expected SHA-256 digest of policy file.
 
     Returns:
         Immutable, typed MCPGatewayConfig.
@@ -118,23 +123,46 @@ def parse_protection_config(
     if policy_file is not None and raw_policy is not None:
         raise MCPConfigurationError("cannot specify both 'policy_file' and 'policy'")
 
+    expected_digest = (
+        expected_policy_digest
+        or os.environ.get("DMINT_EXPECTED_POLICY_DIGEST")
+        or (data.get("expected_policy_digest") if isinstance(data, dict) else None)
+    )
+
     if policy_file is not None:
         if not isinstance(policy_file, str) or not policy_file.strip():
             raise MCPConfigurationError("policy_file must be a non-empty string")
-        policy_path = Path(policy_file)
-        if not policy_path.is_absolute():
-            if base_dir is None:
-                raise MCPConfigurationError("base_dir is required to resolve relative policy_file")
-            policy_path = (base_dir / policy_path).resolve()
+        clean_policy_file = policy_file.strip()
+        if clean_policy_file.startswith("https://"):
+            if not expected_digest:
+                raise MCPConfigurationError("remote policy loading requires expected_policy_digest")
+            try:
+                policy = Policy.from_url(clean_policy_file, expected_policy_digest=expected_digest)
+            except Exception as exc:
+                raise MCPConfigurationError(f"failed to load remote policy from '{clean_policy_file}': {exc}") from exc
+        else:
+            policy_path = Path(clean_policy_file)
+            if not policy_path.is_absolute():
+                if base_dir is None:
+                    raise MCPConfigurationError("base_dir is required to resolve relative policy_file")
+                policy_path = (base_dir / policy_path).resolve()
 
-        if not policy_path.exists():
-            raise MCPConfigurationError(f"policy file '{policy_path}' does not exist")
+            if not policy_path.exists():
+                raise MCPConfigurationError(f"policy file '{policy_path}' does not exist")
 
-        try:
-            policy_data = json.loads(policy_path.read_text(encoding="utf-8"))
-            policy = Policy.from_mapping(policy_data)
-        except Exception as exc:
-            raise MCPConfigurationError(f"failed to load policy from '{policy_path}': {exc}") from exc
+            try:
+                raw_bytes = policy_path.read_bytes()
+                if expected_digest:
+                    actual_digest = hashlib.sha256(raw_bytes).hexdigest()
+                    if actual_digest.lower() != expected_digest.strip().lower():
+                        raise MCPConfigurationError(
+                            f"policy digest mismatch: expected '{expected_digest}', got '{actual_digest}'"
+                        )
+                policy = Policy.from_json(raw_bytes, expected_policy_digest=expected_digest)
+            except MCPConfigurationError:
+                raise
+            except Exception as exc:
+                raise MCPConfigurationError(f"failed to load policy from '{policy_path}': {exc}") from exc
     elif raw_policy is not None:
         if not isinstance(raw_policy, dict):
             raise MCPConfigurationError("embedded 'policy' must be a dictionary")
@@ -142,6 +170,12 @@ def parse_protection_config(
             policy = Policy.from_mapping(raw_policy)
         except Exception as exc:
             raise MCPConfigurationError(f"failed to parse embedded policy: {exc}") from exc
+        if expected_digest:
+            actual = policy_digest(policy)
+            if actual.lower() != expected_digest.strip().lower():
+                raise MCPConfigurationError(
+                    f"policy digest mismatch: expected '{expected_digest}', got '{actual}'"
+                )
     else:
         raise MCPConfigurationError("mcp_protection config missing valid 'policy_file' or 'policy'")
 
@@ -447,14 +481,20 @@ def parse_protection_config(
         server_name=server_name,
         trusted_issuers=tuple(parsed_issuers),
         approval_audience=approval_audience,
+        expected_policy_digest=expected_digest,
     )
 
 
-def load_protection_config(config_path: str | Path) -> MCPGatewayConfig:
+def load_protection_config(
+    config_path: str | Path,
+    *,
+    expected_policy_digest: str | None = None,
+) -> MCPGatewayConfig:
     """Load, parse, and validate an mcp_protection.json file from disk.
 
     Args:
         config_path: path to the mcp_protection.json file.
+        expected_policy_digest: optional expected SHA-256 digest of the policy file.
 
     Returns:
         Immutable, typed MCPGatewayConfig.
@@ -473,9 +513,25 @@ def load_protection_config(config_path: str | Path) -> MCPGatewayConfig:
     except Exception as exc:
         raise MCPConfigurationError(f"failed to read configuration file '{path}': {exc}") from exc
 
+    def _reject_duplicate_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        seen: set[str] = set()
+        result: dict[str, Any] = {}
+        for key, value in pairs:
+            if key in seen:
+                raise MCPConfigurationError(f"duplicate JSON key: '{key}'")
+            seen.add(key)
+            result[key] = value
+        return result
+
     try:
-        data = json.loads(content)
+        data = json.loads(content, object_pairs_hook=_reject_duplicate_pairs)
     except Exception as exc:
+        if isinstance(exc, MCPConfigurationError):
+            raise
         raise MCPConfigurationError(f"malformed JSON in configuration file '{path}': {exc}") from exc
 
-    return parse_protection_config(data, base_dir=path.parent)
+    return parse_protection_config(
+        data,
+        base_dir=path.parent,
+        expected_policy_digest=expected_policy_digest,
+    )

@@ -31,7 +31,7 @@ from dmint.core.errors import (
     AuthorizationError,
 )
 from dmint.core.models import ToolRequest
-from dmint.core.policy import Policy
+from dmint.core.policy import Policy, policy_digest
 from dmint.core.storage import ApprovalStore, SQLiteApprovalStore, ThreadSafeApprovalStore
 from dmint.core.webhooks import WebhookNotifier
 from .auth import (
@@ -223,6 +223,25 @@ class MCPGateway:
     def approval_store(self) -> ApprovalStore | None:
         """Underlying approval store if persistence is configured."""
         return self._approval_store
+
+    def reload_policy(self) -> None:
+        """Reload policy and update enforcement gates."""
+        if not self._config.policy_file:
+            raise MCPConfigurationError("cannot reload policy: no policy_file configured")
+        expected_digest = self._config.expected_policy_digest or os.environ.get("DMINT_EXPECTED_POLICY_DIGEST")
+        p_str = self._config.policy_file
+        if p_str.startswith("https://"):
+            if not expected_digest:
+                raise MCPConfigurationError("remote policy loading requires expected_policy_digest")
+            new_policy = Policy.from_url(p_str, expected_policy_digest=expected_digest)
+        else:
+            new_policy = Policy.from_file(p_str, expected_policy_digest=expected_digest)
+
+        digest = policy_digest(new_policy)
+        provenance = PolicyProvenance("v1", digest, datetime.now(timezone.utc))
+        for integ in self._integrations.values():
+            integ.gate._policy = new_policy
+            integ.gate._policy_provenance = provenance
 
     def resolve_tool(self, tool_name: str) -> tuple[GatewayIntegration, str]:
         """Resolve a requested tool name to the target integration and downstream tool name.
