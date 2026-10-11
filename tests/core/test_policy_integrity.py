@@ -123,7 +123,7 @@ class PolicyIntegrityTests(unittest.TestCase):
     def test_remote_policy_non_https_refused(self) -> None:
         with self.assertRaises(PolicyError) as ctx:
             Policy.from_url("http://example.com/policy.json", expected_policy_digest="a" * 64)
-        self.assertIn("https", str(ctx.exception).lower())
+        self.assertIn("remote policy loading requires https", str(ctx.exception).lower())
 
     def test_remote_policy_tampered_body_refused_before_parsing(self) -> None:
         fake_body = b'{"rules": [{"corrupt_json":'
@@ -141,7 +141,7 @@ class PolicyIntegrityTests(unittest.TestCase):
         ):
             with self.assertRaises(PolicyError) as ctx:
                 Policy.from_url("https://example.com/policy.json", expected_policy_digest=expected_digest)
-            self.assertIn("digest mismatch", str(ctx.exception).lower())
+            self.assertIn("remote policy digest mismatch", str(ctx.exception).lower())
 
     def test_cli_policy_digest_command(self) -> None:
         with tempfile.NamedTemporaryFile("w", delete=False) as f:
