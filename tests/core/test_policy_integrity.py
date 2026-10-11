@@ -33,14 +33,15 @@ class PolicyIntegrityTests(unittest.TestCase):
         self.assertIn("duplicate", str(ctx.exception).lower())
 
         from dmint.core.constraints import parse_constraints
+
         with self.assertRaises(PolicyError) as ctx:
-            parse_constraints('{"properties": {"limit": {"type": "integer", "minimum": 1}, "limit": {"type": "integer"}}}')
+            parse_constraints(
+                '{"properties": {"limit": {"type": "integer", "minimum": 1}, "limit": {"type": "integer"}}}'
+            )
         self.assertIn("duplicate", str(ctx.exception).lower())
 
     def test_expected_policy_digest_mismatch_refused(self) -> None:
-        policy_json = json.dumps({
-            "rules": [{"effect": "allow", "tool": "db", "action": "read", "resource": "*"}]
-        })
+        policy_json = json.dumps({"rules": [{"effect": "allow", "tool": "db", "action": "read", "resource": "*"}]})
         wrong_digest = "0000000000000000000000000000000000000000000000000000000000000000"
         with self.assertRaises(PolicyError) as ctx:
             Policy.from_json(policy_json, expected_policy_digest=wrong_digest)
@@ -49,9 +50,9 @@ class PolicyIntegrityTests(unittest.TestCase):
     def test_same_user_edit_restart_refused(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             policy_file = Path(tmpdir) / "policy.json"
-            policy_content_v1 = json.dumps({
-                "rules": [{"effect": "allow", "tool": "db", "action": "read", "resource": "*"}]
-            }).encode("utf-8")
+            policy_content_v1 = json.dumps(
+                {"rules": [{"effect": "allow", "tool": "db", "action": "read", "resource": "*"}]}
+            ).encode("utf-8")
             policy_file.write_bytes(policy_content_v1)
             v1_digest = hashlib.sha256(policy_content_v1).hexdigest()
 
@@ -65,12 +66,14 @@ class PolicyIntegrityTests(unittest.TestCase):
             self.assertEqual(len(engine._policy.rules), 1)
 
             # Adversary / user modifies policy.json in place
-            policy_content_v2 = json.dumps({
-                "rules": [
-                    {"effect": "allow", "tool": "db", "action": "read", "resource": "*"},
-                    {"effect": "allow", "tool": "shell", "action": "exec", "resource": "*"},
-                ]
-            }).encode("utf-8")
+            policy_content_v2 = json.dumps(
+                {
+                    "rules": [
+                        {"effect": "allow", "tool": "db", "action": "read", "resource": "*"},
+                        {"effect": "allow", "tool": "shell", "action": "exec", "resource": "*"},
+                    ]
+                }
+            ).encode("utf-8")
             policy_file.write_bytes(policy_content_v2)
 
             # Restart / reload with original expected digest must fail closed
@@ -96,16 +99,20 @@ class PolicyIntegrityTests(unittest.TestCase):
 
             cfg_file = Path(tmpdir) / "mcp_protection.json"
             cfg_file.write_text(
-                json.dumps({
-                    "policy_file": str(p_file),
-                    "expected_policy_digest": wrong_digest,
-                    "integrations": [{
-                        "integration_id": "test",
-                        "transport": "stdio",
-                        "connection": {"command": "echo"},
-                        "tool_bindings": {"echo": {"tool_name": "echo", "capability": "test.echo"}},
-                    }],
-                }),
+                json.dumps(
+                    {
+                        "policy_file": str(p_file),
+                        "expected_policy_digest": wrong_digest,
+                        "integrations": [
+                            {
+                                "integration_id": "test",
+                                "transport": "stdio",
+                                "connection": {"command": "echo"},
+                                "tool_bindings": {"echo": {"tool_name": "echo", "capability": "test.echo"}},
+                            }
+                        ],
+                    }
+                ),
                 encoding="utf-8",
             )
 
@@ -128,8 +135,9 @@ class PolicyIntegrityTests(unittest.TestCase):
         mock_resp.__enter__.return_value = mock_resp
         mock_resp.__exit__.return_value = None
 
-        with patch("urllib.request.urlopen", return_value=mock_resp), patch(
-            "dmint.mcp.ssrf.validate_mcp_url", return_value="https://example.com/policy.json"
+        with (
+            patch("urllib.request.urlopen", return_value=mock_resp),
+            patch("dmint.mcp.ssrf.validate_mcp_url", return_value="https://example.com/policy.json"),
         ):
             with self.assertRaises(PolicyError) as ctx:
                 Policy.from_url("https://example.com/policy.json", expected_policy_digest=expected_digest)

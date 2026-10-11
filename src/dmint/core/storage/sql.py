@@ -961,7 +961,9 @@ class SQLAlchemyApprovalStore(ApprovalStore):
             "deployment_epoch": self._deployment_epoch,
             "row_version": record.row_version,
         }
-        return tuple(payload[column] for column in _STORED_COLUMNS) + (_integrity_checksum(payload, self._integrity_key),)
+        return tuple(payload[column] for column in _STORED_COLUMNS) + (
+            _integrity_checksum(payload, self._integrity_key),
+        )
 
     def _deserialize(self, row: RowMapping | Mapping[str, Any]) -> ApprovalRecord:
         try:

@@ -285,6 +285,7 @@ class MutationRegressionTests(unittest.TestCase):
             "approver_kind": valid_assertion.approver_kind,
         }
         from dmint.core.verification import _canonical_envelope
+
         unsigned = ApprovalAssertion._unsigned_values(values)
         signature = key.sign(_canonical_envelope(unsigned))
         tampered_assertion = ApprovalAssertion._signed(values, signature)
@@ -389,6 +390,7 @@ class MutationRegressionTests(unittest.TestCase):
 
             real_uid = os.geteuid()
             calls = [0]
+
             def fake_geteuid():
                 calls[0] += 1
                 if calls[0] == 1:

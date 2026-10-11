@@ -339,7 +339,9 @@ class SQLiteApprovalStore(ApprovalStore):
             self._connection.execute(_CREATE_RECOVERY_TABLE)
             table_info = [r[1] for r in self._connection.execute("PRAGMA table_info(approval_records)").fetchall()]
             if table_info and "row_version" not in table_info:
-                self._connection.execute("ALTER TABLE approval_records ADD COLUMN row_version INTEGER NOT NULL DEFAULT 1")
+                self._connection.execute(
+                    "ALTER TABLE approval_records ADD COLUMN row_version INTEGER NOT NULL DEFAULT 1"
+                )
             self._connection.commit()
             self._sync_recovery_counter(increment=False)
         except (sqlite3.Error, ApprovalStoreError) as exc:
@@ -1024,7 +1026,9 @@ class SQLiteApprovalStore(ApprovalStore):
             "deployment_epoch": self._deployment_epoch,
             "row_version": record.row_version,
         }
-        return tuple(payload[column] for column in _STORED_COLUMNS) + (_integrity_checksum(payload, self._integrity_key),)
+        return tuple(payload[column] for column in _STORED_COLUMNS) + (
+            _integrity_checksum(payload, self._integrity_key),
+        )
 
     def _deserialize(self, row: sqlite3.Row) -> ApprovalRecord:
         try:
@@ -1101,7 +1105,9 @@ class SQLiteApprovalStore(ApprovalStore):
                 _required(row, "policy_digest"),
                 _load_timestamp(_required(row, "policy_evaluated_at"), "policy_evaluated_at"),
             )
-            row_version = int(row["row_version"]) if "row_version" in row.keys() and row["row_version"] is not None else 1
+            row_version = (
+                int(row["row_version"]) if "row_version" in row.keys() and row["row_version"] is not None else 1
+            )
             return ApprovalRecord._from_storage(
                 schema_version=schema_version,
                 approval_id=approval_id,

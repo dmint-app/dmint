@@ -149,9 +149,9 @@ class TestGatewayDoesNotExposePrivateKeyLoader:
     def test_gateway_module_does_not_expose_load_private_key_from_file(self) -> None:
         import dmint.mcp.gateway as gw
 
-        assert not hasattr(
-            gw, "load_private_key_from_file"
-        ), "gateway module must not expose load_private_key_from_file"
+        assert not hasattr(gw, "load_private_key_from_file"), (
+            "gateway module must not expose load_private_key_from_file"
+        )
 
     def test_gateway_module_does_not_expose_write_private_key_atomic(self) -> None:
         import dmint.mcp.gateway as gw
@@ -213,9 +213,9 @@ class TestGatewayDoesNotExposePrivateKeyLoader:
         for payload in test_payloads:
             external_bytes = rfc8785.dumps(payload)
             dmint_bytes = canonicalize_bytes(payload)
-            assert (
-                dmint_bytes == external_bytes
-            ), f"Mismatch for payload {payload}: {dmint_bytes!r} vs {external_bytes!r}"
+            assert dmint_bytes == external_bytes, (
+                f"Mismatch for payload {payload}: {dmint_bytes!r} vs {external_bytes!r}"
+            )
 
     def test_gateway_importable_without_private_key_on_disk_or_in_env(self) -> None:
         """Importing the gateway module must not fail when no private key is present."""

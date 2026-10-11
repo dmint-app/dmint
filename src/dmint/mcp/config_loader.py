@@ -173,9 +173,7 @@ def parse_protection_config(
         if expected_digest:
             actual = policy_digest(policy)
             if actual.lower() != expected_digest.strip().lower():
-                raise MCPConfigurationError(
-                    f"policy digest mismatch: expected '{expected_digest}', got '{actual}'"
-                )
+                raise MCPConfigurationError(f"policy digest mismatch: expected '{expected_digest}', got '{actual}'")
     else:
         raise MCPConfigurationError("mcp_protection config missing valid 'policy_file' or 'policy'")
 

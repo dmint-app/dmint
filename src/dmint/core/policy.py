@@ -460,9 +460,7 @@ class Policy:
 
         if expected_policy_digest is not None:
             if actual_digest.lower() != expected_policy_digest.strip().lower():
-                raise PolicyError(
-                    f"policy digest mismatch: expected '{expected_policy_digest}', got '{actual_digest}'"
-                )
+                raise PolicyError(f"policy digest mismatch: expected '{expected_policy_digest}', got '{actual_digest}'")
 
         def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
             result: dict[str, Any] = {}

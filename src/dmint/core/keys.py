@@ -540,9 +540,7 @@ def load_integrity_key_from_file(
                 )
         file_mode = stat.S_IMODE(file_stat.st_mode)
         if file_mode & 0o077:
-            raise KeyLoadError(
-                f"integrity key file has unsafe permissions {oct(file_mode)}; expected 0600 or 0400"
-            )
+            raise KeyLoadError(f"integrity key file has unsafe permissions {oct(file_mode)}; expected 0600 or 0400")
         raw_bytes = os.read(fd, 256)
     finally:
         os.close(fd)
@@ -595,4 +593,3 @@ def load_integrity_key_source(
         f"{_INTEGRITY_KEY_FILE_ENV}, {DEFAULT_INTEGRITY_KEY_FILE}, or {_INTEGRITY_KEY_ENV}. "
         "Generate one with 'dmint init-keys'."
     )
-
