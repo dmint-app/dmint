@@ -385,6 +385,68 @@ class TestConstraintsEvaluation(unittest.TestCase):
         elapsed = time.perf_counter() - t0
         self.assertLess(elapsed, 0.05, f"Valid unb+bnd pattern took {elapsed * 1000:.2f} ms (bound 50 ms)")
 
+    def test_pattern_ascii_and_cost_budget(self) -> None:
+        """Test re.ASCII enforcement, load-time cost budget rejection, and hostile 4096-char input benchmarks."""
+        # 1. ASCII enforcement: ^\d{3}$ must reject Arabic/eastern digits "١٢٣"
+        passed, err = evaluate_constraints(
+            {"properties": {"code": {"type": "string", "pattern": r"^\d{3}$"}}},
+            {"code": "١٢٣"},
+        )
+        self.assertFalse(passed)
+        self.assertIn("does not match pattern", str(err))
+
+        passed, err = evaluate_constraints(
+            {"properties": {"code": {"type": "string", "pattern": r"^\d{3}$"}}},
+            {"code": "123"},
+        )
+        self.assertTrue(passed)
+
+        # 2. Hostile patterns with 2 unbounded repeats + bound 64 must be rejected at load time
+        # without maxLength because n^2 * 64 = 4096^2 * 64 = 1,073,741,824 exceeds budget 25,000,000
+        pat_hostile_1 = r"^.*a.*a[a-z]{0,64}b$"
+        with self.assertRaises(PolicyError) as ctx:
+            validate_constraints_schema({"properties": {"text": {"type": "string", "pattern": pat_hostile_1}}})
+        self.assertIn("budget", str(ctx.exception).lower())
+
+        pat_hostile_2 = r"^\w*a\w*a\w{0,64}b$"
+        with self.assertRaises(PolicyError) as ctx:
+            validate_constraints_schema({"properties": {"text": {"type": "string", "pattern": pat_hostile_2}}})
+        self.assertIn("budget", str(ctx.exception).lower())
+
+        # 3. When bounded by maxLength <= 512, pattern is accepted and finishes under 50 ms
+        validate_constraints_schema(
+            {"properties": {"text": {"type": "string", "pattern": pat_hostile_1, "maxLength": 512}}}
+        )
+        t0 = time.perf_counter()
+        evaluate_constraints(
+            {"properties": {"text": {"type": "string", "pattern": pat_hostile_1, "maxLength": 512}}},
+            {"text": "a" * 512},
+        )
+        elapsed_512 = time.perf_counter() - t0
+        self.assertLess(elapsed_512, 0.05, f"512-char bounded hostile pattern took {elapsed_512 * 1000:.2f} ms")
+
+        # 4. Corpus of accepted patterns on hostile inputs of exactly 4096 characters (< 50 ms each)
+        test_patterns = [
+            (r"^[a-z]{0,32}[a-z]{0,32}[a-z]{0,32}b$", "valid_3bnd"),
+            (r"^[a-z]*[a-z]{0,50}[a-z]{0,50}b$", "valid_mixed"),
+            (r"^[a-z]+[0-9]{1,32}b$", "valid_unb_bnd"),
+            (r"^.*a.*b$", "valid_2unb_delim"),
+        ]
+        hostile_4096 = "a" * 4096
+        for pat, name in test_patterns:
+            validate_constraints_schema({"properties": {"text": {"type": "string", "pattern": pat}}})
+            t0 = time.perf_counter()
+            evaluate_constraints(
+                {"properties": {"text": {"type": "string", "pattern": pat}}},
+                {"text": hostile_4096},
+            )
+            elapsed = time.perf_counter() - t0
+            self.assertLess(
+                elapsed,
+                0.05,
+                f"Pattern '{name}' took {elapsed * 1000:.2f} ms on 4096 chars (exceeded 50 ms bound)",
+            )
+
     def test_engine_determinism_corpus_200_pairs(self) -> None:
         """Assert deterministic identical decisions on a corpus of >= 200 pattern/input pairs.
 

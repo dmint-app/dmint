@@ -234,10 +234,11 @@ When `"strict_arguments": true` is enabled, all constraint schemas default `addi
   - **Bounded Repeats Cap**: Every bounded count `{m}` or `{m,n}` is capped at a maximum of 64 (`MAX_QUANTIFIER_BOUND = 64`).
   - **Total Quantifier Cap**: At most 3 quantifiers of any kind are permitted in total across the pattern (`MAX_TOTAL_QUANTIFIERS = 3`).
   - **Unbounded Repeats Cap**: At most 2 unbounded repeats (`*`, `+`, `{m,}`) across the entire pattern (`MAX_UNBOUNDED_QUANTIFIERS = 2`), and multiple unbounded repeats require an intervening literal delimiter to prevent overlapping ambiguity.
-  - **Repetition Budget**: The product of bounded quantifier upper bounds cannot exceed $1,000,000$ (`MAX_REPETITION_BUDGET = 1_000_000`).
+  - **Repetition Budget & Pattern Cost Budget**: The product of bounded quantifier upper bounds cannot exceed $1,000,000$ (`MAX_REPETITION_BUDGET = 1_000_000`). Additionally, load-time worst-case cost $n^{(\text{unbounded})} \times \prod(\text{bounded})$ is budgeted against the maximum input length (`MAX_PATTERN_COST_BUDGET = 250_000_000`), rejecting hostile backtracking patterns over budget or requiring `maxLength <= 512`.
   - **No Hostile Constructs**: Nested quantifiers (e.g. `(a*)*`, `(a+)+`), alternations inside repeats (e.g. `(a|b)+`), backreferences, and lookarounds (`(?=...)`, `(?!...)`) are strictly rejected with `PolicyError` at load time.
+  - **ASCII Character Classes**: Patterns are compiled with `re.ASCII` by default, ensuring character classes like `\d`, `\w`, and `\s` strictly match ASCII characters only.
   - **Input & Length Limits**: Pattern length is capped at 256 characters, and input evaluation length is capped at 4096 characters.
-  - All patterns guaranteed to evaluate in sub-millisecond time bound ($< 50\text{ ms}$).
+  - **Performance Bound**: Pattern constraints evaluate within a strict bounded time (< 50 ms worst-case bound; sub-millisecond ~3 µs for typical constraint checks).
 
 ### Examples
 

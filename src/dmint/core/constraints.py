@@ -22,6 +22,7 @@ MAX_QUANTIFIER_BOUND = 64
 MAX_TOTAL_QUANTIFIERS = 3
 MAX_UNBOUNDED_QUANTIFIERS = 2
 MAX_REPETITION_BUDGET = 1_000_000
+MAX_PATTERN_COST_BUDGET = 250_000_000
 MAX_SAFE_INTEGER = 9007199254740991  # 2^53 - 1 per RFC 8785
 MIN_SAFE_INTEGER = -9007199254740991
 MAX_CONSTRAINT_DEPTH = 32
@@ -264,7 +265,7 @@ def _parse_regex_ast(pattern: str) -> list[list[_RegexNode]]:
     return parse_branches(until_paren=False)
 
 
-def validate_pattern_safety(pattern: str) -> None:
+def validate_pattern_safety(pattern: str, max_length: int | None = None) -> None:
     """Validate regex pattern safety using allowlist grammar AST analysis.
 
     Rejects patterns that pose catastrophic backtracking (ReDoS) risk:
@@ -273,6 +274,7 @@ def validate_pattern_safety(pattern: str) -> None:
     - Total unbounded repeats (*, +, {m,}) capped at MAX_UNBOUNDED_QUANTIFIERS (2)
     - Multiple unbounded repeats cannot combine with other quantifiers
     - Repetition budget across bounded quantifiers capped below 1,000,000
+    - Estimated worst-case cost budget n^(unbounded) * bounded_upper_product capped below 250,000,000
     - No nested repeats (repeat inside repeat)
     - No alternation inside repeats
     - No backreferences
@@ -349,11 +351,20 @@ def validate_pattern_safety(pattern: str) -> None:
             f"repetition budget across bounded quantifiers ({bounded_upper_product}) exceeds maximum of {MAX_REPETITION_BUDGET}"
         )
 
+    n = max_length if (isinstance(max_length, int) and max_length > 0) else MAX_STRING_INPUT_LENGTH
+    n = min(n, MAX_STRING_INPUT_LENGTH)
+    worst_case_cost = (n**total_unbounded) * bounded_upper_product
+    if worst_case_cost > MAX_PATTERN_COST_BUDGET:
+        raise PolicyError(
+            f"pattern estimated worst-case cost ({worst_case_cost}) exceeds budget limit of "
+            f"{MAX_PATTERN_COST_BUDGET} at max input length {n} (ReDoS protection)"
+        )
+
 
 @functools.lru_cache(maxsize=512)
 def _compile_anchored_pattern(pattern: str) -> re.Pattern[str]:
-    """Compile pattern for anchored fullmatch evaluation using the stdlib re engine."""
-    return re.compile(pattern)
+    """Compile pattern for anchored fullmatch evaluation using the stdlib re engine with re.ASCII."""
+    return re.compile(pattern, re.ASCII)
 
 
 def _reject_tuples_in_schema(val: Any, path: str = "constraints") -> None:
@@ -508,7 +519,8 @@ def validate_constraints_schema(schema: Any, depth: int = 0) -> None:
                     raise PolicyError(
                         f"pattern on argument '{prop_name}' exceeds maximum allowed length of {MAX_PATTERN_LENGTH}"
                     )
-                validate_pattern_safety(pat)
+                max_len = prop_spec.get("maxLength")
+                validate_pattern_safety(pat, max_length=max_len)
                 try:
                     _compile_anchored_pattern(pat)
                 except re.error as exc:
