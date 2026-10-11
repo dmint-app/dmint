@@ -1035,9 +1035,7 @@ class SQLiteApprovalStore(ApprovalStore):
         try:
             schema_version = _required(row, "schema_version")
             if schema_version != APPROVAL_RECORD_SCHEMA_VERSION:
-                raise UnknownApprovalVersionError(
-                    f"unsupported approval record schema version: '{schema_version}'"
-                )
+                raise UnknownApprovalVersionError(f"unsupported approval record schema version: '{schema_version}'")
 
             stored_checksum = row["record_checksum"]
             if type(stored_checksum) is not str:
