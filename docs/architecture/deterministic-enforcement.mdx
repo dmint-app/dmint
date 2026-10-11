@@ -53,7 +53,7 @@ Dmint separates the system into two distinct realms:
 
 ## The 4 Guarantees of Deterministic Security
 
-1. **Zero Model Calls at Runtime**: When evaluating `ALLOW`, `DENY`, or `APPROVAL_REQUIRED`, Dmint makes **zero network calls to any LLM**. The policy check runs in sub-millisecond compiled Python code.
+1. **Zero Model Calls at Runtime**: When evaluating `ALLOW`, `DENY`, or `APPROVAL_REQUIRED`, Dmint makes **zero network calls to any LLM**. The policy check runs in compiled Python code (~3 µs measured policy evaluation; persistent storage operations take ~2-5 ms).
 2. **Immutable Equivalence**: Argument order, spacing, and formatting do not alter the outcome. By utilizing RFC 8785, every semantically identical JSON payload hashes to the exact same SHA-256 digest.
 3. **Fail-Closed by Default**: If an edge case or unknown tool capability is encountered, the evaluation logic defaults to `DENY`.
 4. **Independent Cryptographic Verifiability**: Any third party or auditor can independently verify the Ed25519 approval signature without running an AI model or accessing proprietary training weights.

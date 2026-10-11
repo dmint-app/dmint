@@ -7,14 +7,27 @@ This document outlines the security architecture, trust boundaries, and credenti
 > [!CAUTION]
 > **CRITICAL OS PROCESS & USER ISOLATION BOUNDARY**
 >
-> **Always run the Dmint Dashboard and AI agents as DIFFERENT OS users or in separate isolated containers.**
+> **Always run the Dmint Dashboard, policy authority, and AI agents as DIFFERENT OS users or in separate isolated containers.**
 >
-> If an AI agent or any untrusted script executes under the **same OS user account** as the Dmint Dashboard or Core approval store:
-> 1. It can read the dashboard authentication token directly via `/proc/<pid>/environ` or memory inspection.
-> 2. It can directly read and write the SQLite approval database file or token files.
-> 3. It can bypass the entire authorization gate.
+> If an AI agent or any untrusted script executes under the **same OS user account** as Dmint services or configuration files, Dmint's cryptographic security boundaries fail closed to host OS privileges.
+
+---
+
+## What Dmint Does NOT Protect Against
+
+> [!CAUTION]
+> **SAME-OS-USER ATTACK VECTORS (EMPIRICAL AUDIT RESULTS)**
 >
-> **Isolation Rule:** The human approver's dashboard process and private signing keys must run in a security context strictly isolated from any agent execution process.
+> Dmint is a deterministic application- and protocol-level authorization gate. It **does NOT protect against an agent executing under the same OS user account**.
+>
+> In adversarial attack matrix testing, a same-OS-user agent succeeded in all five host attack vectors:
+> 1. **Signing Key Theft**: Reading the private Ed25519 signing key (`signing.key`) from disk to self-sign approvals.
+> 2. **Policy File Tampering**: Directly editing `policy.json` to insert unrestricted `ALLOW` rules or relax constraints.
+> 3. **Database Modification**: Directly rewriting rows or checksums in the SQLite approvals database (`approvals.sqlite3`).
+> 4. **Dashboard Token Theft**: Reading the dashboard authentication token from configuration files or `/proc/<pid>/environ`.
+> 5. **Client Configuration Replacement**: Overwriting `.cursor/mcp.json` or client settings to bypass `dmint-mcp` entirely and invoke unprotected tools directly.
+>
+> **The Isolation Rule:** Dmint's protection guarantees hold **strictly when the AI agent process runs under a different OS user or in an isolated container** with no filesystem access to Dmint keys, policies, or database stores.
 
 ---
 

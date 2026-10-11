@@ -38,6 +38,8 @@ An attacker directs an AI agent to connect to an external streamable-http MCP se
 - Strict rejection of loopback (`127.0.0.0/8`, `::1`), private ranges (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`), and link-local cloud metadata IPs (`169.254.169.254`).
 - Blocking of decimal, octal, or hex IP encodings (`0177.0.0.1`).
 
+*(Note: Currently, destination hostnames are resolved and validated during setup and transport configuration. Socket-level IP address pinning between DNS resolution and connection establishment is being implemented in Tier 2 to eliminate the remaining DNS-rebinding TOCTOU window).*
+
 ---
 
 ## 3. Parameter Manipulation & Argument Tampering
@@ -78,6 +80,7 @@ During OAuth flows in the `dmint` CLI, an attacker uses DNS rebinding on a malic
 ## Non-Goals (Out of Scope)
 
 To maintain architectural integrity, Dmint explicitly does not attempt to solve:
+- **Same-OS-User Host Compromise**: Dmint does not protect against an agent running under the same OS user account as Dmint. An agent with the same user privileges can read Ed25519 signing keys, rewrite `policy.json`, tamper with the database file, capture the dashboard authentication token, and replace MCP configuration. Protection strictly requires the AI agent to execute under a different OS user or in an isolated container.
 - **Ambient Shell Access**: If an AI agent has raw, unmanaged `bash` access to your machine outside of Dmint, an in-process library cannot protect the OS. Dmint must wrap the tool interface.
 - **Model Training Data Poisoning**: Dmint does not filter what training weights the LLM learned.
 - **Human Social Engineering**: If a human operator blindly clicks **Approve** in the dashboard without reading the arguments, Dmint executes the approved action as instructed.

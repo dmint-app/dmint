@@ -196,6 +196,11 @@ except ApprovalRequiredError as exc:
     print(f"    Request Fingerprint: {exc.request_fingerprint}")
 ```
 
+> [!NOTE]
+> **Synchronous Callables Only (Tier 1)**: `@engine.protect` currently supports synchronous functions (`def`) only. Asynchronous functions (`async def`), class methods requiring instance/class context (`self`/`cls`), and generator functions are not supported until Tier 2.
+>
+> **Measured Performance**: In-memory policy evaluation runs in ~3 µs; persistent storage operations (SQLite/PostgreSQL approval lifecycle) take ~2-5 ms.
+
 ### Pluggable Storage: SQLite & Production PostgreSQL
 
 Dmint provides a pluggable approval persistence interface (`ApprovalStore`) driven by SQLAlchemy Core.
@@ -323,9 +328,27 @@ Dmint enforces five fundamental invariants across all modules:
 2. **Fail-Closed Default**: Any request not explicitly allowed by a matching rule evaluates to `DENY`.
 3. **Exact Request Binding**: Requests are canonicalized using RFC 8785 and fingerprinted with SHA-256 domain separation. Mismatched arguments invalidate approval tokens.
 4. **Single-Use Approvals**: Approvals transition atomically in SQLite (`PENDING` $\to$ `APPROVED` $\to$ `CONSUMED`) to prevent race conditions and replay attacks.
-5. **SSRF & Network Hardening**: Remote MCP transports reject loopback, link-local, private RFC 1918 addresses, and cloud instance metadata endpoints (`169.254.169.254`).
+5. **SSRF & Network Hardening**: Remote MCP transports reject loopback, link-local, private RFC 1918 addresses, and cloud instance metadata endpoints (`169.254.169.254`). *(Note: A DNS-rebinding TOCTOU window exists until connection-level IP pinning in Tier 2).*
 
 For complete vulnerability reporting guidelines and threat boundaries, see [SECURITY.md](SECURITY.md).
+
+---
+
+## What Dmint Does NOT Protect Against
+
+> [!CAUTION]
+> **CRITICAL OS USER & PROCESS ISOLATION REQUIREMENT**
+>
+> Dmint is an application- and protocol-level authorization gate. It **does NOT protect against an agent executing under the same OS user account**:
+>
+> In adversarial attack matrix testing, a same-OS-user agent succeeded in all five host attack vectors:
+> 1. **Signing Key Theft**: Reading the private Ed25519 signing key (`signing.key`) from disk to self-sign approvals.
+> 2. **Policy File Tampering**: Directly editing `policy.json` to insert unrestricted `ALLOW` rules.
+> 3. **Database Modification**: Directly rewriting rows or checksums in the SQLite approvals database.
+> 4. **Dashboard Token Theft**: Reading the dashboard token from configuration files or `/proc/<pid>/environ`.
+> 5. **Client Configuration Replacement**: Overwriting `.cursor/mcp.json` or client settings to bypass `dmint-mcp` entirely and talk to unprotected tools directly.
+>
+> **Protection Guarantee**: Dmint's cryptographic security boundary holds **strictly when the AI agent process runs under a different OS user or in an isolated container** with no filesystem access to Dmint keys, policies, or stores. See [docs/deployment-model.md](docs/deployment-model.md).
 
 ---
 
@@ -370,7 +393,7 @@ mypy src/
 # 4. Run targeted tests for what you changed
 pytest tests/<subsystem>/ -v   # e.g., tests/core/, tests/cli/, tests/mcp/, tests/dashboard/
 
-# 5. Run full test suite (baseline: 968 passed, 0 skipped, 0 failed)
+# 5. Run full test suite (baseline: 1181 passed, 0 skipped, 0 failed)
 pytest tests/ -q
 
 # 6. Run pre-commit checks across all files

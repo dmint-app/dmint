@@ -47,7 +47,7 @@ dmint = Dmint(
 ### Methods
 
 #### `@dmint.protected(capability: str)`
-Decorator that intercepts a Python function. Halts execution if the capability evaluates to `DENY` or `APPROVAL_REQUIRED`.
+Decorator that intercepts a Python function. Halts execution if the capability evaluates to `DENY` or `APPROVAL_REQUIRED`. *(Note: Synchronous functions `def` only; async def, methods, and generators will be supported in Tier 2).*
 ```python
 @dmint.protected("database.update")
 def modify_user(id: int, name: str):

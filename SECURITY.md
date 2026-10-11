@@ -30,10 +30,11 @@ Dmint provides a tamper-evident, deterministic boundary between an AI agent and 
    - Link-local addresses (`169.254.0.0/16`, `fe80::/10`)
    - Cloud instance metadata endpoints (`http://169.254.169.254`)
    - Non-standard IP encodings (octal, hex, dword representations)
-   - DNS rebinding attacks via socket address pinning
+   - DNS rebinding attacks via host and IP inspection *(Note: Socket-level IP pinning to eliminate the DNS-rebinding TOCTOU window is scheduled for Tier 2)*
 5. **Approval Re-use & Concurrency Races**: Approval records in SQLite transition atomically (`PENDING` $\to$ `APPROVED` $\to$ `CONSUMED`). An approval token can only be consumed once.
 
-### Out of Scope
+### Out of Scope & Threat Boundaries
+- **Same-OS-User Agents**: Dmint does not protect against an agent executing under the same OS user account as Dmint. A same-user agent can read signing keys, modify policies, tamper with the database, steal the dashboard token, and replace MCP configuration. Protection holds strictly when the agent runs under a different OS user or in an isolated container.
 - Compromised host operating system, root access, or physical hardware tampering.
 - Tampering with the Python interpreter memory space from within the same trusted host process.
 - Social engineering of human approvers outside the cryptographic assertions.
