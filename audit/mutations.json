@@ -1,0 +1,533 @@
+[
+  {
+    "id": "MUT-01",
+    "file": "src/dmint/core/policy.py",
+    "find": "if any(rule.effect is Decision.DENY for rule in matching_rules):",
+    "replace": "if False:",
+    "tests": [
+      "tests/core/test_policy.py"
+    ]
+  },
+  {
+    "id": "MUT-02",
+    "file": "src/dmint/core/policy.py",
+    "find": "return Decision.DENY, \"DMT_DEFAULT_DENIED\"",
+    "replace": "return Decision.ALLOW, \"DMT_DEFAULT_DENIED\"",
+    "tests": [
+      "tests/core/test_policy.py"
+    ]
+  },
+  {
+    "id": "MUT-03",
+    "file": "src/dmint/core/policy.py",
+    "find": "if any(rule.effect is Decision.APPROVAL_REQUIRED for rule in matching_rules):",
+    "replace": "if False:",
+    "tests": [
+      "tests/core/test_policy.py"
+    ]
+  },
+  {
+    "id": "MUT-04",
+    "file": "src/dmint/core/policy.py",
+    "find": "if any(rule.effect is Decision.ALLOW for rule in matching_rules):",
+    "replace": "if False:",
+    "tests": [
+      "tests/core/test_policy.py"
+    ]
+  },
+  {
+    "id": "MUT-05",
+    "file": "src/dmint/core/policy.py",
+    "find": "            except ResourceMatchingError:\n                return Decision.DENY, \"DMT_RESOURCE_INVALID\"",
+    "replace": "            except ResourceMatchingError:\n                return Decision.ALLOW, \"DMT_RESOURCE_INVALID\"",
+    "tests": [
+      "tests/core/test_policy.py"
+    ]
+  },
+  {
+    "id": "MUT-06",
+    "file": "src/dmint/core/policy.py",
+    "find": "return Decision.DENY, \"DMT_CONSTRAINT_VIOLATION\"",
+    "replace": "return Decision.ALLOW, \"DMT_CONSTRAINT_VIOLATION\"",
+    "tests": [
+      "tests/core/test_constraints.py",
+      "tests/core/test_policy.py"
+    ]
+  },
+  {
+    "id": "MUT-07",
+    "file": "src/dmint/core/resources.py",
+    "find": "kind_lower == \"path\":\n        normalize_path(resource)",
+    "replace": "kind_lower == \"path\":\n        pass",
+    "tests": [
+      "tests/core/test_resources.py"
+    ]
+  },
+  {
+    "id": "MUT-08",
+    "file": "src/dmint/core/resources.py",
+    "find": "kind_lower == \"url\":\n        normalize_url(resource)",
+    "replace": "kind_lower == \"url\":\n        pass",
+    "tests": [
+      "tests/core/test_resources.py"
+    ]
+  },
+  {
+    "id": "MUT-09",
+    "file": "src/dmint/core/resources.py",
+    "find": "kind_lower == \"host\":\n        normalize_host(resource)",
+    "replace": "kind_lower == \"host\":\n        pass",
+    "tests": [
+      "tests/core/test_resources.py"
+    ]
+  },
+  {
+    "id": "MUT-10",
+    "file": "src/dmint/core/resources.py",
+    "find": "kind_lower == \"identifier\":\n        normalize_identifier(resource)",
+    "replace": "kind_lower == \"identifier\":\n        pass",
+    "tests": [
+      "tests/core/test_resources.py"
+    ]
+  },
+  {
+    "id": "MUT-11",
+    "file": "src/dmint/core/resources.py",
+    "find": "if \"\\x00\" in resource:",
+    "replace": "if False:",
+    "tests": [
+      "tests/core/test_resources.py",
+      "tests/core/test_mutation_regressions.py"
+    ]
+  },
+  {
+    "id": "MUT-12",
+    "file": "src/dmint/core/constraints.py",
+    "find": "allow_additional = constraints.get(\"additionalProperties\", default_additional_properties)\n    if allow_additional is False:",
+    "replace": "allow_additional = constraints.get(\"additionalProperties\", default_additional_properties)\n    if False:",
+    "tests": [
+      "tests/core/test_constraints.py"
+    ]
+  },
+  {
+    "id": "MUT-13",
+    "file": "src/dmint/core/constraints.py",
+    "find": "if type(val) is type(enum_candidate) and val == enum_candidate:",
+    "replace": "if val == enum_candidate:",
+    "tests": [
+      "tests/core/test_constraints.py"
+    ]
+  },
+  {
+    "id": "MUT-14",
+    "file": "src/dmint/core/constraints.py",
+    "find": "if not _is_valid_number(val):",
+    "replace": "if False:",
+    "tests": [
+      "tests/core/test_constraints.py"
+    ]
+  },
+  {
+    "id": "MUT-15",
+    "file": "src/dmint/core/constraints.py",
+    "find": "if not _is_valid_integer(val):",
+    "replace": "if False:",
+    "tests": [
+      "tests/core/test_constraints.py"
+    ]
+  },
+  {
+    "id": "MUT-16",
+    "file": "src/dmint/core/constraints.py",
+    "find": "if safe_compare(val, rule_spec[\"minimum\"]) < 0:",
+    "replace": "if False:",
+    "tests": [
+      "tests/core/test_constraints.py",
+      "tests/core/test_mutation_regressions.py"
+    ]
+  },
+  {
+    "id": "MUT-17",
+    "file": "src/dmint/core/constraints.py",
+    "find": "if safe_compare(val, rule_spec[\"maximum\"]) > 0:",
+    "replace": "if False:",
+    "tests": [
+      "tests/core/test_constraints.py"
+    ]
+  },
+  {
+    "id": "MUT-18",
+    "file": "src/dmint/core/request_binding.py",
+    "find": "\"action\": request.action,",
+    "replace": "\"action\": \"\",",
+    "tests": [
+      "tests/core/test_request_binding.py",
+      "tests/core/test_mutation_regressions.py"
+    ]
+  },
+  {
+    "id": "MUT-19",
+    "file": "src/dmint/core/request_binding.py",
+    "find": "\"arguments\": thaw_json(request.arguments),",
+    "replace": "\"arguments\": {},",
+    "tests": [
+      "tests/core/test_request_binding.py",
+      "tests/core/test_mutation_regressions.py"
+    ]
+  },
+  {
+    "id": "MUT-20",
+    "file": "src/dmint/core/request_binding.py",
+    "find": "\"capability_id\": capability_id,",
+    "replace": "\"capability_id\": \"\",",
+    "tests": [
+      "tests/core/test_request_binding.py",
+      "tests/core/test_mutation_regressions.py"
+    ]
+  },
+  {
+    "id": "MUT-21",
+    "file": "src/dmint/core/request_binding.py",
+    "find": "\"integration_id\": integration_id,",
+    "replace": "\"integration_id\": \"\",",
+    "tests": [
+      "tests/core/test_request_binding.py"
+    ]
+  },
+  {
+    "id": "MUT-22",
+    "file": "src/dmint/core/request_binding.py",
+    "find": "\"principal_id\": request.agent_id,",
+    "replace": "\"principal_id\": \"\",",
+    "tests": [
+      "tests/core/test_request_binding.py",
+      "tests/core/test_mutation_regressions.py"
+    ]
+  },
+  {
+    "id": "MUT-23",
+    "file": "src/dmint/core/request_binding.py",
+    "find": "\"resource\": _resource_value(request),",
+    "replace": "\"resource\": {},",
+    "tests": [
+      "tests/core/test_request_binding.py"
+    ]
+  },
+  {
+    "id": "MUT-24",
+    "file": "src/dmint/core/request_binding.py",
+    "find": "\"tool\": request.tool,",
+    "replace": "\"tool\": \"\",",
+    "tests": [
+      "tests/core/test_request_binding.py",
+      "tests/core/test_mutation_regressions.py"
+    ]
+  },
+  {
+    "id": "MUT-25",
+    "file": "src/dmint/core/request_binding.py",
+    "find": "\"trusted_context\": thaw_json(request.context.values),",
+    "replace": "\"trusted_context\": {},",
+    "tests": [
+      "tests/core/test_request_binding.py",
+      "tests/core/test_mutation_regressions.py"
+    ]
+  },
+  {
+    "id": "MUT-26",
+    "file": "src/dmint/core/verification.py",
+    "find": "key.verify(assertion.signature, assertion.signing_bytes())",
+    "replace": "pass",
+    "tests": [
+      "tests/core/test_authority.py",
+      "tests/core/test_retry.py"
+    ]
+  },
+  {
+    "id": "MUT-27",
+    "file": "src/dmint/core/verification.py",
+    "find": "if assertion.audience != self._audience:",
+    "replace": "if False:",
+    "tests": [
+      "tests/core/test_authority.py"
+    ]
+  },
+  {
+    "id": "MUT-28",
+    "file": "src/dmint/core/verification.py",
+    "find": "if key is None:\n            raise ApprovalIssuerInvalidError(\"approval issuer is not trusted\")",
+    "replace": "if False:\n            pass",
+    "tests": [
+      "tests/core/test_authority.py"
+    ]
+  },
+  {
+    "id": "MUT-29",
+    "file": "src/dmint/core/verification.py",
+    "find": "if now >= assertion.expires_at:\n            raise ApprovalExpiredError(\"approval assertion has expired\")",
+    "replace": "if False:\n            pass",
+    "tests": [
+      "tests/core/test_authority.py"
+    ]
+  },
+  {
+    "id": "MUT-30",
+    "file": "src/dmint/core/verification.py",
+    "find": "if assertion.request_fingerprint != record.request_fingerprint:",
+    "replace": "if False:",
+    "tests": [
+      "tests/core/test_authority.py"
+    ]
+  },
+  {
+    "id": "MUT-31",
+    "file": "src/dmint/core/verification.py",
+    "find": "if assertion.principal_id != record.request.agent_id:",
+    "replace": "if False:",
+    "tests": [
+      "tests/core/test_authority.py"
+    ]
+  },
+  {
+    "id": "MUT-32",
+    "file": "src/dmint/core/verification.py",
+    "find": "assertion.policy_digest != record.policy_provenance.policy_digest",
+    "replace": "False",
+    "tests": [
+      "tests/core/test_authority.py",
+      "tests/core/test_mutation_regressions.py"
+    ]
+  },
+  {
+    "id": "MUT-33",
+    "file": "src/dmint/core/storage/sqlite.py",
+    "find": "if record.state is ApprovalState.CONSUMED:\n                raise ApprovalConsumedError(\"approval has already been consumed\")",
+    "replace": "if False:\n                pass",
+    "tests": [
+      "tests/core/test_consumption.py"
+    ]
+  },
+  {
+    "id": "MUT-34",
+    "file": "src/dmint/core/storage/sqlite.py",
+    "find": "if row[\"deployment_epoch\"] != self._deployment_epoch:\n                raise ApprovalDeploymentInvalidError(\"approval deployment epoch mismatch\")",
+    "replace": "if False:\n                pass",
+    "tests": [
+      "tests/core/test_storage_sqlite.py",
+      "tests/core/test_mutation_regressions.py"
+    ]
+  },
+  {
+    "id": "MUT-35",
+    "file": "src/dmint/core/storage/sql.py",
+    "find": "if record.state is ApprovalState.CONSUMED:\n                    raise ApprovalConsumedError(\"approval has already been consumed\")",
+    "replace": "if False:\n                    pass",
+    "tests": [
+      "tests/core/test_postgres_subsystems.py",
+      "tests/core/test_mutation_regressions.py"
+    ]
+  },
+  {
+    "id": "MUT-36",
+    "file": "src/dmint/core/storage/sql.py",
+    "find": "if row[\"deployment_epoch\"] != self._deployment_epoch:\n                    raise ApprovalDeploymentInvalidError(\"approval deployment epoch mismatch\")",
+    "replace": "if False:\n                    pass",
+    "tests": [
+      "tests/core/test_postgres_subsystems.py",
+      "tests/core/test_mutation_regressions.py"
+    ]
+  },
+  {
+    "id": "MUT-37",
+    "file": "src/dmint/mcp/gateway.py",
+    "find": "if client_agent != bound_agent_id:",
+    "replace": "if False:",
+    "tests": [
+      "tests/mcp/test_mcp_agent_auth.py",
+      "tests/core/test_mutation_regressions.py"
+    ]
+  },
+  {
+    "id": "MUT-38",
+    "file": "src/dmint/mcp/auth.py",
+    "find": "if scheme.lower() != \"bearer\":\n            return None",
+    "replace": "if False:\n            return None",
+    "tests": [
+      "tests/mcp/test_mcp_agent_auth.py"
+    ]
+  },
+  {
+    "id": "MUT-39",
+    "file": "src/dmint/mcp/auth.py",
+    "find": "if hmac.compare_digest(token, clean_candidate):",
+    "replace": "if True:",
+    "tests": [
+      "tests/mcp/test_mcp_agent_auth.py"
+    ]
+  },
+  {
+    "id": "MUT-40",
+    "file": "src/dmint/mcp/ssrf.py",
+    "find": "if ip.is_private or ip.is_link_local or ip.is_reserved or ip.is_multicast or ip.is_unspecified:\n        return True",
+    "replace": "if False:\n        return True",
+    "tests": [
+      "tests/mcp/test_mcp_ssrf.py"
+    ]
+  },
+  {
+    "id": "MUT-41",
+    "file": "src/dmint/dashboard/app.py",
+    "find": "if host_name not in app.state.allowed_hosts:",
+    "replace": "if False:",
+    "tests": [
+      "tests/dashboard/test_auth.py"
+    ]
+  },
+  {
+    "id": "MUT-42",
+    "file": "src/dmint/dashboard/app.py",
+    "find": "if norm_origin != expected_origin:",
+    "replace": "if False:",
+    "tests": [
+      "tests/dashboard/test_auth.py"
+    ]
+  },
+  {
+    "id": "MUT-43",
+    "file": "src/dmint/dashboard/app.py",
+    "find": "if is_expired:\n                    app.state.sessions.pop(session_cookie, None)",
+    "replace": "if False:\n                    pass",
+    "tests": [
+      "tests/dashboard/test_auth.py"
+    ]
+  },
+  {
+    "id": "MUT-44",
+    "file": "src/dmint/dashboard/routes.py",
+    "find": "    @router.post(\"/approvals/{approval_id}/approve\")\n    def approve_approval(\n        request: Request,\n        approval_id: str,\n        csrf_token: str = Form(default=\"\"),\n    ) -> Response:\n        session = getattr(request.state, \"session\", None)\n        if not session:\n            return JSONResponse({\"error\": \"unauthorized\", \"detail\": \"Authentication required.\"}, status_code=401)\n\n        token_to_check = csrf_token or request.headers.get(\"x-csrf-token\", \"\")\n        expected_csrf = session.get(\"csrf_token\", \"\")\n        if not token_to_check or not secrets.compare_digest(token_to_check, expected_csrf):",
+    "replace": "    @router.post(\"/approvals/{approval_id}/approve\")\n    def approve_approval(\n        request: Request,\n        approval_id: str,\n        csrf_token: str = Form(default=\"\"),\n    ) -> Response:\n        session = getattr(request.state, \"session\", None)\n        if not session:\n            return JSONResponse({\"error\": \"unauthorized\", \"detail\": \"Authentication required.\"}, status_code=401)\n\n        token_to_check = csrf_token or request.headers.get(\"x-csrf-token\", \"\")\n        expected_csrf = session.get(\"csrf_token\", \"\")\n        if False:",
+    "tests": [
+      "tests/dashboard/test_auth.py"
+    ]
+  },
+  {
+    "id": "MUT-45",
+    "file": "src/dmint/dashboard/routes.py",
+    "find": "if rate_limiter:\n                rate_limiter.record_failure(client_ip)",
+    "replace": "if False:\n                pass",
+    "tests": [
+      "tests/dashboard/test_auth.py"
+    ]
+  },
+  {
+    "id": "MUT-46",
+    "file": "src/dmint/core/keys.py",
+    "find": "        file_mode = stat.S_IMODE(file_stat.st_mode)\n        if file_mode & 0o077:\n            raise KeyPermissionError(",
+    "replace": "        file_mode = stat.S_IMODE(file_stat.st_mode)\n        if False:\n            raise KeyPermissionError(",
+    "tests": [
+      "tests/core/test_keys.py"
+    ]
+  },
+  {
+    "id": "MUT-47",
+    "file": "src/dmint/core/keys.py",
+    "find": "            current_uid = os.geteuid()\n            if file_stat.st_uid != current_uid:\n                raise KeyPermissionError(",
+    "replace": "            current_uid = os.geteuid()\n            if False:\n                raise KeyPermissionError(",
+    "tests": [
+      "tests/core/test_keys.py",
+      "tests/core/test_mutation_regressions.py"
+    ]
+  },
+  {
+    "id": "MUT-48",
+    "file": "src/dmint/core/keys.py",
+    "find": "    _check_parent_dir_permissions(path.parent)\n\n    flags = os.O_RDONLY | getattr(os, \"O_CLOEXEC\", 0)\n    if hasattr(os, \"O_NOFOLLOW\"):\n        flags |= os.O_NOFOLLOW",
+    "replace": "    _check_parent_dir_permissions(path.parent)\n\n    flags = os.O_RDONLY | getattr(os, \"O_CLOEXEC\", 0)\n    if False:\n        flags |= os.O_NOFOLLOW",
+    "tests": [
+      "tests/core/test_keys.py",
+      "tests/core/test_mutation_regressions.py"
+    ]
+  },
+  {
+    "id": "MUT-49",
+    "file": "src/dmint/core/redaction.py",
+    "find": "\"[REDACTED]\" if k.lower() in SENSITIVE_PARAM_NAMES else v",
+    "replace": "v",
+    "tests": [
+      "tests/core/test_postgres_subsystems.py",
+      "tests/core/test_webhooks.py"
+    ]
+  },
+  {
+    "id": "MUT-50",
+    "file": "src/dmint/core/storage/sqlite.py",
+    "find": "            if not hmac.compare_digest(stored_checksum, expected_mac):",
+    "replace": "            if False:",
+    "tests": [
+      "tests/core/test_replay_by_db_write.py"
+    ]
+  },
+  {
+    "id": "MUT-51",
+    "file": "src/dmint/core/storage/sql.py",
+    "find": "            if not hmac.compare_digest(stored_checksum, expected_mac):",
+    "replace": "            if False:",
+    "tests": [
+      "tests/core/test_replay_by_db_write.py"
+    ]
+  },
+  {
+    "id": "MUT-52",
+    "file": "src/dmint/core/policy.py",
+    "find": "                if k in result:\n                    raise PolicyError(f\"duplicate JSON key: {k!r}\")",
+    "replace": "                if False:\n                    raise PolicyError(f\"duplicate JSON key: {k!r}\")",
+    "tests": [
+      "tests/core/test_policy_integrity.py"
+    ]
+  },
+  {
+    "id": "MUT-53",
+    "file": "src/dmint/core/policy.py",
+    "find": "        if expected_policy_digest is not None:\n            if actual_digest.lower() != expected_policy_digest.strip().lower():",
+    "replace": "        if expected_policy_digest is not None:\n            if False:",
+    "tests": [
+      "tests/core/test_policy_integrity.py"
+    ]
+  },
+  {
+    "id": "MUT-54",
+    "file": "src/dmint/core/constraints.py",
+    "find": "    return re.compile(pattern, re.ASCII)",
+    "replace": "    return re.compile(pattern)",
+    "tests": [
+      "tests/core/test_constraints.py"
+    ]
+  },
+  {
+    "id": "MUT-55",
+    "file": "src/dmint/core/constraints.py",
+    "find": "    if worst_case_cost > MAX_PATTERN_COST_BUDGET:",
+    "replace": "    if False:",
+    "tests": [
+      "tests/core/test_constraints.py"
+    ]
+  },
+  {
+    "id": "MUT-56",
+    "file": "src/dmint/core/policy.py",
+    "find": "        if parsed.scheme.lower() != \"https\":",
+    "replace": "        if False:",
+    "tests": [
+      "tests/core/test_policy_integrity.py"
+    ]
+  },
+  {
+    "id": "MUT-57",
+    "file": "src/dmint/core/policy.py",
+    "find": "        actual_digest = hashlib.sha256(body_bytes).hexdigest()\n        if actual_digest.lower() != expected_policy_digest.strip().lower():",
+    "replace": "        actual_digest = hashlib.sha256(body_bytes).hexdigest()\n        if False:",
+    "tests": [
+      "tests/core/test_policy_integrity.py"
+    ]
+  }
+]

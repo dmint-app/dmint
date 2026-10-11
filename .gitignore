@@ -52,6 +52,8 @@ __pycache__
 coverage.xml
 coverage.lcov
 htmlcov/
+audit/results/*
+!audit/results/.gitkeep
 
 # Virtual Environments
 .venv/
