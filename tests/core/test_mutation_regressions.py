@@ -16,6 +16,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from dmint.core.authority import LocalApprovalAuthority
 from dmint.core.constraints import evaluate_constraints
 from dmint.core.errors import (
+    ApprovalConsumedError,
     ApprovalDeploymentInvalidError,
     ApprovalInvalidError,
     KeyLoadError,
@@ -32,6 +33,7 @@ from dmint import (
     ApprovalAuthorityKind,
     ApprovalRecord,
     ApprovalState,
+    NO_RESOURCE,
     Policy,
     PolicyProvenance,
     ToolRequest,
@@ -350,6 +352,121 @@ class MutationRegressionTests(unittest.TestCase):
                         verifier=verifier,
                     )
                 self.assertIn("deployment epoch", str(ctx.exception))
+
+    def test_mut_35_sql_store_replay_consumed_record_rejected(self):
+        """MUT-35: SQLAlchemyApprovalStore must reject consuming an already CONSUMED approval record."""
+        from dmint.core.storage.sql import SQLAlchemyApprovalStore
+        from sqlalchemy import create_engine
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "store.db"
+            engine = create_engine(f"sqlite:///{db_path}")
+            priv_key = Ed25519PrivateKey.generate()
+            authority = LocalApprovalAuthority(
+                issuer_id="authority-1",
+                audience="epoch-1",
+                private_key=priv_key,
+                clock=lambda: self.now,
+            )
+            verifier = ApprovalVerifier(
+                trusted_issuers={"authority-1": priv_key.public_key()},
+                audience="epoch-1",
+                clock=lambda: self.now,
+            )
+            req = ToolRequest(
+                request_id=new_request_id(),
+                tool="database",
+                action="read",
+                agent_id="test-agent",
+                resource=NO_RESOURCE,
+                arguments={"id": 1},
+                context=TrustedContext({}),
+            )
+            record = ApprovalRecord.create(
+                request=req,
+                integration_id="local",
+                capability_id="database.read",
+                policy_provenance=PolicyProvenance("pol-1", "0" * 64, self.now),
+                created_at=self.now,
+                expires_at=self.expires,
+            )
+            approver = ApprovalAuthority._from_trusted_boundary("ui", "human-1", ApprovalAuthorityKind.HUMAN)
+            approved_record = record.approve(approver, now=self.now)
+            assertion = authority.issue(record, approver)
+
+            store = SQLAlchemyApprovalStore(engine, deployment_epoch="epoch-1", clock=lambda: self.now)
+            store.save_approved(approved_record)
+
+            consumed = store.consume_approved(
+                approval_id=record.approval_id,
+                credential=assertion,
+                expected_request=req,
+                verifier=verifier,
+            )
+            self.assertEqual(consumed.state, ApprovalState.CONSUMED)
+
+            with self.assertRaises(ApprovalConsumedError):
+                store.consume_approved(
+                    approval_id=record.approval_id,
+                    credential=assertion,
+                    expected_request=req,
+                    verifier=verifier,
+                )
+
+    def test_mut_36_sql_store_consume_different_epoch_rejected(self):
+        """MUT-36: SQLAlchemyApprovalStore must reject consuming an approval under a different deployment epoch."""
+        from dmint.core.storage.sql import SQLAlchemyApprovalStore
+        from sqlalchemy import create_engine
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "store.db"
+            engine = create_engine(f"sqlite:///{db_path}")
+            priv_key = Ed25519PrivateKey.generate()
+            authority = LocalApprovalAuthority(
+                issuer_id="authority-1",
+                audience="epoch-1",
+                private_key=priv_key,
+                clock=lambda: self.now,
+            )
+            verifier = ApprovalVerifier(
+                trusted_issuers={"authority-1": priv_key.public_key()},
+                audience="epoch-1",
+                clock=lambda: self.now,
+            )
+            req = ToolRequest(
+                request_id=new_request_id(),
+                tool="database",
+                action="read",
+                agent_id="test-agent",
+                resource=NO_RESOURCE,
+                arguments={"id": 1},
+                context=TrustedContext({}),
+            )
+            record = ApprovalRecord.create(
+                request=req,
+                integration_id="local",
+                capability_id="database.read",
+                policy_provenance=PolicyProvenance("pol-1", "0" * 64, self.now),
+                created_at=self.now,
+                expires_at=self.expires,
+            )
+            approver = ApprovalAuthority._from_trusted_boundary("ui", "human-1", ApprovalAuthorityKind.HUMAN)
+            approved_record = record.approve(approver, now=self.now)
+            assertion = authority.issue(record, approver)
+
+            store1 = SQLAlchemyApprovalStore(engine, deployment_epoch="epoch-1", clock=lambda: self.now)
+            store1.save_approved(approved_record)
+
+            store2 = SQLAlchemyApprovalStore(engine, deployment_epoch="epoch-2", clock=lambda: self.now)
+            with self.assertRaises(ApprovalDeploymentInvalidError):
+                store2.consume_approved(
+                    approval_id=record.approval_id,
+                    credential=assertion,
+                    expected_request=req,
+                    verifier=verifier,
+                )
 
     def test_mut_37_gateway_rejects_spoofed_client_agent_id(self):
         """MUT-37: Gateway must reject client-supplied agent_id argument differing from authenticated identity."""

@@ -260,6 +260,24 @@ class TestWebhookPayloadBuilders:
         assert "p@ss/word" not in redacted_raw
         assert "postgresql://user:[REDACTED]@db.internal:5432/dmint" == redacted_raw
 
+        from dmint.core.redaction import _redact_query_params
+
+        raw_at_slash_with_query = (
+            "postgresql://user:p@ss/word@db.internal:5432/dmint?sslmode=require&api_key=query_secret&auth=ssl_pw"
+        )
+        redacted_raw_query = redact_database_url(raw_at_slash_with_query)
+        assert "p@ss/word" not in redacted_raw_query
+        assert "query_secret" not in redacted_raw_query
+        assert "ssl_pw" not in redacted_raw_query
+        assert "api_key=%5BREDACTED%5D" in redacted_raw_query or "api_key=[REDACTED]" in redacted_raw_query
+        assert "auth=%5BREDACTED%5D" in redacted_raw_query or "auth=[REDACTED]" in redacted_raw_query
+
+        # Direct verification of query param helper
+        direct_qp = _redact_query_params("host/db?api_key=secret_token&auth=oauth_bearer")
+        assert "secret_token" not in direct_qp
+        assert "oauth_bearer" not in direct_qp
+        assert "api_key=%5BREDACTED%5D" in direct_qp or "api_key=[REDACTED]" in direct_qp
+
         # Free-text driver error with raw @ and /
         driver_err_raw = "OperationalError: failed connecting to postgresql://user:p@ss/word@db.internal:5432/dmint: connection refused"
         redacted_driver_raw = redact_database_url(driver_err_raw)
