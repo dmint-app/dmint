@@ -107,7 +107,7 @@ def check_key_file_permissions(path: Path | str) -> None:
       and ownership by geteuid().
     - On non-POSIX: fails closed unless DMINT_ALLOW_INSECURE_KEY_PERMISSIONS=1 is set.
     """
-    path = Path(path).resolve()
+    path = Path(path).absolute()
     if not _POSIX:
         if os.environ.get(_ALLOW_INSECURE_PERMS_ENV, "").lower() not in ("1", "true", "yes"):
             raise KeyPermissionError(

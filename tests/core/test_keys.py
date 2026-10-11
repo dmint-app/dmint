@@ -327,6 +327,8 @@ class TestLoadPrivateKeyFromFile:
 
         with pytest.raises(KeyLoadError, match="symlink"):
             load_private_key_from_file(symlink_key)
+        with pytest.raises(KeyPermissionError, match="symlink"):
+            check_key_file_permissions(symlink_key)
 
     @posix_only
     def test_wrong_owner_key_file_is_rejected(self, tmp_path: Path) -> None:
@@ -338,6 +340,8 @@ class TestLoadPrivateKeyFromFile:
         with patch("os.geteuid", return_value=os.geteuid() + 1000):
             with pytest.raises(KeyLoadError, match="owner UID"):
                 load_private_key_from_file(dest)
+            with pytest.raises(KeyPermissionError, match="current process UID"):
+                check_key_file_permissions(dest)
 
     def test_non_posix_fails_closed_without_opt_in(self, tmp_path: Path) -> None:
         """On non-POSIX systems, key loading fails closed unless explicitly opted in."""
