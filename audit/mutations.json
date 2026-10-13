@@ -629,5 +629,14 @@
     "tests": [
       "tests/mcp/test_tool_schema_pinning_b3.py"
     ]
+  },
+  {
+    "id": "MUT-69",
+    "file": "src/dmint/core/storage/sql.py",
+    "find": "                if record.state is ApprovalState.CONSUMED:\n                    raise ApprovalConsumedError(\"approval has already been consumed\")",
+    "replace": "                if False:\n                    raise ApprovalConsumedError(\"approval has already been consumed\")",
+    "tests": [
+      "tests/core/test_postgres_tamper_race_b4.py"
+    ]
   }
 ]

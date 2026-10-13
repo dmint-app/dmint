@@ -15,7 +15,7 @@
 - [x] B1 Decorator mode: async def, methods (self/cls), reject generators, WeakKeyDictionary registry, TOCTOU
 - [x] B2 SSRF: pin resolved IP to connection, reject trailing-dot / octal / hex IPs, cleanup dead ipv4_mapped
 - [x] B3 Tool schema pinning: create-mcp-policy per-tool schema hash & gateway enforcement
-- [ ] B4 Postgres: 10-process consume race & K-21 tamper scenarios against Postgres store
+- [x] B4 Postgres: 10-process consume race & K-21 tamper scenarios against Postgres store
 - [ ] Group B Gate: Full pytest, ruff, mypy, mutation harness, tag fix-B
 
 ## Group C (Coverage, Hygiene, CI)
