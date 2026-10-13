@@ -169,7 +169,7 @@ except AuthorizationError as exc:
 
 When running inside multi-threaded or multi-process web applications like FastAPI, Uvicorn, or Gunicorn, store access is completely isolated. Core's `ThreadSafeApprovalStore` (or `SQLAlchemyApprovalStore` under PostgreSQL) manages connection pooling and transactional isolation safely.
 
-*(Note: In Tier 1, route handlers calling protected functions must be defined using synchronous `def` so FastAPI executes them in the worker thread pool; native `async def` support is scheduled for Tier 2).*
+Both synchronous `def` and native `async def` route handlers/methods are supported with pre-execution authorization. (Note: generators and async generators cannot be protected because streaming execution breaks atomic pre-execution snapshot boundaries).
 
 ```python title="main.py"
 from fastapi import FastAPI, HTTPException

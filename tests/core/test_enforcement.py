@@ -233,14 +233,22 @@ class EnforcementTests(unittest.TestCase):
         with self.assertRaises(RequestValidationError):
             dmint.protected("database.delete", resource="users/123")
 
-    def test_async_functions_are_rejected(self):
+    def test_generators_and_async_generators_are_rejected(self):
         dmint = Dmint(Policy(), agent_id="agent-a", context=TrustedContext({}))
 
-        async def read_user():
-            return 1
+        def gen_tool():
+            yield 1
 
-        with self.assertRaises(RequestValidationError):
-            dmint.protected("database.read")(read_user)
+        async def async_gen_tool():
+            yield 1
+
+        with self.assertRaises(RequestValidationError) as err:
+            dmint.protected("database.read")(gen_tool)
+        self.assertIn("generator and async generator functions cannot be protected", str(err.exception))
+
+        with self.assertRaises(RequestValidationError) as err2:
+            dmint.protected("database.read")(async_gen_tool)
+        self.assertIn("generator and async generator functions cannot be protected", str(err2.exception))
 
     def test_dmint_outside_wrapped_function_is_rejected(self):
         dmint = Dmint(Policy(), agent_id="agent-a", context=TrustedContext({}))

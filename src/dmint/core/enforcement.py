@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import inspect
 import logging
+import weakref
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -61,18 +62,23 @@ class InvocationSnapshot:
 
     signature: inspect.Signature
     arguments: Mapping[str, Any]
+    _raw_instance: Any = None
 
     @classmethod
     def from_bound(cls, bound: inspect.BoundArguments) -> "InvocationSnapshot":
         frozen_arguments: dict[str, Any] = {}
+        raw_instance: Any = None
         for name, value in bound.arguments.items():
+            if name in ("self", "cls"):
+                raw_instance = value
+                continue
             parameter = bound.signature.parameters[name]
             if parameter.kind is inspect.Parameter.VAR_POSITIONAL:
                 if type(value) is not tuple:
                     raise RequestValidationError("invalid variadic argument snapshot")
                 value = list(value)
             frozen_arguments[name] = freeze_json(value, f"arguments.{name}")
-        return cls(bound.signature, MappingProxyType(frozen_arguments))
+        return cls(bound.signature, MappingProxyType(frozen_arguments), _raw_instance=raw_instance)
 
     def as_arguments(self) -> dict[str, Any]:
         """Return a fresh JSON-native mapping for ToolRequest construction."""
@@ -84,6 +90,9 @@ class InvocationSnapshot:
 
         arguments = self.as_arguments()
         for name, parameter in self.signature.parameters.items():
+            if name in ("self", "cls") and self._raw_instance is not None:
+                arguments[name] = self._raw_instance
+                continue
             if name not in arguments:
                 continue
             if parameter.kind is inspect.Parameter.VAR_POSITIONAL:
@@ -137,10 +146,15 @@ class AuthorizedRequest:
 
 
 def _validate_function(function: Any) -> Callable[..., Any]:
+    if isinstance(function, (classmethod, staticmethod)):
+        unwrapped = getattr(function, "__func__", None)
+        if unwrapped is not None:
+            _validate_function(unwrapped)
+            return cast(Callable[..., Any], function)
     if not callable(function):
         raise RequestValidationError("protected target must be callable")
-    if inspect.iscoroutinefunction(function):
-        raise RequestValidationError("async functions are not supported in Phase 1")
+    if inspect.isgeneratorfunction(function) or inspect.isasyncgenfunction(function):
+        raise RequestValidationError("generator and async generator functions cannot be protected")
     if hasattr(function, "__wrapped__"):
         raise RequestValidationError("Dmint must wrap the actual function, not a functools-wrapped callable")
     return cast(Callable[..., Any], function)
@@ -224,7 +238,7 @@ class Dmint:
     _policy_provenance: PolicyProvenance | None
     _approval_ttl: timedelta | None
     _clock: Callable[[], datetime]
-    _registered: dict[int, _ProtectedBinding]
+    _registered: weakref.WeakKeyDictionary[Any, _ProtectedBinding]
     _sealed: bool
     _webhook_notifier: WebhookNotifier | None
     _policy_file: str | Path | None
@@ -292,7 +306,7 @@ class Dmint:
         object.__setattr__(self, "_policy_provenance", policy_provenance)
         object.__setattr__(self, "_approval_ttl", approval_ttl)
         object.__setattr__(self, "_clock", clock or (lambda: datetime.now(timezone.utc)))
-        object.__setattr__(self, "_registered", {})
+        object.__setattr__(self, "_registered", weakref.WeakKeyDictionary())
         object.__setattr__(self, "_sealed", True)
         object.__setattr__(self, "_webhook_notifier", webhook_notifier)
         object.__setattr__(self, "_policy_file", policy_file)
@@ -408,9 +422,19 @@ class Dmint:
         if type(resource) is not NoResource and not callable(resource):
             raise RequestValidationError("resource must be NO_RESOURCE or a resolver over bound arguments")
         target = _validate_function(function)
-        binding = _ProtectedBinding(self, target, capability, resource)
-        self._registered[id(target)] = binding
-        setattr(target, "__dmint_binding__", binding)
+        raw_target = target.__func__ if isinstance(target, (classmethod, staticmethod)) else target
+        binding = _ProtectedBinding(self, raw_target, capability, resource)
+        try:
+            self._registered[raw_target] = binding
+        except TypeError:
+            pass
+        setattr(raw_target, "__dmint_binding__", binding)
+        if raw_target is not target:
+            try:
+                self._registered[target] = binding
+            except TypeError:
+                pass
+            setattr(target, "__dmint_binding__", binding)
         return target
 
     def _prepare_call(
@@ -424,8 +448,13 @@ class Dmint:
         request_id: str | None = None,
     ) -> tuple[Callable[..., Any], InvocationSnapshot, ToolRequest]:
         tool, action = _capability_parts(capability)
-        function = _validate_function(function)
-        binding = getattr(function, "__dmint_binding__", None) or self._registered.get(id(function))
+        raw_func = function.__func__ if isinstance(function, (classmethod, staticmethod)) else function
+        binding = getattr(raw_func, "__dmint_binding__", None) or getattr(function, "__dmint_binding__", None)
+        if binding is None:
+            try:
+                binding = self._registered.get(raw_func) or self._registered.get(function)
+            except TypeError:
+                pass
         if binding is None or binding.owner is not self or binding.capability != capability:
             raise AuthorizationError(
                 "callable is not registered for capability on this Dmint instance",
@@ -652,6 +681,18 @@ class Dmint:
             expected_request=request,
             verifier=self._approval_verifier,
         )
+        if inspect.iscoroutinefunction(function):
+
+            async def _retry_coroutine():
+                try:
+                    res = self._execute_snapshot(function, snapshot, consumed.request_id)
+                    if inspect.iscoroutine(res):
+                        return await res
+                    return res
+                except Exception as exc:
+                    raise ExecutionError("protected tool execution failed") from exc
+
+            return _retry_coroutine()
         try:
             return self._execute_snapshot(function, snapshot, consumed.request_id)
         except Exception as exc:
@@ -689,32 +730,96 @@ class Dmint:
             raise RequestValidationError("resource must be NO_RESOURCE or a resolver over bound arguments")
 
         def decorator(function: F) -> F:
-            target = self.register(function, capability, resource=resource)
-            binding = self._registered[id(target)]
-            signature = inspect.signature(target)
+            is_class_method = isinstance(function, classmethod)
+            is_static_method = isinstance(function, staticmethod)
+            target = getattr(function, "__func__", function)
 
-            def guarded(*args: Any, **kwargs: Any) -> Any:
-                try:
-                    authorized = self._authorize_call(
-                        target,
-                        args,
-                        kwargs,
-                        capability=capability,
-                        resource=resource,
-                    )
-                except AuthorizationError:
-                    raise
-                except Exception as exc:
-                    raise AuthorizationError("authorization failed", code="DMT_AUTHORIZATION_ERROR") from exc
-                return self.execute(authorized)
+            # Derive capability including class name for methods (with self/cls):
+            effective_capability = capability
+            has_self_or_cls = False
+            try:
+                sig = inspect.signature(target)
+                first_param = next(iter(sig.parameters.values()), None)
+                if first_param and first_param.name in ("self", "cls"):
+                    has_self_or_cls = True
+            except Exception:
+                pass
 
-            guarded.__name__ = target.__name__
-            guarded.__qualname__ = target.__qualname__
-            guarded.__doc__ = target.__doc__
-            guarded.__annotations__ = getattr(target, "__annotations__", {})
+            qualname = getattr(target, "__qualname__", "")
+            if has_self_or_cls and "." in qualname:
+                parts = qualname.split(".")
+                if len(parts) > 1 and parts[-2] != "<locals>":
+                    class_name = parts[-2]
+                    cap_parts = effective_capability.split(".")
+                    if class_name not in cap_parts:
+                        tool, action = _capability_parts(effective_capability)
+                        effective_capability = f"{tool}.{class_name}.{action}"
+
+            registered_target = self.register(target, effective_capability, resource=resource)
+            raw_target = getattr(registered_target, "__func__", registered_target)
+            binding = cast(
+                _ProtectedBinding, getattr(raw_target, "__dmint_binding__", None) or self._registered.get(raw_target)
+            )
+            signature = inspect.signature(raw_target)
+            is_async = inspect.iscoroutinefunction(raw_target)
+
+            guarded: Callable[..., Any]
+            if is_async:
+
+                async def async_guarded(*args: Any, **kwargs: Any) -> Any:
+                    try:
+                        authorized = self._authorize_call(
+                            raw_target,
+                            args,
+                            kwargs,
+                            capability=effective_capability,
+                            resource=resource,
+                        )
+                    except AuthorizationError:
+                        raise
+                    except Exception as exc:
+                        raise AuthorizationError("authorization failed", code="DMT_AUTHORIZATION_ERROR") from exc
+                    res = self.execute(authorized)
+                    if inspect.iscoroutine(res):
+                        return await res
+                    return res
+
+                guarded = async_guarded
+            else:
+
+                def sync_guarded(*args: Any, **kwargs: Any) -> Any:
+                    try:
+                        authorized = self._authorize_call(
+                            raw_target,
+                            args,
+                            kwargs,
+                            capability=effective_capability,
+                            resource=resource,
+                        )
+                    except AuthorizationError:
+                        raise
+                    except Exception as exc:
+                        raise AuthorizationError("authorization failed", code="DMT_AUTHORIZATION_ERROR") from exc
+                    return self.execute(authorized)
+
+                guarded = sync_guarded
+
+            guarded.__name__ = raw_target.__name__
+            guarded.__qualname__ = raw_target.__qualname__
+            guarded.__doc__ = raw_target.__doc__
+            guarded.__annotations__ = getattr(raw_target, "__annotations__", {})
             setattr(guarded, "__signature__", signature)
             setattr(guarded, "__dmint_binding__", binding)
-            self._registered[id(guarded)] = binding
+            if binding is not None:
+                try:
+                    self._registered[guarded] = binding
+                except TypeError:
+                    pass
+
+            if is_class_method:
+                return cast(F, classmethod(guarded))
+            elif is_static_method:
+                return cast(F, staticmethod(guarded))
             return cast(F, guarded)
 
         return decorator

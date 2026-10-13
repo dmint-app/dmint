@@ -602,5 +602,14 @@
     "tests": [
       "tests/mcp/test_phase3_gateway_verifier.py"
     ]
+  },
+  {
+    "id": "MUT-66",
+    "file": "src/dmint/core/enforcement.py",
+    "find": "    if inspect.isgeneratorfunction(function) or inspect.isasyncgenfunction(function):\n        raise RequestValidationError(\"generator and async generator functions cannot be protected\")",
+    "replace": "    if False:\n        raise RequestValidationError(\"generator and async generator functions cannot be protected\")",
+    "tests": [
+      "tests/core/test_decorator_b1.py"
+    ]
   }
 ]
