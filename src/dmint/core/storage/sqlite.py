@@ -464,9 +464,11 @@ class SQLiteApprovalStore(ApprovalStore):
             raise CorruptApprovalRecordError("stored policy is corrupted") from exc
 
     def _rollback_safely(self) -> None:
+        if getattr(self, "_connection", None) is None:
+            return
         try:
             self._connection.rollback()
-        except sqlite3.Error:
+        except Exception:
             pass
 
     def __enter__(self) -> "SQLiteApprovalStore":
@@ -668,6 +670,8 @@ class SQLiteApprovalStore(ApprovalStore):
                 credential = ApprovalAssertion.from_bytes(credential)
             if type(credential) is not ApprovalAssertion:
                 raise ApprovalStoreError("approval credential is invalid")
+            if getattr(self, "_connection", None) is None:
+                raise ApprovalStoreError("database connection is closed")
             self._connection.execute("BEGIN IMMEDIATE")
             row = self._fetch_row(approval_id)
             if row is None:
