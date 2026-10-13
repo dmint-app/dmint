@@ -27,7 +27,7 @@ from dmint import (
 The primary authorization and execution orchestrator.
 
 ### Constructor
-```python
+```text
 from datetime import timedelta
 from dmint.models import TrustedContext
 
@@ -190,7 +190,7 @@ def create_approval_store(
 The Core-owned SQLite database client managing approval lifecycles for local/dev use.
 
 ### Constructor
-```python
+```text
 store = SQLiteApprovalStore(
     database: str | Path,
     *,
@@ -210,7 +210,7 @@ store = SQLiteApprovalStore(
 SQLAlchemy Core-backed implementation for production environments requiring PostgreSQL.
 
 ### Constructor
-```python
+```text
 store = SQLAlchemyApprovalStore(
     url_or_engine: str | Engine,
     *,
@@ -228,7 +228,7 @@ Provides exact behavioral parity with SQLite, including atomic single-use consum
 Canonical thread-safe proxy wrapping either `SQLiteApprovalStore` (with thread-local connections) or `SQLAlchemyApprovalStore` (with native connection pooling). Used by `dmint-mcp` and `dmint dashboard`.
 
 ### Constructor
-```python
+```text
 from dmint import ThreadSafeApprovalStore
 
 store = ThreadSafeApprovalStore(

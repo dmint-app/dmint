@@ -220,10 +220,10 @@ To preserve technical consistency with Dmint v2.0.0, follow these conventions in
   dmint-mcp run --config mcp_protection.json
   ```
 - **Python Imports**: Import directly from `dmint` or `dmint.core`:
-  ```python
-  from dmint import Dmint, Policy, SQLiteApprovalStore
-  from dmint.models import TrustedContext
-  ```
+```python
+from dmint import Dmint, Policy, SQLiteApprovalStore
+from dmint.models import TrustedContext
+```
 
 ---
 

@@ -77,58 +77,58 @@ Choose how you want to connect Dmint to your project:
     Create `app.py`:
 
     ```python title="app.py"
-    import json
-    from datetime import datetime, timezone, timedelta
-    from dmint import (
-        Dmint,
-        Policy,
-        SQLiteApprovalStore,
-        PolicyProvenance,
-        policy_digest,
-        TrustedContext,
-    )
+import json
+from datetime import datetime, timezone, timedelta
+from dmint import (
+    Dmint,
+    Policy,
+    SQLiteApprovalStore,
+    PolicyProvenance,
+    policy_digest,
+    TrustedContext,
+)
 
-    # 1. Initialize store with deployment_epoch and load policy mapping
-    store = SQLiteApprovalStore("./approvals.sqlite3", deployment_epoch="prod-v1")
-    with open("policy.json", "r", encoding="utf-8") as f:
-        policy = Policy.from_mapping(json.load(f))
+# 1. Initialize store with deployment_epoch and load policy mapping
+store = SQLiteApprovalStore("./approvals.sqlite3", deployment_epoch="prod-v1")
+with open("policy.json", "r", encoding="utf-8") as f:
+    policy = Policy.from_mapping(json.load(f))
 
-    provenance = PolicyProvenance("prod-v1", policy_digest(policy), datetime.now(timezone.utc))
+provenance = PolicyProvenance("prod-v1", policy_digest(policy), datetime.now(timezone.utc))
 
-    dmint = Dmint(
-        policy=policy,
-        approval_store=store,
-        context=TrustedContext({}),
-        agent_id="agent-local",
-        approval_ttl=timedelta(minutes=15),
-        policy_provenance=provenance,
-    )
+dmint = Dmint(
+    policy=policy,
+    approval_store=store,
+    context=TrustedContext({}),
+    agent_id="agent-local",
+    approval_ttl=timedelta(minutes=15),
+    policy_provenance=provenance,
+)
 
-    # 2. Protect functions with capabilities: tool.action
-    @dmint.protected("database.select")
-    def run_query(query: str):
-        return f"Query executed: {query}"
+# 2. Protect functions with capabilities: tool.action
+@dmint.protected("database.select")
+def run_query(query: str):
+    return f"Query executed: {query}"
 
-    @dmint.protected("database.update")
-    def update_record(table: str, row_id: int, value: str):
-        return f"Updated {table} row {row_id} with {value}"
+@dmint.protected("database.update")
+def update_record(table: str, row_id: int, value: str):
+    return f"Updated {table} row {row_id} with {value}"
 
-    @dmint.protected("database.drop")
-    def drop_table(table: str):
-        return f"Dropped {table}"
+@dmint.protected("database.drop")
+def drop_table(table: str):
+    return f"Dropped {table}"
 
-    # --- Test 1: ALLOW rule executes immediately ---
-    print("1. Running SELECT:")
-    result = run_query("SELECT * FROM users")
-    print("   ✓", result)
+# --- Test 1: ALLOW rule executes immediately ---
+print("1. Running SELECT:")
+result = run_query("SELECT * FROM users")
+print("   ✓", result)
 
-    # --- Test 2: APPROVAL_REQUIRED halts and records pending approval ---
-    print("\n2. Attempting UPDATE:")
-    try:
-        update_record("users", 42, "admin")
-    except Exception as exc:
-        print("   ⏸️ Caught expected error:", exc)
-        print("   -> Request persisted in ./approvals.sqlite3 awaiting approval.")
+# --- Test 2: APPROVAL_REQUIRED halts and records pending approval ---
+print("\n2. Attempting UPDATE:")
+try:
+    update_record("users", 42, "admin")
+except Exception as exc:
+    print("   ⏸️ Caught expected error:", exc)
+    print("   -> Request persisted in ./approvals.sqlite3 awaiting approval.")
     ```
 
     <Warning>

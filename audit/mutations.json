@@ -584,5 +584,14 @@
     "tests": [
       "tests/core/test_shims.py"
     ]
+  },
+  {
+    "id": "MUT-64",
+    "file": "docs/README.md",
+    "find": "from dmint import Dmint, Policy, SQLiteApprovalStore",
+    "replace": "from dmint import (Dmint, Policy, SQLiteApprovalStore",
+    "tests": [
+      "tests/core/test_docs_code_blocks.py"
+    ]
   }
 ]

@@ -81,10 +81,10 @@ Here is how common tool actions map to Dmint capabilities:
 <Tabs>
   <Tab title="Direct Python Decorator">
     ```python
-    # Tool: "payment_gateway", Action: "charge"
-    @dmint.protected("payment_gateway.charge")
-    def charge_card(amount_cents: int, customer_id: str):
-        ...
+# Tool: "payment_gateway", Action: "charge"
+@dmint.protected("payment_gateway.charge")
+def charge_card(amount_cents: int, customer_id: str):
+    ...
     ```
   </Tab>
 
