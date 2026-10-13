@@ -331,7 +331,7 @@ class SQLiteApprovalStore(ApprovalStore):
         else:
             self._recovery_file = None
         try:
-            self._connection = sqlite3.connect(db_str)
+            self._connection = sqlite3.connect(db_str, check_same_thread=False)
             self._connection.row_factory = sqlite3.Row
             self._connection.execute("PRAGMA foreign_keys = ON")
             self._connection.execute("PRAGMA busy_timeout = 5000")
@@ -389,7 +389,19 @@ class SQLiteApprovalStore(ApprovalStore):
             raise ApprovalStoreError("recovery epoch counter check failed") from exc
 
     def close(self) -> None:
-        self._connection.close()
+        if hasattr(self, "_connection") and self._connection is not None:
+            try:
+                self._connection.close()
+            except Exception:
+                pass
+            finally:
+                self._connection = None  # type: ignore[assignment]
+
+    def __del__(self) -> None:
+        try:
+            self.close()
+        except Exception:
+            pass
 
     def set_authoritative_policy(self, policy: Policy, provenance: PolicyProvenance) -> None:
         from ..models import AnyResource

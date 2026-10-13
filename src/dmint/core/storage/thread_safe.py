@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import atexit
 from collections.abc import Callable, Collection
 from datetime import datetime
 from pathlib import Path
 import threading
 from typing import TYPE_CHECKING, Any
+import weakref
 
 from dmint.core.approvals import ApprovalRecord, ApprovalState, PolicyProvenance
 from dmint.core.models import ToolRequest
@@ -75,7 +77,18 @@ class ThreadSafeApprovalStore(ApprovalStore):
         self._thread_local = threading.local()
         self._store_lock = threading.Lock()
         self._all_stores: list[ApprovalStore] = [self._initial_store]
+        self._thread_stores: dict[int, ApprovalStore] = {threading.get_ident(): self._initial_store}
         self._thread_local.store = self._initial_store
+
+        self._atexit_ref = weakref.ref(self)
+
+        def _atexit_close() -> None:
+            obj = self._atexit_ref()
+            if obj is not None:
+                obj.close()
+
+        self._atexit_handler: Callable[[], None] | None = _atexit_close
+        atexit.register(_atexit_close)
 
     @property
     def underlying_store(self) -> ApprovalStore:
@@ -97,20 +110,26 @@ class ThreadSafeApprovalStore(ApprovalStore):
         if isinstance(self._initial_store, SQLAlchemyApprovalStore):
             return self._initial_store
 
-        store = getattr(self._thread_local, "store", None)
+        tid = threading.get_ident()
+        with self._store_lock:
+            store = self._thread_stores.get(tid)
         if store is None:
-            store = SQLiteApprovalStore(
-                self._default_sqlite_path,
-                deployment_epoch=self._deployment_epoch,
-                integrity_key=self._integrity_key,
-                recovery_epoch_file=self._recovery_epoch_file,
-                redact_keys=self._redact_keys,
-                max_pending_per_principal=self._max_pending_per_principal,
-                clock=self._clock,
-            )
-            self._thread_local.store = store
+            store = getattr(self._thread_local, "store", None)
+            if store is None:
+                store = SQLiteApprovalStore(
+                    self._default_sqlite_path,
+                    deployment_epoch=self._deployment_epoch,
+                    integrity_key=self._integrity_key,
+                    recovery_epoch_file=self._recovery_epoch_file,
+                    redact_keys=self._redact_keys,
+                    max_pending_per_principal=self._max_pending_per_principal,
+                    clock=self._clock,
+                )
+                self._thread_local.store = store
             with self._store_lock:
-                self._all_stores.append(store)
+                self._thread_stores[tid] = store
+                if store not in self._all_stores:
+                    self._all_stores.append(store)
         return store
 
     def save_pending(self, record: ApprovalRecord) -> ApprovalRecord:
@@ -203,10 +222,30 @@ class ThreadSafeApprovalStore(ApprovalStore):
         )
 
     def close(self) -> None:
+        if hasattr(self, "_atexit_handler") and self._atexit_handler is not None:
+            try:
+                atexit.unregister(self._atexit_handler)
+            except Exception:
+                pass
+            self._atexit_handler = None
         with self._store_lock:
-            for s in self._all_stores:
+            for s in list(self._all_stores):
                 try:
                     s.close()
                 except Exception:
                     pass
             self._all_stores.clear()
+            if hasattr(self, "_thread_stores"):
+                self._thread_stores.clear()
+
+    def __enter__(self) -> ThreadSafeApprovalStore:
+        return self
+
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        self.close()
+
+    def __del__(self) -> None:
+        try:
+            self.close()
+        except Exception:
+            pass

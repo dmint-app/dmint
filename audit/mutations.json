@@ -529,5 +529,14 @@
     "tests": [
       "tests/core/test_policy_integrity.py"
     ]
+  },
+  {
+    "id": "MUT-58",
+    "file": "src/dmint/core/storage/thread_safe.py",
+    "find": "            if hasattr(self, \"_thread_stores\"):\n                self._thread_stores.clear()",
+    "replace": "            if False:\n                pass",
+    "tests": [
+      "tests/core/test_thread_safe_connections.py"
+    ]
   }
 ]
