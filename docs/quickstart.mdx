@@ -30,6 +30,13 @@ dmint --version
 # dmint 2.0.0
 ```
 
+Initialize your signing and storage integrity keys:
+
+```bash
+# Provision Ed25519 signing key and HMAC storage integrity key (mode 0600)
+dmint init-keys
+```
+
 ---
 
 ## Step 2: Define Security Rules (`access.md`)
@@ -62,6 +69,14 @@ Output:
   [ALLOW] tool='database', action='select', resource='*'
   [APPROVAL_REQUIRED] tool='database', action='update', resource='*'
   [DENY] tool='database', action='drop', resource='*'
+```
+
+Compute and pin the policy digest in your operator-controlled environment (so the agent cannot tamper with `policy.json`):
+
+```bash
+python -c "import json; from dmint import Policy, policy_digest; print(policy_digest(Policy.from_mapping(json.load(open('policy.json')))))"
+# Pin in operator environment:
+# export DMINT_EXPECTED_POLICY_DIGEST="sha256:..."
 ```
 
 ---

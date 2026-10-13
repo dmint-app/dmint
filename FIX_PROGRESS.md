@@ -8,7 +8,7 @@
 - [x] A5 Host normalization: reject empty labels & repeated trailing dots; idempotence test; fuzz check
 - [x] A6 Packaging: httpx2 audit; pyproject questionary/sqlalchemy bounds; py313 classifier; shims audit
 - [x] A7 Docs code blocks: fix compilation errors in docs python fences & add validation test
-- [ ] A8 Fresh-process import isolation test; docs on integrity key & policy digest pin
+- [x] A8 Fresh-process import isolation test; docs on integrity key & policy digest pin
 - [ ] Group A Gate: Full pytest, ruff, mypy, mutation harness, tag fix-A
 
 ## Group B (Product Features)

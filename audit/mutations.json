@@ -593,5 +593,14 @@
     "tests": [
       "tests/core/test_docs_code_blocks.py"
     ]
+  },
+  {
+    "id": "MUT-65",
+    "file": "src/dmint/mcp/config_loader.py",
+    "find": "from dmint.core.approvals import PolicyProvenance",
+    "replace": "from dmint.core.approvals import PolicyProvenance\nimport dmint.core.keys",
+    "tests": [
+      "tests/mcp/test_phase3_gateway_verifier.py"
+    ]
   }
 ]

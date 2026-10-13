@@ -209,3 +209,36 @@ Restoring an older full snapshot copy of the entire database file (a database ro
 1. **Short Assertion TTL**: Approval assertions have a short expiration window (default 5 minutes). Even if an older database snapshot is restored, assertions that have passed their `expires_at` timestamp fail validation.
 2. **Strict Filesystem Permissions**: Database files must be owned by the approver/host UID and protected with mode `0600`, preventing untrusted processes or agents from overwriting the database file.
 3. **External Append-Only Audit Log**: In high-assurance environments, pair Dmint with an external append-only log or streaming audit sink to detect discrepancies between consumed assertions and storage snapshots.
+
+### Integrity Key Ownership, Read Access, and Migration
+
+- **Creation**: Generated atomically with `dmint init-keys` (`~/.config/dmint/integrity.key`, mode `0600`).
+- **Access Control & Permissions**:
+  - The **gateway/store process** and the **human approver / dashboard process** MUST be able to read `integrity.key` (in order to compute and verify HMAC checksums on database rows).
+  - The **AI agent process MUST NOT** be able to read or write `integrity.key`. If an agent could read `integrity.key`, it could tamper with SQLite/Postgres rows directly and generate matching HMAC signatures.
+- **Migration Steps for Existing Installations**:
+  - In Dmint v2.0.0, un-keyed or deprecated v1 checksums fail closed (`DMT_APPROVAL_CORRUPT`).
+  - To upgrade an existing deployment:
+    1. Run `dmint init-keys` to provision the Ed25519 signing key and HMAC `integrity.key`.
+    2. Restart the gateway and dashboard services pointing to the new `integrity.key`.
+    3. Any unconsumed pending approvals from pre-v2 deployments cannot be validated without HMAC and will fail closed. Operators should purge or archive old pending rows and let agents re-request actions under the new epoch and integrity key.
+
+---
+
+## 7. Policy Digest Pinning & Remote Policy Security
+
+### Policy Digest Pinning
+
+To defend against policy tampering (e.g. an agent rewriting local `policy.json` to insert broad `ALLOW` rules):
+- The expected policy digest (`policy_digest(policy)`) MUST be pinned in an **operator-controlled location that the agent cannot write to**.
+- Recommended locations:
+  1. An operator-controlled environment variable: `export DMINT_EXPECTED_POLICY_DIGEST="sha256:..."` set in the supervisor/systemd service unit or host shell.
+  2. A configuration file owned by the host/operator user with mode `0644` or `0600` in a directory not writable by the agent.
+- When `expected_policy_digest` is supplied to `PolicyProvenance` or the MCP gateway, Dmint strictly compares the actual SHA-256 policy digest against the pin. If the policy file changes, Dmint fails closed with `PolicyError: policy digest mismatch`.
+
+### Remote Policy Loading
+
+- **Disabled by Default**: Dmint does not fetch policies over the network by default. Policies must be loaded from local files unless explicitly configured.
+- **Mandatory Digest Pinning**: When loading a remote policy from an HTTPS URL (`https://...`), Dmint **strictly requires** an explicit `expected_policy_digest`. Loading a remote policy without a pinned digest is rejected at startup (`MCPConfigurationError` / `PolicyError: remote policy loading requires expected_policy_digest`).
+- **Transport & SSRF Protection**: Remote policy endpoints must strictly use HTTPS and pass full SSRF pre-resolution validation (blocking loopback, private networks, link-local, and cloud metadata IPs).
+
