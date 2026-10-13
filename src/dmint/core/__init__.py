@@ -92,7 +92,7 @@ from .models import (
     ToolRequest,
     TrustedContext,
 )
-from .policy import Condition, ConditionOperator, Policy, Rule, policy_digest
+from .policy import Condition, ConditionOperator, Policy, Rule, compute_tool_schema_hash, policy_digest
 from .resources import (
     ResourceKind,
     ResourceMatchingError,

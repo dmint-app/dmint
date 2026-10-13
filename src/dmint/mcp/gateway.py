@@ -319,6 +319,13 @@ class MCPGateway:
                 f"failed to connect downstream integration '{first_id}': {first_exc}"
             ) from first_exc
 
+        try:
+            for integ in self._integrations.values():
+                await integ.gate.verify_all_tool_schemas()
+        except Exception:
+            await self.disconnect()
+            raise
+
         self._server.add_request_handler(
             "tools/list",
             types.PaginatedRequestParams,

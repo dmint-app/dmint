@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import hashlib
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any, Literal
 
 from .canonicalize import canonicalize, canonicalize_bytes, canonicalize_frozen, freeze_json, thaw_json
@@ -34,6 +35,19 @@ def _strict_keys(value: Mapping[str, Any], expected: set[str], name: str) -> Non
 
 def _same_json(left: Any, right: Any) -> bool:
     return canonicalize_frozen(left) == canonicalize_frozen(right)
+
+
+def compute_tool_schema_hash(
+    description: str | None,
+    input_schema: Mapping[str, Any] | None,
+) -> str:
+    """Compute the deterministic SHA-256 digest of a tool's description and JSON Schema."""
+    payload = {
+        "description": description or "",
+        "inputSchema": thaw_json(input_schema) if input_schema is not None else {},
+    }
+    canonical = canonicalize_bytes(payload)
+    return hashlib.sha256(canonical).hexdigest()
 
 
 @dataclass(frozen=True)
@@ -113,6 +127,7 @@ class Rule:
     case_sensitive: bool = True
     conditions: tuple[Condition, ...] = ()
     constraints: Mapping[str, Any] | None = None
+    schema_hash: str | None = None
 
     def __post_init__(self) -> None:
         if type(self.effect) is not Decision:
@@ -121,6 +136,8 @@ class Rule:
         validate_text(self.action, "rule action")
         if self.agent_id is not None:
             validate_text(self.agent_id, "rule agent_id")
+        if self.schema_hash is not None:
+            validate_text(self.schema_hash, "rule schema_hash")
         if self.resource == "*":
             object.__setattr__(self, "resource", ANY_RESOURCE)
         elif type(self.resource) is str:
@@ -172,6 +189,7 @@ class Rule:
         case_sensitive: bool = True,
         conditions: Sequence[Condition] = (),
         constraints: Mapping[str, Any] | None = None,
+        schema_hash: str | None = None,
     ) -> "Rule":
         return cls(
             Decision.ALLOW,
@@ -183,6 +201,7 @@ class Rule:
             case_sensitive,
             tuple(conditions),
             constraints,
+            schema_hash,
         )
 
     @classmethod
@@ -197,6 +216,7 @@ class Rule:
         case_sensitive: bool = True,
         conditions: Sequence[Condition] = (),
         constraints: Mapping[str, Any] | None = None,
+        schema_hash: str | None = None,
     ) -> "Rule":
         return cls(
             Decision.DENY,
@@ -208,6 +228,7 @@ class Rule:
             case_sensitive,
             tuple(conditions),
             constraints,
+            schema_hash,
         )
 
     @classmethod
@@ -222,6 +243,7 @@ class Rule:
         case_sensitive: bool = True,
         conditions: Sequence[Condition] = (),
         constraints: Mapping[str, Any] | None = None,
+        schema_hash: str | None = None,
     ) -> "Rule":
         return cls(
             Decision.APPROVAL_REQUIRED,
@@ -233,6 +255,7 @@ class Rule:
             case_sensitive,
             tuple(conditions),
             constraints,
+            schema_hash,
         )
 
     approve = approval_required
@@ -286,6 +309,7 @@ class Policy:
 
     rules: tuple[Rule, ...] = ()
     strict_arguments: bool = False
+    tool_schemas: Mapping[str, str] = field(default_factory=dict)
     _file_digest: str | None = None
 
     def __post_init__(self) -> None:
@@ -295,26 +319,61 @@ class Policy:
             raise PolicyError("policy contains an invalid rule")
         if type(self.strict_arguments) is not bool:
             raise PolicyError("strict_arguments must be a boolean")
+        if not isinstance(self.tool_schemas, Mapping):
+            raise PolicyError("policy tool_schemas must be a mapping")
+        for k, v in self.tool_schemas.items():
+            if not isinstance(k, str) or not isinstance(v, str):
+                raise PolicyError("policy tool_schemas must be a string to string mapping")
         object.__setattr__(self, "rules", tuple(self.rules))
         object.__setattr__(self, "strict_arguments", bool(self.strict_arguments))
+        object.__setattr__(self, "tool_schemas", MappingProxyType(dict(self.tool_schemas)))
 
     @property
     def file_digest(self) -> str | None:
         """SHA-256 digest of exact policy file/source bytes if loaded from JSON/file/URL."""
         return self._file_digest
 
+    def get_tool_schema_hash(self, tool_name: str, integration_id: str | None = None) -> str | None:
+        """Retrieve the pinned schema hash for a tool, checking tool_schemas and rule schema_hash."""
+        schemas = getattr(self, "tool_schemas", {})
+        if tool_name in schemas:
+            return schemas[tool_name]
+        if integration_id:
+            combined = f"{integration_id}.{tool_name}"
+            if combined in schemas:
+                return schemas[combined]
+            mcp_combined = f"mcp.{integration_id}.{tool_name}"
+            if mcp_combined in schemas:
+                return schemas[mcp_combined]
+        for r in self.rules:
+            if r.schema_hash:
+                if r.action == tool_name:
+                    return r.schema_hash
+                if integration_id and r.action == f"{integration_id}.{tool_name}":
+                    return r.schema_hash
+                if f"{r.tool}.{r.action}" == tool_name:
+                    return r.schema_hash
+        return None
+
     @classmethod
     def from_mapping(cls, value: Mapping[str, Any]) -> "Policy":
         if not isinstance(value, Mapping):
             raise PolicyError("policy must be a mapping")
-        _strict_keys(value, {"rules", "strict_arguments"}, "policy")
+        _strict_keys(value, {"rules", "strict_arguments", "tool_schemas"}, "policy")
         rules = value.get("rules")
         if not isinstance(rules, Sequence) or isinstance(rules, (str, bytes)):
             raise PolicyError("policy rules must be an array")
         strict_args = value.get("strict_arguments", False)
         if type(strict_args) is not bool:
             raise PolicyError("strict_arguments must be a boolean")
-        return cls(tuple(cls._rule_from_mapping(item) for item in rules), strict_arguments=strict_args)
+        tool_schemas = value.get("tool_schemas", {})
+        if tool_schemas is None:
+            tool_schemas = {}
+        return cls(
+            tuple(cls._rule_from_mapping(item) for item in rules),
+            strict_arguments=strict_args,
+            tool_schemas=tool_schemas,
+        )
 
     @staticmethod
     def _rule_from_mapping(value: Any) -> Rule:
@@ -332,6 +391,7 @@ class Policy:
                 "case_sensitive",
                 "conditions",
                 "constraints",
+                "schema_hash",
             },
             "rule",
         )
@@ -399,6 +459,12 @@ class Policy:
                 raise PolicyError("DENY rules cannot have constraints")
             validate_constraints_schema(constraints)
 
+        schema_hash = value.get("schema_hash")
+        if schema_hash is not None:
+            if not isinstance(schema_hash, str):
+                raise PolicyError("rule schema_hash must be a string")
+            validate_text(schema_hash, "rule schema_hash")
+
         return Rule(
             effect,
             value["tool"],
@@ -409,6 +475,7 @@ class Policy:
             case_sensitive=case_sensitive,
             conditions=tuple(conditions),
             constraints=constraints,
+            schema_hash=schema_hash,
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -443,10 +510,14 @@ class Policy:
                 rule_dict["conditions"] = conds
             if r.constraints is not None:
                 rule_dict["constraints"] = thaw_json(r.constraints)
+            if r.schema_hash is not None:
+                rule_dict["schema_hash"] = r.schema_hash
             rules_list.append(rule_dict)
         res: dict[str, Any] = {"rules": rules_list}
         if self.strict_arguments:
             res["strict_arguments"] = True
+        if self.tool_schemas:
+            res["tool_schemas"] = dict(self.tool_schemas)
         return res
 
     @classmethod

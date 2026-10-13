@@ -13,7 +13,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from dmint.policy import Policy, PolicyError
+from dmint.policy import Policy, PolicyError, compute_tool_schema_hash
 from dmint.cli.api import OpenAICompatClient, resolve_api_key
 from dmint.cli.errors import (
     APIError,
@@ -770,7 +770,31 @@ def run_create_mcp_policy_wizard(
                 )
                 continue
 
-            policy_mapping = {"rules": rules}
+            # Pin tool schemas for all discovered capabilities
+            tool_schema_hashes: dict[str, str] = {}
+            for integ in integrations:
+                for t in integ.discovered_tools:
+                    shash = compute_tool_schema_hash(t.get("description"), t.get("input_schema") or {})
+                    tool_schema_hashes[t["name"]] = shash
+                    tool_schema_hashes[f"{integ.integration_id}.{t['name']}"] = shash
+                    tool_schema_hashes[f"mcp.{integ.integration_id}.{t['name']}"] = shash
+
+            # Annotate rules with schema_hash if matching discovered tool
+            for r_dict in rules:
+                tool_action = r_dict.get("action", "")
+                tool_mod = r_dict.get("tool", "")
+                rule_shash: str | None = (
+                    tool_schema_hashes.get(tool_action)
+                    or tool_schema_hashes.get(f"{tool_mod}.{tool_action}")
+                    or tool_schema_hashes.get(tool_action.split(".")[-1])
+                )
+                if rule_shash:
+                    r_dict["schema_hash"] = rule_shash
+
+            policy_mapping = {
+                "rules": rules,
+                "tool_schemas": tool_schema_hashes,
+            }
 
             try:
                 # Requirement 7: LLM output is untrusted. Deterministic validation is authoritative.
@@ -793,9 +817,24 @@ def run_create_mcp_policy_wizard(
 
             print("\n--- Candidate Policy Review ---")
             print(f"Verified {len(verified_policy.rules)} rules:")
+            unpinned_tools: list[str] = []
             for r in verified_policy.rules:
                 res_str = r.resource if isinstance(r.resource, str) else type(r.resource).__name__
-                print(f"  [{r.effect.value.upper()}] tool='{r.tool}', action='{r.action}', resource='{res_str}'")
+                pin_hash: str | None = r.schema_hash or verified_policy.get_tool_schema_hash(r.action, r.tool)
+                if pin_hash:
+                    print(
+                        f"  [{r.effect.value.upper()}] tool='{r.tool}', action='{r.action}', resource='{res_str}' [PINNED: {pin_hash[:12]}...]"
+                    )
+                else:
+                    print(
+                        f"  [{r.effect.value.upper()}] tool='{r.tool}', action='{r.action}', resource='{res_str}' [UNPINNED]"
+                    )
+                    unpinned_tools.append(f"{r.tool}.{r.action}")
+
+            if unpinned_tools:
+                print(
+                    f"\n[!] WARNING: Unpinned tools detected: {', '.join(unpinned_tools)}. These tools do not have schema hashes pinned."
+                )
 
             if not auto_confirm and is_tty:
                 confirm = (

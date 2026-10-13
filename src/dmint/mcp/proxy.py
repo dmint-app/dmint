@@ -36,7 +36,7 @@ from .errors import (
     MCPTimeoutError,
 )
 from dmint.core.models import Decision, ToolRequest, TrustedContext
-from dmint.core.policy import Policy
+from dmint.core.policy import Policy, compute_tool_schema_hash
 from dmint.core.request_binding import request_binding_fingerprint
 from dmint.core.storage import ApprovalStore, SQLiteApprovalStore
 from dmint.core.webhooks import (
@@ -166,8 +166,41 @@ class EnforcementGate:
             return binding.discovery is DiscoveryMode.EXPOSED
         return self._config.default_discovery is DiscoveryMode.EXPOSED
 
+    def _get_expected_schema_hash(self, tool_name: str) -> str | None:
+        """Retrieve expected tool schema hash from policy."""
+        return self._policy.get_tool_schema_hash(tool_name, self._config.integration_id)
+
+    async def verify_tool_schema(self, tool_name: str, tool_def: types.Tool | None = None) -> None:
+        """Verify downstream tool against policy schema pin and fail closed on mismatch."""
+        expected_hash = self._get_expected_schema_hash(tool_name)
+        if expected_hash is not None:
+            if tool_def is None:
+                tools = await self._client.list_tools()
+                found = next((t for t in tools if t.name == tool_name), None)
+                if found is None:
+                    raise MCPMappingError(
+                        f"tool '{tool_name}' not found on downstream server",
+                        code="DMT_MCP_TOOL_NOT_FOUND",
+                    )
+                tool_def = found
+            schema = getattr(tool_def, "input_schema", getattr(tool_def, "inputSchema", {}))
+            actual_hash = compute_tool_schema_hash(tool_def.description, schema)
+            if actual_hash != expected_hash:
+                raise MCPMappingError(
+                    f"tool schema hash mismatch for '{tool_name}': expected '{expected_hash}', got '{actual_hash}'",
+                    code="DMT_MCP_SCHEMA_MISMATCH",
+                )
+
+    async def verify_all_tool_schemas(self) -> None:
+        """Verify all downstream tools against their policy schema pins."""
+        tools = await self._client.list_tools()
+        for t in tools:
+            await self.verify_tool_schema(t.name, tool_def=t)
+
     async def list_tools(self) -> types.ListToolsResult:
         tools = await self._client.list_tools()
+        for t in tools:
+            await self.verify_tool_schema(t.name, tool_def=t)
         visible = [t for t in tools if self._is_visible(t.name)]
         return types.ListToolsResult(tools=visible)
 
@@ -272,6 +305,7 @@ class EnforcementGate:
         tool execution.
         """
         effective_agent_id = agent_id or self._agent_id
+        await self.verify_tool_schema(tool_name)
         mapped = self._mapper.map(
             tool_name=tool_name,
             arguments=arguments,
@@ -357,6 +391,7 @@ class EnforcementGate:
             raise ApprovalIntegrationMismatchError("approval integration_id mismatch")
 
         effective_agent_id = agent_id or self._agent_id
+        await self.verify_tool_schema(tool_name)
         mapped = self._mapper.map(
             tool_name=tool_name,
             arguments=arguments,

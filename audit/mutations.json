@@ -620,5 +620,14 @@
     "tests": [
       "tests/mcp/test_ssrf_b2.py"
     ]
+  },
+  {
+    "id": "MUT-68",
+    "file": "src/dmint/mcp/proxy.py",
+    "find": "            if actual_hash != expected_hash:\n                raise MCPMappingError(\n                    f\"tool schema hash mismatch for '{tool_name}': expected '{expected_hash}', got '{actual_hash}'\",\n                    code=\"DMT_MCP_SCHEMA_MISMATCH\",\n                )",
+    "replace": "            if False:\n                pass",
+    "tests": [
+      "tests/mcp/test_tool_schema_pinning_b3.py"
+    ]
   }
 ]

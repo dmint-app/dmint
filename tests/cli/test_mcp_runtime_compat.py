@@ -169,17 +169,23 @@ def _policy_for_tools(
     return Policy.from_mapping({"rules": rules})
 
 
-def _make_downstream_client(tool_names: list[str]) -> MagicMock:
+def _make_downstream_client(
+    tool_names: list[str],
+    descriptions: dict[str, str] | None = None,
+    input_schemas: dict[str, dict[str, Any]] | None = None,
+) -> MagicMock:
     """Build a mock DownstreamMCPClient that returns the given tool names."""
     client = MagicMock()
     client.__class__.__name__ = "DownstreamMCPClient"
 
+    desc_map = descriptions or {}
+    schema_map = input_schemas or {}
     # list_tools returns real mcp.types.Tool objects
     tools = [
         mcp_types.Tool(
             name=name,
-            description=f"tool {name}",
-            inputSchema={"type": "object", "properties": {}},
+            description=desc_map.get(name, f"tool {name}"),
+            inputSchema=schema_map.get(name, {"type": "object", "properties": {}}),
         )
         for name in tool_names
     ]
@@ -855,7 +861,17 @@ class FullRoundTripTests(unittest.IsolatedAsyncioTestCase):
             real_policy = Policy.from_mapping(loaded_policy_data)
 
             # 5. Start a real test runtime (EnforcementGate)
-            downstream_client = _make_downstream_client(["query", "delete_all"])
+            downstream_client = _make_downstream_client(
+                ["query", "delete_all"],
+                descriptions={
+                    "query": "Execute read-only SQL queries",
+                    "delete_all": "Drop all database tables",
+                },
+                input_schemas={
+                    "query": {"type": "object", "properties": {"sql": {"type": "string"}}},
+                    "delete_all": {"type": "object", "properties": {}},
+                },
+            )
             gate = EnforcementGate(
                 downstream_client,
                 real_mcp_config,

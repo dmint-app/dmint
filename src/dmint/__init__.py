@@ -61,6 +61,7 @@ from .core import (
     Policy,
     PolicyError,
     PolicyProvenance,
+    compute_tool_schema_hash,
     RequestValidationError,
     ResourceKind,
     ResourceMatchingError,
