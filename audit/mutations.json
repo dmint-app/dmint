@@ -611,5 +611,14 @@
     "tests": [
       "tests/core/test_decorator_b1.py"
     ]
+  },
+  {
+    "id": "MUT-67",
+    "file": "src/dmint/mcp/ssrf.py",
+    "find": "    if clean_host.endswith(\".\") or any(not label for label in clean_host.split(\".\")):\n        raise MCPConfigurationError(\n            f\"SSRF violation: trailing-dot or empty-label hostnames are prohibited: '{hostname}'\"\n        )",
+    "replace": "    if False:\n        raise MCPConfigurationError(\n            f\"SSRF violation: trailing-dot or empty-label hostnames are prohibited: '{hostname}'\"\n        )",
+    "tests": [
+      "tests/mcp/test_ssrf_b2.py"
+    ]
   }
 ]

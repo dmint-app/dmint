@@ -13,7 +13,7 @@ from mcp.client.streamable_http import httpx2, streamable_http_client
 
 from .errors import MCPConnectionError, MCPError, MCPProtocolError, MCPTimeoutError
 from .config import MCPIntegrationConfig, MCPTransportType
-from .ssrf import validate_mcp_url
+from .ssrf import create_pinned_async_transport, is_loopback_host, validate_mcp_url
 
 
 def _sanitize_error_text(text: str, sensitive_tokens: Iterable[str]) -> str:
@@ -145,7 +145,18 @@ class DownstreamMCPClient:
             write=self._config.call_timeout,
         )
 
+        pinned_ip = getattr(validated_url, "pinned_ip", None)
+        target_hostname = getattr(validated_url, "hostname", None)
+        transport = None
+        if pinned_ip and target_hostname and not is_loopback_host(target_hostname):
+            transport = create_pinned_async_transport(
+                target_host=target_hostname,
+                pinned_ip=pinned_ip,
+                verify=True,
+            )
+
         http_client = httpx2.AsyncClient(
+            transport=transport,
             headers=headers,
             timeout=http_timeout,
             verify=True,

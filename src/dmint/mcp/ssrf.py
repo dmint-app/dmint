@@ -11,7 +11,7 @@ from __future__ import annotations
 import ipaddress
 import socket
 import urllib.parse
-from typing import Container
+from typing import Any, Container
 
 from .errors import MCPConfigurationError, MCPConnectionError
 
@@ -75,6 +75,11 @@ def is_private_or_metadata_ip(
     Returns:
         True if the IP represents a restricted/private/metadata destination.
     """
+    # Check IPv4-mapped IPv6 addresses (::ffff:x.x.x.x) first so that
+    # the general IPv6 is_reserved check does not preempt underlying IPv4 classification.
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+        return is_private_or_metadata_ip(ip.ipv4_mapped, allow_loopback=allow_loopback)
+
     if ip.is_loopback:
         return not allow_loopback
 
@@ -92,11 +97,6 @@ def is_private_or_metadata_ip(
         # 0.0.0.0/8
         if ip in ipaddress.IPv4Network("0.0.0.0/8"):
             return True
-
-    elif isinstance(ip, ipaddress.IPv6Address):
-        # IPv4-mapped IPv6 addresses (::ffff:x.x.x.x)
-        if ip.ipv4_mapped is not None:
-            return is_private_or_metadata_ip(ip.ipv4_mapped, allow_loopback=allow_loopback)
 
     return False
 
@@ -120,6 +120,119 @@ def parse_ip_literal(hostname: str) -> ipaddress.IPv4Address | ipaddress.IPv6Add
         return ipaddress.ip_address(clean)
     except ValueError:
         return None
+
+
+def is_obfuscated_or_short_ip(host: str) -> bool:
+    """Check if hostname represents an obfuscated octal, hex, or short-form IP literal."""
+    clean = host.lower().strip("[]").strip()
+    if not clean:
+        return False
+    if clean.startswith("0x"):
+        return True
+    parts = clean.split(".")
+    if 1 <= len(parts) <= 4:
+        all_numeric = True
+        has_octal = False
+        has_hex = False
+        for p in parts:
+            if not p:
+                all_numeric = False
+                break
+            if p.startswith("0x"):
+                has_hex = True
+                try:
+                    int(p, 16)
+                except ValueError:
+                    all_numeric = False
+            elif p.isdigit():
+                if len(p) > 1 and p.startswith("0"):
+                    has_octal = True
+            else:
+                all_numeric = False
+        if all_numeric:
+            if has_octal or has_hex:
+                return True
+            if 2 <= len(parts) <= 3:
+                return True
+    return False
+
+
+class ValidatedURL(str):
+    """String subclass representing a validated MCP URL with pinned IP and destination details."""
+
+    pinned_ip: str | None
+    hostname: str
+    port: int
+
+    def __new__(
+        cls,
+        url: str,
+        *,
+        pinned_ip: str | None = None,
+        hostname: str = "",
+        port: int = 443,
+    ) -> "ValidatedURL":
+        instance = super().__new__(cls, url)
+        instance.pinned_ip = pinned_ip
+        instance.hostname = hostname
+        instance.port = port
+        return instance
+
+
+class PinnedAsyncNetworkBackend:
+    """Network backend that connects directly to a pinned IP while preserving host/SNI semantics."""
+
+    def __init__(self, target_host: str, pinned_ip: str, base_backend: Any = None) -> None:
+        import httpcore2._backends.anyio
+
+        self._target_host = target_host.lower()
+        self._pinned_ip = pinned_ip
+        self._base = base_backend or httpcore2._backends.anyio.AnyIOBackend()
+
+    async def connect_tcp(
+        self,
+        host: str,
+        port: int,
+        timeout: float | None = None,
+        local_address: str | None = None,
+        socket_options: Any = None,
+    ) -> Any:
+        connect_host = self._pinned_ip if host.lower() == self._target_host else host
+        return await self._base.connect_tcp(
+            connect_host,
+            port,
+            timeout=timeout,
+            local_address=local_address,
+            socket_options=socket_options,
+        )
+
+    async def connect_unix_socket(
+        self,
+        path: str,
+        timeout: float | None = None,
+        socket_options: Any = None,
+    ) -> Any:
+        return await self._base.connect_unix_socket(path, timeout=timeout, socket_options=socket_options)
+
+    async def sleep(self, seconds: float) -> None:
+        await self._base.sleep(seconds)
+
+
+def create_pinned_async_transport(
+    target_host: str,
+    pinned_ip: str,
+    *,
+    verify: bool = True,
+    **kwargs: Any,
+) -> Any:
+    """Create an AsyncHTTPTransport pinned to a specific IP address to defeat DNS rebinding."""
+    import httpx2
+
+    transport = httpx2.AsyncHTTPTransport(verify=verify, **kwargs)
+    backend = PinnedAsyncNetworkBackend(target_host, pinned_ip)
+    if hasattr(transport, "_pool") and hasattr(transport._pool, "_network_backend"):
+        setattr(transport._pool, "_network_backend", backend)
+    return transport
 
 
 def resolve_and_verify_dns(
@@ -230,6 +343,17 @@ def validate_mcp_url(
     if not hostname:
         raise MCPConfigurationError(f"remote MCP endpoint URL '{clean_url}' is missing a hostname")
 
+    clean_host = hostname.strip("[]").strip()
+    if clean_host.endswith(".") or any(not label for label in clean_host.split(".")):
+        raise MCPConfigurationError(
+            f"SSRF violation: trailing-dot or empty-label hostnames are prohibited: '{hostname}'"
+        )
+
+    if is_obfuscated_or_short_ip(clean_host):
+        raise MCPConfigurationError(
+            f"SSRF violation: octal, hex, or short-form IP literals are prohibited: '{hostname}'"
+        )
+
     port = parsed.port
     if port is not None:
         if not (1 <= port <= 65535):
@@ -251,6 +375,7 @@ def validate_mcp_url(
             f"remote MCP endpoint must use HTTPS: '{clean_url}'. HTTP is only allowed for loopback testing."
         )
 
+    pinned_ip: str | None = None
     # Check IP literal directly
     ip_literal = parse_ip_literal(hostname)
     if ip_literal is not None:
@@ -258,9 +383,9 @@ def validate_mcp_url(
             raise MCPConfigurationError(
                 f"SSRF violation: remote MCP endpoint points to prohibited IP address '{hostname}'"
             )
+        pinned_ip = str(ip_literal)
     else:
         # Check known metadata hostnames and suffixes
-        clean_host = hostname.strip("[]").strip()
         if clean_host in METADATA_HOSTNAMES or clean_host.endswith(".internal") or clean_host.endswith(".local"):
             raise MCPConfigurationError(
                 f"SSRF violation: remote MCP endpoint points to prohibited internal or metadata host '{hostname}'"
@@ -268,6 +393,10 @@ def validate_mcp_url(
 
         if resolve_dns and not is_loopback:
             # Host is a remote domain name: check DNS pre-resolution
-            resolve_and_verify_dns(hostname, port, allow_loopback=allow_loopback)
+            resolved_ips = resolve_and_verify_dns(hostname, port, allow_loopback=allow_loopback)
+            if resolved_ips:
+                pinned_ip = resolved_ips[0]
+        elif is_loopback:
+            pinned_ip = "127.0.0.1" if hostname in ("localhost", "127.0.0.1") else hostname
 
-    return clean_url
+    return ValidatedURL(clean_url, pinned_ip=pinned_ip, hostname=hostname, port=port)
