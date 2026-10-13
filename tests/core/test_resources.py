@@ -349,6 +349,124 @@ class TestResourceMatching(unittest.TestCase):
                 validate_resource_syntax("", kind=kind)
             self.assertFalse(match_resource("dummy", "", kind=kind))
 
+    def test_host_normalization_rejects_empty_labels_and_repeated_dots(self) -> None:
+        """Reject empty labels and repeated trailing dots as ResourceMatchingError / DMT_RESOURCE_INVALID."""
+        invalid_hosts = [
+            "zt8ggjag8bj..",
+            "api.github.com..",
+            "example.com...",
+            "api..github.com",
+            ".api.github.com",
+            ".",
+            "..",
+            "...",
+            "foo..bar.com",
+            "https://api.github.com../path",
+            "https://api..github.com/path",
+        ]
+        for bad in invalid_hosts:
+            if "://" in bad:
+                with self.assertRaises(ResourceMatchingError):
+                    normalize_url(bad)
+            else:
+                with self.assertRaises(ResourceMatchingError):
+                    normalize_host(bad)
+
+        # Policy evaluation fails closed with DMT_RESOURCE_INVALID
+        policy = Policy([Rule.allow("api", "call", resource="*.github.com", resource_kind="host")])
+        req_bad = ToolRequest(
+            request_id="req-1",
+            agent_id="test-agent",
+            tool="api",
+            action="call",
+            resource="api.github.com..",
+            arguments={},
+            context=TrustedContext({}),
+        )
+        dec, code = policy.evaluate_detailed(req_bad)
+        self.assertEqual(dec, Decision.DENY)
+        self.assertEqual(code, "DMT_RESOURCE_INVALID")
+
+    def test_host_normalization_idempotence(self) -> None:
+        """normalize(normalize(x)) == normalize(x) for every accepted input."""
+        accepted_hosts = [
+            "api.github.com",
+            "api.github.com.",  # single trailing dot (DNS canonicalization)
+            "GITHUB.COM",
+            "localhost",
+            "127.0.0.1",
+            "192.168.1.1:8080",
+            "[::1]",
+            "[::1]:8080",
+            "sub.domain.co.uk",
+            "sub.domain.co.uk.",
+            "xn--bcher-kva.example",
+            "bücher.example",
+        ]
+        for host in accepted_hosts:
+            norm1 = normalize_host(host)
+            norm2 = normalize_host(norm1)
+            self.assertEqual(norm1, norm2, f"Idempotence violated for {host}: {norm1} != {norm2}")
+
+    def test_resource_fuzz_classification_counts(self) -> None:
+        """Fuzz test ensuring every iteration is classified as valid, rejected, or error and counts sum to total."""
+        import random
+        import string
+
+        rng = random.Random(42)
+        total_per_kind = 1000
+        chars = string.ascii_letters + string.digits + "./:@_-%" + "\x00\r\n"
+
+        for kind, norm_fn in [
+            ("host", normalize_host),
+            ("path", normalize_path),
+            ("url", normalize_url),
+            ("identifier", normalize_identifier),
+        ]:
+            valid_count = 0
+            rejected_count = 0
+            error_count = 0
+
+            for i in range(total_per_kind):
+                if i % 2 == 0:
+                    if kind == "host":
+                        base = f"sub{rng.randint(1, 100)}.domain{rng.randint(1, 50)}.org"
+                    elif kind == "path":
+                        base = f"/var/log/app_{rng.randint(1, 50)}.log"
+                    elif kind == "url":
+                        base = f"https://api{rng.randint(1, 50)}.service.io/v1/items"
+                    else:
+                        base = f"user_action_{rng.randint(1, 50)}"
+
+                    if rng.random() < 0.3:
+                        noise = "".join(rng.choice(chars) for _ in range(rng.randint(1, 5)))
+                        raw = base + noise
+                    else:
+                        raw = base
+                else:
+                    length = rng.randint(0, 100)
+                    raw = "".join(rng.choice(chars) for _ in range(length))
+                    if rng.random() < 0.2:
+                        raw += ".."
+
+                try:
+                    norm = norm_fn(raw)
+                    self.assertEqual(norm_fn(norm), norm)
+                    valid_count += 1
+                except ResourceMatchingError:
+                    rejected_count += 1
+                except Exception:
+                    error_count += 1
+
+            self.assertEqual(
+                valid_count + rejected_count + error_count,
+                total_per_kind,
+                f"Classification count mismatch for kind '{kind}'",
+            )
+            self.assertEqual(error_count, 0, f"Unexpected unhandled error for kind '{kind}'")
+            self.assertGreater(valid_count, 0, f"Expected at least some valid inputs for kind '{kind}'")
+            self.assertGreater(rejected_count, 0, f"Expected rejected inputs for kind '{kind}'")
+
 
 if __name__ == "__main__":
     unittest.main()

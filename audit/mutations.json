@@ -566,5 +566,14 @@
     "tests": [
       "tests/core/test_webhooks.py"
     ]
+  },
+  {
+    "id": "MUT-62",
+    "file": "src/dmint/core/resources.py",
+    "find": "        labels = host_part.split(\".\")\n        if any(not label for label in labels):\n            raise ResourceMatchingError(\"host contains empty labels or repeated dots\")",
+    "replace": "        if False:\n            pass",
+    "tests": [
+      "tests/core/test_resources.py"
+    ]
   }
 ]

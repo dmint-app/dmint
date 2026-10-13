@@ -368,12 +368,20 @@ def normalize_host(host_str: str) -> str:
     else:
         host_part = clean
 
-    # Strip trailing dot
-    if host_part.endswith(".") and not host_part.startswith("["):
-        host_part = host_part[:-1]
+    # Strip trailing dot (DNS root canonicalization)
+    if not host_part.startswith("["):
+        if host_part.endswith("."):
+            host_part = host_part[:-1]
 
-    if not host_part:
-        raise ResourceMatchingError("host cannot be empty after normalization")
+        if not host_part:
+            raise ResourceMatchingError("host cannot be empty after normalization")
+
+        labels = host_part.split(".")
+        if any(not label for label in labels):
+            raise ResourceMatchingError("host contains empty labels or repeated dots")
+    else:
+        if not host_part:
+            raise ResourceMatchingError("host cannot be empty after normalization")
 
     # IDN Punycode conversion
     if not host_part.startswith("["):
@@ -455,11 +463,19 @@ def normalize_url(url_str: str) -> str:
         host_part = netloc_raw
 
     # Strip trailing dot
-    if host_part.endswith(".") and not host_part.startswith("["):
-        host_part = host_part[:-1]
+    if not host_part.startswith("["):
+        if host_part.endswith("."):
+            host_part = host_part[:-1]
 
-    if not host_part:
-        raise ResourceMatchingError("invalid empty host in URL")
+        if not host_part:
+            raise ResourceMatchingError("invalid empty host in URL")
+
+        labels = host_part.split(".")
+        if any(not label for label in labels):
+            raise ResourceMatchingError("host in URL contains empty labels or repeated dots")
+    else:
+        if not host_part:
+            raise ResourceMatchingError("invalid empty host in URL")
 
     # IDN Punycode
     if not host_part.startswith("["):
