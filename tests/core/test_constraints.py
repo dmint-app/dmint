@@ -1018,29 +1018,20 @@ class TestConstraintsEvaluation(unittest.TestCase):
         self.assertEqual(dec, Decision.ALLOW)
         self.assertIsNone(code)
 
-        # Scenario B: DENY rule with constraints
-        policy_b = Policy(
-            [
-                Rule.deny(
-                    "db",
-                    "query",
-                    resource="*",
-                    constraints={"properties": {"limit": {"type": "integer", "maximum": 100}}},
-                ),
-                Rule.allow("db", "query", resource="*"),
-            ]
-        )
-        # B.1: Arguments violate the constraint schema (type mismatch, bound error)
-        req_bad_type = make_test_request("db", "query", "*", {"limit": "not_an_int"})
-        dec, code = policy_b.evaluate_detailed(req_bad_type)
-        self.assertEqual(dec, Decision.DENY)
-        self.assertEqual(code, "DMT_CONSTRAINT_VIOLATION")
-
-        # B.2: Arguments satisfy constraints -> DENY rule matches -> DMT_POLICY_DENIED
-        req_denied = make_test_request("db", "query", "*", {"limit": 50})
-        dec, code = policy_b.evaluate_detailed(req_denied)
-        self.assertEqual(dec, Decision.DENY)
-        self.assertEqual(code, "DMT_POLICY_DENIED")
+        # Scenario B: DENY rule with constraints is rejected at load time
+        with self.assertRaises(PolicyError) as ctx:
+            Policy(
+                [
+                    Rule.deny(
+                        "db",
+                        "query",
+                        resource="*",
+                        constraints={"properties": {"limit": {"type": "integer", "maximum": 100}}},
+                    ),
+                    Rule.allow("db", "query", resource="*"),
+                ]
+            )
+        self.assertIn("DENY rules cannot have constraints", str(ctx.exception))
 
         # Scenario C: APPROVAL_REQUIRED rule with constraints
         policy_c = Policy(

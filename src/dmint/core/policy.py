@@ -155,6 +155,8 @@ class Rule:
         object.__setattr__(self, "conditions", tuple(self.conditions))
 
         if self.constraints is not None:
+            if self.effect is Decision.DENY:
+                raise PolicyError("DENY rules cannot have constraints")
             validate_constraints_schema(self.constraints)
             object.__setattr__(self, "constraints", freeze_json(self.constraints, "rule.constraints"))
 
@@ -393,6 +395,8 @@ class Policy:
 
         constraints = value.get("constraints")
         if constraints is not None:
+            if effect is Decision.DENY:
+                raise PolicyError("DENY rules cannot have constraints")
             validate_constraints_schema(constraints)
 
         return Rule(

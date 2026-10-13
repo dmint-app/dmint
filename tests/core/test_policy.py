@@ -390,3 +390,40 @@ class PolicyTests(unittest.TestCase):
         dec_b, code_b = policy.evaluate_detailed(req_agent_b)
         self.assertEqual(dec_b, Decision.DENY)
         self.assertEqual(code_b, "DMT_RESOURCE_INVALID")
+
+    def test_deny_rule_with_constraints_rejected_at_load_time(self):
+        """A DENY rule with constraints must be rejected at load time with PolicyError."""
+        # 1. Direct Rule constructor
+        with self.assertRaises(PolicyError) as ctx:
+            Rule(
+                Decision.DENY,
+                "db",
+                "query",
+                constraints={"properties": {"limit": {"type": "integer"}}},
+            )
+        self.assertIn("DENY rules cannot have constraints", str(ctx.exception))
+
+        # 2. Rule.deny factory
+        with self.assertRaises(PolicyError) as ctx:
+            Rule.deny(
+                "db",
+                "query",
+                constraints={"properties": {"limit": {"type": "integer"}}},
+            )
+        self.assertIn("DENY rules cannot have constraints", str(ctx.exception))
+
+        # 3. Policy.from_dict mapping
+        with self.assertRaises(PolicyError) as ctx:
+            Policy.from_dict(
+                {
+                    "rules": [
+                        {
+                            "effect": "deny",
+                            "tool": "db",
+                            "action": "query",
+                            "constraints": {"properties": {"limit": {"type": "integer"}}},
+                        }
+                    ]
+                }
+            )
+        self.assertIn("DENY rules cannot have constraints", str(ctx.exception))

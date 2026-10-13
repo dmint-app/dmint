@@ -336,33 +336,12 @@ When multiple `ALLOW` rules match the same tool and action, the request must sat
 - A refund of `$600.00` with reason `"Customer dissatisfaction"` violates Rule 1's `$500.00` maximum bound and is **DENIED** (`DMT_CONSTRAINT_VIOLATION`), even though it fully satisfies Rule 2.
 - A refund of `$100.00` with no reason violates Rule 2's required field and is **DENIED** (`DMT_CONSTRAINT_VIOLATION`), even though it fully satisfies Rule 1.
 
-#### 5. Constrained DENY Rule (Denial Never Loosened)
-Adding constraints to a `DENY` rule specifies the prohibited envelope. It cannot be bypassed by sending invalid arguments:
-```json
-[
-  {
-    "effect": "deny",
-    "tool": "orders",
-    "action": "cancel",
-    "resource": "*",
-    "constraints": {
-      "required": ["order_status"],
-      "properties": {
-        "order_status": { "type": "string", "enum": ["shipped", "delivered"] }
-      }
-    }
-  },
-  {
-    "effect": "allow",
-    "tool": "orders",
-    "action": "cancel",
-    "resource": "*"
-  }
-]
-```
-- Request with `{"order_status": "shipped"}` matches the prohibited envelope and is **DENIED** (`DMT_POLICY_DENIED`).
-- Request with malformed arguments `{"order_status": 123}` (type mismatch) or missing `order_status` fails constraint validation and is **DENIED** (`DMT_CONSTRAINT_VIOLATION`). It does **not** fall through to the `ALLOW` rule.
-- Request with `{"order_status": "pending"}` satisfies the constraint schema and does not match the forbidden enum; it falls through to the `ALLOW` rule and is **ALLOWED**.
+
+<Note>
+**Constraint Evaluation & Invariants**:
+- **Multiple matching ALLOW rules are AND**: When multiple `ALLOW` rules match a tool request, all matched rules' constraints must be satisfied simultaneously. A failed constraint on any matched rule denies the entire request (`DMT_CONSTRAINT_VIOLATION`).
+- **No constraints on DENY rules**: Rules with `effect: "deny"` cannot specify `constraints`. A `DENY` rule rejects matching tool calls unconditionally; defining constraints on a `DENY` rule is strictly rejected at policy load time with `PolicyError`.
+</Note>
 
 ---
 

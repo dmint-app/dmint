@@ -547,5 +547,15 @@
     "tests": [
       "tests/dashboard/test_routes.py"
     ]
+  },
+  {
+    "id": "MUT-60",
+    "file": "src/dmint/core/policy.py",
+    "find": "        if self.constraints is not None:\n            if self.effect is Decision.DENY:\n                raise PolicyError(\"DENY rules cannot have constraints\")",
+    "replace": "        if self.constraints is not None:\n            if False:\n                raise PolicyError(\"DENY rules cannot have constraints\")",
+    "tests": [
+      "tests/core/test_policy.py",
+      "tests/core/test_constraints.py"
+    ]
   }
 ]
