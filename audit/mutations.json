@@ -557,5 +557,14 @@
       "tests/core/test_policy.py",
       "tests/core/test_constraints.py"
     ]
+  },
+  {
+    "id": "MUT-61",
+    "file": "src/dmint/core/webhooks.py",
+    "find": "    text = re.sub(r\"@(?=(?:everyone|here)\\b)\", f\"@{zwsp}\", text, flags=re.IGNORECASE)",
+    "replace": "    pass",
+    "tests": [
+      "tests/core/test_webhooks.py"
+    ]
   }
 ]

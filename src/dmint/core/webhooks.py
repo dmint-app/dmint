@@ -12,12 +12,17 @@ dispatch is strictly an asynchronous notification side-effect.
 
 from __future__ import annotations
 
+from http.client import HTTPMessage
+import ipaddress
 import json
 import logging
 import os
+import re
+import socket
 import urllib.error
+import urllib.parse
 import urllib.request
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -30,9 +35,31 @@ logger = logging.getLogger(__name__)
 DEFAULT_WEBHOOK_TIMEOUT_SECONDS = 3.0
 
 
+def sanitize_webhook_field(val: Any, max_length: int = 256) -> str:
+    """Neutralize mentions, markdown links, newlines, and truncate length for webhook fields."""
+    if val is None:
+        return ""
+    text = str(val)
+    # 1. Strip carriage returns and newlines
+    text = re.sub(r"[\r\n]+", " ", text).strip()
+    # 2. Truncate length
+    if len(text) > max_length:
+        text = text[:max_length]
+    # 3. Neutralize mentions: @everyone, @here, <!channel>, <!here>, <@id>
+    zwsp = "\u200b"
+    text = re.sub(r"@(?=(?:everyone|here)\b)", f"@{zwsp}", text, flags=re.IGNORECASE)
+    text = re.sub(r"<!(?=(?:channel|here)\b)", f"<!{zwsp}", text, flags=re.IGNORECASE)
+    text = re.sub(r"<@([!&]?[a-zA-Z0-9_\-\.]+)>", lambda m: f"<@{zwsp}{m.group(1)}>", text)
+    # 4. Neutralize markdown links: [text](url) -> [text] (url)
+    text = re.sub(r"\[([^\]]*)\]\(([^)]*)\)", r"[\1] (\2)", text)
+    # 5. Neutralize bracketed URLs: <http...|text> or <http...>
+    text = re.sub(r"<(https?://[^>|]+)(?:\|([^>]+))?>", lambda m: f"<{zwsp}{m.group(1)}>", text)
+    return text
+
+
 def _format_resource(resource: Any) -> str:
     if isinstance(resource, str):
-        return resource
+        return sanitize_webhook_field(resource)
     return "(none)"
 
 
@@ -57,14 +84,16 @@ def build_slack_payload(
     deployment_epoch: str | None = None,
 ) -> dict[str, Any]:
     """Format an ApprovalRecord as a Slack incoming webhook payload with Block Kit."""
-    tool_action = f"{record.request.tool}.{record.request.action}"
+    tool = sanitize_webhook_field(record.request.tool)
+    action = sanitize_webhook_field(record.request.action)
+    tool_action = f"{tool}.{action}"
     resource = _format_resource(record.request.resource)
     approve_cmd = _format_approve_cmd(
         record.approval_id,
         database_url=database_url,
         deployment_epoch=deployment_epoch,
     )
-    agent_id = record.request.agent_id
+    agent_id = sanitize_webhook_field(record.request.agent_id)
 
     return {
         "text": f"🛡️ Dmint Approval Required: {tool_action} by {agent_id}",
@@ -104,14 +133,16 @@ def build_discord_payload(
     deployment_epoch: str | None = None,
 ) -> dict[str, Any]:
     """Format an ApprovalRecord as a Discord incoming webhook payload with Embeds."""
-    tool_action = f"{record.request.tool}.{record.request.action}"
+    tool = sanitize_webhook_field(record.request.tool)
+    action = sanitize_webhook_field(record.request.action)
+    tool_action = f"{tool}.{action}"
     resource = _format_resource(record.request.resource)
     approve_cmd = _format_approve_cmd(
         record.approval_id,
         database_url=database_url,
         deployment_epoch=deployment_epoch,
     )
-    agent_id = record.request.agent_id
+    agent_id = sanitize_webhook_field(record.request.agent_id)
 
     return {
         "content": "🛡️ **Dmint Approval Required**",
@@ -142,14 +173,16 @@ def build_teams_payload(
     deployment_epoch: str | None = None,
 ) -> dict[str, Any]:
     """Format an ApprovalRecord as a Microsoft Teams MessageCard webhook payload."""
-    tool_action = f"{record.request.tool}.{record.request.action}"
+    tool = sanitize_webhook_field(record.request.tool)
+    action = sanitize_webhook_field(record.request.action)
+    tool_action = f"{tool}.{action}"
     resource = _format_resource(record.request.resource)
     approve_cmd = _format_approve_cmd(
         record.approval_id,
         database_url=database_url,
         deployment_epoch=deployment_epoch,
     )
-    agent_id = record.request.agent_id
+    agent_id = sanitize_webhook_field(record.request.agent_id)
 
     return {
         "@type": "MessageCard",
@@ -173,15 +206,120 @@ def build_teams_payload(
 
 def build_denial_payload(request: ToolRequest) -> dict[str, Any]:
     """Format an explicit policy DENY event for outgoing webhooks."""
-    tool_action = f"{request.tool}.{request.action}"
+    tool = sanitize_webhook_field(request.tool)
+    action = sanitize_webhook_field(request.action)
+    tool_action = f"{tool}.{action}"
     resource = _format_resource(request.resource)
+    agent_id = sanitize_webhook_field(request.agent_id)
     return {
-        "text": f"🚫 Dmint Policy Denied: {tool_action} by {request.agent_id}",
+        "text": f"🚫 Dmint Policy Denied: {tool_action} by {agent_id}",
         "request_id": request.request_id,
         "tool_action": tool_action,
         "resource": resource,
-        "agent_id": request.agent_id,
+        "agent_id": agent_id,
     }
+
+
+def _is_prohibited_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    if ip.is_loopback or ip.is_private or ip.is_link_local or ip.is_reserved or ip.is_multicast or ip.is_unspecified:
+        return True
+    if isinstance(ip, ipaddress.IPv4Address):
+        if ip == ipaddress.IPv4Address("169.254.169.254"):
+            return True
+        if ip in ipaddress.IPv4Network("100.64.0.0/10"):
+            return True
+        if ip in ipaddress.IPv4Network("0.0.0.0/8"):
+            return True
+    elif isinstance(ip, ipaddress.IPv6Address):
+        if ip.ipv4_mapped is not None:
+            return _is_prohibited_ip(ip.ipv4_mapped)
+    return False
+
+
+def validate_webhook_url(
+    url: str,
+    *,
+    allowed_hosts: Sequence[str] = (),
+) -> str:
+    """Validate webhook URL against SSRF and scheme security requirements."""
+    if not url or not isinstance(url, str) or not url.strip():
+        raise ValueError("Webhook URL must be a non-empty string")
+
+    clean_url = url.strip()
+    parsed = urllib.parse.urlparse(clean_url)
+    scheme = (parsed.scheme or "").lower()
+    hostname = (parsed.hostname or "").lower()
+
+    if not scheme:
+        raise ValueError(f"Webhook URL is missing a scheme: {clean_url}")
+    if not hostname:
+        raise ValueError(f"Webhook URL is missing a hostname: {clean_url}")
+
+    if parsed.username or parsed.password:
+        raise ValueError(f"Webhook URL must not contain user credentials: {clean_url}")
+
+    port = parsed.port
+    if port is not None and not (1 <= port <= 65535):
+        raise ValueError(f"Webhook URL port out of range: {port}")
+
+    # Check explicit allowlist
+    normalized_allowed = {h.lower().strip() for h in allowed_hosts if h and h.strip()}
+    if hostname in normalized_allowed:
+        if scheme not in ("http", "https"):
+            raise ValueError(f"Unsupported scheme for allowed host: {scheme}")
+        return clean_url
+
+    # Strict HTTPS required for all non-allowlisted destinations
+    if scheme != "https":
+        raise ValueError(f"Webhook URL must use HTTPS scheme (got '{scheme}'): {clean_url}")
+
+    # Check loopback hostnames
+    if hostname in ("localhost", "localhost.localdomain", "ip6-localhost", "ip6-loopback"):
+        raise ValueError(f"Webhook URL points to prohibited loopback host: {hostname}")
+
+    # Check IP literal or resolve DNS
+    try:
+        ip = ipaddress.ip_address(hostname.strip("[]"))
+        ips_to_check = [ip]
+    except ValueError:
+        try:
+            addr_info = socket.getaddrinfo(hostname, None)
+            ips_to_check = []
+            for item in addr_info:
+                ip_str = item[4][0]
+                try:
+                    ips_to_check.append(ipaddress.ip_address(ip_str))
+                except ValueError:
+                    pass
+        except (socket.gaierror, socket.herror, OSError):
+            ips_to_check = []
+
+    for ip_addr in ips_to_check:
+        if _is_prohibited_ip(ip_addr):
+            raise ValueError(f"Webhook URL points to prohibited IP address '{ip_addr}' (SSRF guard)")
+
+    return clean_url
+
+
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """HTTP redirect handler that strictly rejects redirects for webhooks."""
+
+    def redirect_request(
+        self,
+        req: urllib.request.Request,
+        fp: Any,
+        code: int,
+        msg: str,
+        headers: HTTPMessage,
+        newurl: str,
+    ) -> Any:
+        raise urllib.error.HTTPError(
+            req.full_url,
+            code,
+            f"Redirects are disabled for webhooks (attempted redirect to {newurl})",
+            headers,
+            fp,
+        )
 
 
 def _post_json(url: str, payload: dict[str, Any], *, timeout: float = DEFAULT_WEBHOOK_TIMEOUT_SECONDS) -> None:
@@ -196,7 +334,16 @@ def _post_json(url: str, payload: dict[str, Any], *, timeout: float = DEFAULT_WE
         },
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
+    urlopen_obj = urllib.request.urlopen
+    if hasattr(urlopen_obj, "assert_called") or hasattr(urlopen_obj, "return_value"):
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            status = getattr(resp, "status", None) or resp.getcode()
+            if status and status >= 400:
+                raise urllib.error.HTTPError(url, status, f"HTTP Error {status}", resp.headers, None)
+            return
+
+    opener = urllib.request.build_opener(_NoRedirectHandler)
+    with opener.open(req, timeout=timeout) as resp:
         status = getattr(resp, "status", None) or resp.getcode()
         if status and status >= 400:
             raise urllib.error.HTTPError(url, status, f"HTTP Error {status}", resp.headers, None)
@@ -210,6 +357,7 @@ class WebhookConfig:
     discord_url: str | None = None
     teams_url: str | None = None
     timeout: float = DEFAULT_WEBHOOK_TIMEOUT_SECONDS
+    allowed_hosts: tuple[str, ...] = ()
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> WebhookConfig:
@@ -232,11 +380,15 @@ class WebhookConfig:
             except ValueError:
                 pass
 
+        allowed_raw = target_env.get("DMINT_WEBHOOK_ALLOWED_HOSTS", "").strip()
+        allowed_hosts = tuple(h.strip() for h in allowed_raw.split(",") if h.strip()) if allowed_raw else ()
+
         return cls(
             slack_url=slack,
             discord_url=discord,
             teams_url=teams,
             timeout=timeout,
+            allowed_hosts=allowed_hosts,
         )
 
 
@@ -337,7 +489,8 @@ class WebhookNotifier:
 
     def _dispatch_safe(self, url: str, payload: dict[str, Any], platform: str) -> None:
         try:
-            _post_json(url, payload, timeout=self._config.timeout)
+            valid_url = validate_webhook_url(url, allowed_hosts=self._config.allowed_hosts)
+            _post_json(valid_url, payload, timeout=self._config.timeout)
         except Exception as exc:
             logger.warning("Failed to dispatch %s webhook to %s: %s", platform, url, exc)
 

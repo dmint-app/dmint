@@ -9,6 +9,7 @@ import socket
 import urllib.error
 import urllib.request
 from datetime import datetime, timedelta, timezone
+from typing import Any
 from unittest.mock import MagicMock, call, patch
 
 import pytest
@@ -686,3 +687,241 @@ class TestCoreZeroNetworkCalls:
         assert mock_urlopen.call_count == 0
         assert mock_notifier.send_approval_required.call_count == 0
         assert mock_notifier.send_policy_denied.call_count == 0
+
+
+class TestWebhookSanitizationAndSSRF:
+    """Security tests for webhook mention neutralization, link stripping, length bounds, SSRF, and redirects."""
+
+    def test_sanitize_webhook_field_mentions(self) -> None:
+        from dmint.core.webhooks import sanitize_webhook_field
+
+        # @everyone and @here must have a zero-width space inserted to prevent channel notifications
+        sanitized_everyone = sanitize_webhook_field("deploy @everyone immediately")
+        assert "@everyone" not in sanitized_everyone
+        assert "@\u200beveryone" in sanitized_everyone
+
+        sanitized_here = sanitize_webhook_field("status @here please check")
+        assert "@here" not in sanitized_here
+        assert "@\u200bhere" in sanitized_here
+
+        # Slack <!channel> and <!here>
+        sanitized_channel = sanitize_webhook_field("ping <!channel> wake up")
+        assert "<!channel>" not in sanitized_channel
+        assert "<!\u200bchannel>" in sanitized_channel
+
+        sanitized_slack_here = sanitize_webhook_field("ping <!here> wake up")
+        assert "<!here>" not in sanitized_slack_here
+        assert "<!\u200bhere>" in sanitized_slack_here
+
+        # User and role mentions <@U123456>, <@12345>
+        sanitized_user = sanitize_webhook_field("assigned to <@U12345678>")
+        assert "<@U12345678>" not in sanitized_user
+        assert "<@\u200bU12345678>" in sanitized_user
+
+        sanitized_discord_user = sanitize_webhook_field("assigned to <@987654321>")
+        assert "<@987654321>" not in sanitized_discord_user
+        assert "<@\u200b987654321>" in sanitized_discord_user
+
+    def test_sanitize_webhook_field_markdown_links(self) -> None:
+        from dmint.core.webhooks import sanitize_webhook_field
+
+        # Markdown link syntax [text](url) neutralized so clients do not render clickable links
+        link_input = "check out [evil payload](https://evil.attacker.com/steal)"
+        sanitized = sanitize_webhook_field(link_input)
+        assert "[evil payload](https://evil.attacker.com/steal)" not in sanitized
+        assert "[evil payload] (https://evil.attacker.com/steal)" in sanitized
+
+        # Slack bracket links <url|text>
+        slack_link = "see <https://malicious.site|click me>"
+        sanitized_slack = sanitize_webhook_field(slack_link)
+        assert "<https://malicious.site" not in sanitized_slack
+        assert "<\u200bhttps://malicious.site" in sanitized_slack
+
+    def test_sanitize_webhook_field_newlines_and_truncation(self) -> None:
+        from dmint.core.webhooks import sanitize_webhook_field
+
+        # Newlines and carriage returns stripped to single spaces
+        multiline = "line1\nline2\r\nline3\rline4"
+        sanitized = sanitize_webhook_field(multiline)
+        assert "\n" not in sanitized
+        assert "\r" not in sanitized
+        assert sanitized == "line1 line2 line3 line4"
+
+        # Truncation to 256 characters
+        long_str = "x" * 500
+        truncated = sanitize_webhook_field(long_str)
+        assert len(truncated) == 256
+        assert truncated == "x" * 256
+
+    def test_payload_builders_hostile_values(self) -> None:
+        from dmint.core.webhooks import (
+            build_slack_payload,
+            build_discord_payload,
+            build_teams_payload,
+            build_denial_payload,
+        )
+
+        hostile_agent = "agent-x @everyone\n[click](http://evil.com)"
+        hostile_tool = "tool\r\n<!channel>"
+        hostile_action = "action\n<@U999>"
+        hostile_resource = "res\n<!here> " + ("A" * 300)
+
+        record = _make_sample_record(
+            tool=hostile_tool,
+            action=hostile_action,
+            resource=hostile_resource,
+            agent_id=hostile_agent,
+        )
+
+        # 1. Slack
+        slack = build_slack_payload(record)
+        slack_json = json.dumps(slack)
+        assert "@everyone" not in slack_json
+        assert "<!channel>" not in slack_json
+        assert "<!here>" not in slack_json
+        assert "<@U999>" not in slack_json
+        assert "[click](http://evil.com)" not in slack_json
+
+        # 2. Discord
+        discord = build_discord_payload(record)
+        discord_json = json.dumps(discord)
+        assert "@everyone" not in discord_json
+        assert "<!channel>" not in discord_json
+        assert "<!here>" not in discord_json
+        assert "<@U999>" not in discord_json
+        assert "[click](http://evil.com)" not in discord_json
+
+        # 3. Teams
+        teams = build_teams_payload(record)
+        teams_json = json.dumps(teams)
+        assert "@everyone" not in teams_json
+        assert "<!channel>" not in teams_json
+        assert "<!here>" not in teams_json
+        assert "<@U999>" not in teams_json
+        assert "[click](http://evil.com)" not in teams_json
+
+        # 4. Denial
+        req = ToolRequest(
+            request_id=new_request_id(),
+            agent_id=hostile_agent,
+            tool=hostile_tool,
+            action=hostile_action,
+            resource=hostile_resource,
+            arguments={},
+            context=TrustedContext({}),
+        )
+        denial = build_denial_payload(req)
+        denial_json = json.dumps(denial)
+        assert "@everyone" not in denial_json
+        assert "<!channel>" not in denial_json
+        assert "<!here>" not in denial_json
+        assert "<@U999>" not in denial_json
+        assert "[click](http://evil.com)" not in denial_json
+
+    def test_ssrf_guard_enforcement(self) -> None:
+        from dmint.core.webhooks import validate_webhook_url
+
+        # Plain HTTP rejected without explicit allowlist
+        with pytest.raises(ValueError, match="must use HTTPS"):
+            validate_webhook_url("http://hooks.slack.com/services/test")
+
+        # Prohibited loopback hostnames
+        with pytest.raises(ValueError, match="loopback"):
+            validate_webhook_url("https://localhost/webhook")
+        with pytest.raises(ValueError, match="loopback"):
+            validate_webhook_url("https://localhost.localdomain/webhook")
+
+        # Prohibited private IP literals
+        with pytest.raises(ValueError, match="prohibited IP"):
+            validate_webhook_url("https://127.0.0.1/webhook")
+        with pytest.raises(ValueError, match="prohibited IP"):
+            validate_webhook_url("https://10.0.0.1/webhook")
+        with pytest.raises(ValueError, match="prohibited IP"):
+            validate_webhook_url("https://192.168.1.1/webhook")
+        with pytest.raises(ValueError, match="prohibited IP"):
+            validate_webhook_url("https://172.16.0.1/webhook")
+        with pytest.raises(ValueError, match="prohibited IP"):
+            validate_webhook_url("https://169.254.169.254/webhook")
+
+        # Embedded user credentials rejected
+        with pytest.raises(ValueError, match="user credentials"):
+            validate_webhook_url("https://admin:pass@hooks.slack.com/services/test")
+
+        # Explicit allowlist allows target host (including HTTP for local receiver)
+        allowed = validate_webhook_url("http://127.0.0.1:9999/webhook", allowed_hosts=("127.0.0.1",))
+        assert allowed == "http://127.0.0.1:9999/webhook"
+
+    def test_local_fake_http_receiver_hostile_values_and_redirects(self) -> None:
+        """Run a local fake HTTP server to verify live transmission with hostile values and redirect prevention."""
+        import http.server
+        import threading
+        from dmint.core.webhooks import WebhookConfig, WebhookNotifier, _post_json
+
+        received_requests: list[dict[str, Any]] = []
+
+        class FakeReceiverHandler(http.server.BaseHTTPRequestHandler):
+            def do_POST(self) -> None:
+                if self.path == "/redirect":
+                    self.send_response(302)
+                    self.send_header("Location", "/stolen_secret")
+                    self.end_headers()
+                    return
+                length = int(self.headers.get("Content-Length", 0))
+                body = self.rfile.read(length)
+                received_requests.append(
+                    {
+                        "path": self.path,
+                        "headers": dict(self.headers),
+                        "body": json.loads(body.decode("utf-8")),
+                    }
+                )
+                self.send_response(200)
+                self.end_headers()
+
+            def log_message(self, format: str, *args: Any) -> None:
+                pass  # Suppress server access logs
+
+        server = http.server.HTTPServer(("127.0.0.1", 0), FakeReceiverHandler)
+        port = server.server_port
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+
+        try:
+            # 1. Live dispatch with hostile values to fake receiver
+            url = f"http://127.0.0.1:{port}/webhook"
+            config = WebhookConfig(
+                slack_url=url,
+                allowed_hosts=("127.0.0.1",),
+                timeout=3.0,
+            )
+            notifier = WebhookNotifier(config)
+
+            record = _make_sample_record(
+                tool="hostile_tool @everyone",
+                action="hostile_action <!channel>",
+                resource="hostile_res [phish](http://phish.com)",
+                agent_id="hostile_agent <@U12345>\nnewline",
+            )
+            notifier.send_approval_required(record)
+
+            assert len(received_requests) == 1
+            rec = received_requests[0]
+            rec_body_str = json.dumps(rec["body"])
+
+            # Verify hostile strings are completely neutralized on the wire
+            assert "@everyone" not in rec_body_str
+            assert "<!channel>" not in rec_body_str
+            assert "<@U12345>" not in rec_body_str
+            assert "[phish](http://phish.com)" not in rec_body_str
+            assert "newline" in rec_body_str
+            assert "\\nnewline" not in rec_body_str
+
+            # 2. Redirect prevention: ensure redirects are rejected and never followed
+            redirect_url = f"http://127.0.0.1:{port}/redirect"
+            with pytest.raises(urllib.error.HTTPError) as exc_info:
+                _post_json(redirect_url, {"test": "data"}, timeout=2.0)
+            assert exc_info.value.code == 302
+            assert "Redirects are disabled" in str(exc_info.value.reason)
+        finally:
+            server.shutdown()
+            server.server_close()
