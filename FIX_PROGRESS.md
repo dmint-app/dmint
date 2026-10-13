@@ -6,7 +6,7 @@
 - [x] A3 Constrained DENY rules: reject constraints on DENY at load time & doc alignment
 - [x] A4 Webhooks: sanitize @everyone, @here, links; truncate; SSRF guard; no redirects
 - [x] A5 Host normalization: reject empty labels & repeated trailing dots; idempotence test; fuzz check
-- [ ] A6 Packaging: httpx2 audit; pyproject questionary/sqlalchemy bounds; py313 classifier; shims audit
+- [x] A6 Packaging: httpx2 audit; pyproject questionary/sqlalchemy bounds; py313 classifier; shims audit
 - [ ] A7 Docs code blocks: fix compilation errors in docs python fences & add validation test
 - [ ] A8 Fresh-process import isolation test; docs on integrity key & policy digest pin
 - [ ] Group A Gate: Full pytest, ruff, mypy, mutation harness, tag fix-A

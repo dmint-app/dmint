@@ -27,8 +27,8 @@ classifiers = [
 dependencies = [
     "cryptography>=42,<51",
     "rfc8785>=0.1.2,<0.2",
-    "questionary>=2.0.0",
-    "sqlalchemy>=2.0.0",
+    "questionary>=2.0.0,<3.0.0",
+    "sqlalchemy>=2.0.0,<3.0.0",
 ]
 
 [project.optional-dependencies]
@@ -41,7 +41,7 @@ mcp = [
     "anyio>=4.9",
     "starlette>=0.27",
     "uvicorn>=0.31",
-    "httpx2>=2.5",
+    "httpx2>=2.5,<3.0.0",
 ]
 dashboard = [
     "fastapi>=0.110,<1.0",

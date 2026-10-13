@@ -575,5 +575,14 @@
     "tests": [
       "tests/core/test_resources.py"
     ]
+  },
+  {
+    "id": "MUT-63",
+    "file": "src/dmint/enforcement.py",
+    "find": "warnings.warn(\n    \"dmint.enforcement is deprecated and will be removed in v3.0.0; use dmint.core.enforcement instead.\",\n    DeprecationWarning,\n    stacklevel=2,\n)",
+    "replace": "pass",
+    "tests": [
+      "tests/core/test_shims.py"
+    ]
   }
 ]
