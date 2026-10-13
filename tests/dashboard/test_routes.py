@@ -170,6 +170,83 @@ class TestApprovalDetail:
         assert b"REJECTED" in resp.content
         assert b"not allowed" in resp.content
 
+    def test_nested_dict_and_list_arguments_rendered_cleanly(self, test_client, store):
+        from dmint.approvals import ApprovalRecord, new_request_id
+        from dmint.models import NO_RESOURCE, ToolRequest, TrustedContext
+        from tests.dashboard.conftest import make_provenance
+
+        req = ToolRequest(
+            request_id=new_request_id(),
+            tool="nested_tool",
+            action="execute",
+            agent_id="test-agent",
+            resource=NO_RESOURCE,
+            arguments={
+                "config": {
+                    "debug": True,
+                    "endpoints": ["https://api.internal/v1", "https://api.internal/v2"],
+                },
+                "items": [{"id": 1, "name": "item1"}],
+            },
+            context=TrustedContext({}),
+        )
+        record = ApprovalRecord.create(
+            request=req,
+            integration_id="test-runtime",
+            capability_id="test.execute",
+            policy_provenance=make_provenance(NOW),
+            created_at=NOW,
+            expires_at=NOW + timedelta(minutes=10),
+        )
+        store.save_pending(record)
+
+        resp = test_client.get(f"/approvals/{record.approval_id}")
+        assert resp.status_code == 200
+        assert b"(could not render)" not in resp.content
+        assert b"endpoints" in resp.content
+        assert b"https://api.internal/v1" in resp.content
+        assert b"item1" in resp.content
+
+    def test_xss_payloads_in_keys_and_values_rendered_escaped(self, test_client, store):
+        from dmint.approvals import ApprovalRecord, new_request_id
+        from dmint.models import NO_RESOURCE, ToolRequest, TrustedContext
+        from tests.dashboard.conftest import make_provenance
+
+        xss_args = {
+            "<script>alert('xss_key')</script>": "<script>alert('xss_val')</script>",
+            "<img src=x onerror=alert('img_key')>": "<img src=x onerror=alert('img_val')>",
+        }
+        req = ToolRequest(
+            request_id=new_request_id(),
+            tool="xss_tool",
+            action="execute",
+            agent_id="test-agent",
+            resource=NO_RESOURCE,
+            arguments=xss_args,
+            context=TrustedContext({}),
+        )
+        record = ApprovalRecord.create(
+            request=req,
+            integration_id="test-runtime",
+            capability_id="test.execute",
+            policy_provenance=make_provenance(NOW),
+            created_at=NOW,
+            expires_at=NOW + timedelta(minutes=10),
+        )
+        store.save_pending(record)
+
+        resp = test_client.get(f"/approvals/{record.approval_id}")
+        assert resp.status_code == 200
+        assert b"(could not render)" not in resp.content
+        # Ensure executable raw script/img tags are NOT present in HTML
+        assert b"<script>alert('xss_key')</script>" not in resp.content
+        assert b"<script>alert('xss_val')</script>" not in resp.content
+        assert b"<img src=x onerror=alert('img_key')>" not in resp.content
+        assert b"<img src=x onerror=alert('img_val')>" not in resp.content
+        # Ensure HTML-escaped entities are present in HTML
+        assert "&lt;script&gt;" in resp.text
+        assert "&lt;img" in resp.text
+
 
 class TestApprove:
     def test_approve_redirects_on_success(self, test_client, pending_record):

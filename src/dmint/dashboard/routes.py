@@ -16,6 +16,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Resp
 
 from dmint import ApprovalState
 from dmint.approvals import ApprovalRecord
+from dmint.core.canonicalize import thaw_json
 from dmint.errors import (
     ApprovalConcurrentConsumeError,
     ApprovalExpiredError,
@@ -77,7 +78,8 @@ def build_router() -> APIRouter:
         resource = record.request.resource
         resource_display = resource if isinstance(resource, str) else "(no resource)"
         try:
-            args_json = json.dumps(dict(record.request.arguments), indent=2, ensure_ascii=False)
+            thawed = thaw_json(record.request.arguments)
+            args_json = json.dumps(thawed, indent=2, ensure_ascii=False)
         except (TypeError, ValueError):
             args_json = "(could not render)"
 

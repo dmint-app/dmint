@@ -91,6 +91,7 @@ def create_app(
     # Store state on app
     app.state.core_client = core_client
     app.state.templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
+    app.state.templates.env.autoescape = True
     app.state.auth_token = effective_token
     app.state.sessions = {}
     app.state.allowed_hosts = hosts

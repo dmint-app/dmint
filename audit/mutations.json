@@ -538,5 +538,14 @@
     "tests": [
       "tests/core/test_thread_safe_connections.py"
     ]
+  },
+  {
+    "id": "MUT-59",
+    "file": "src/dmint/dashboard/routes.py",
+    "find": "            thawed = thaw_json(record.request.arguments)\n            args_json = json.dumps(thawed, indent=2, ensure_ascii=False)",
+    "replace": "            args_json = json.dumps(dict(record.request.arguments), indent=2, ensure_ascii=False)",
+    "tests": [
+      "tests/dashboard/test_routes.py"
+    ]
   }
 ]
