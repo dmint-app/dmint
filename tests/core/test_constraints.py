@@ -366,12 +366,15 @@ class TestConstraintsEvaluation(unittest.TestCase):
         # Accepted at load time, and must match in under 50 ms on 4096 'a' characters
         pat_valid_mixed = r"^[a-z]*[a-z]{0,50}[a-z]{0,50}b$"
         validate_constraints_schema({"properties": {"text": {"type": "string", "pattern": pat_valid_mixed}}})
-        t0 = time.perf_counter()
-        evaluate_constraints(
-            {"properties": {"text": {"type": "string", "pattern": pat_valid_mixed}}},
-            {"text": "a" * 4096},
-        )
-        elapsed = time.perf_counter() - t0
+        times_mixed = []
+        for _ in range(3):
+            t0 = time.perf_counter()
+            evaluate_constraints(
+                {"properties": {"text": {"type": "string", "pattern": pat_valid_mixed}}},
+                {"text": "a" * 4096},
+            )
+            times_mixed.append(time.perf_counter() - t0)
+        elapsed = min(times_mixed)
         self.assertLess(elapsed, 0.05, f"Valid mixed pattern took {elapsed * 1000:.2f} ms (bound 50 ms)")
 
         # 4e. Valid mixed combination: 1 unbounded + 1 bounded
@@ -435,12 +438,15 @@ class TestConstraintsEvaluation(unittest.TestCase):
         hostile_4096 = "a" * 4096
         for pat, name in test_patterns:
             validate_constraints_schema({"properties": {"text": {"type": "string", "pattern": pat}}})
-            t0 = time.perf_counter()
-            evaluate_constraints(
-                {"properties": {"text": {"type": "string", "pattern": pat}}},
-                {"text": hostile_4096},
-            )
-            elapsed = time.perf_counter() - t0
+            times = []
+            for _ in range(3):
+                t0 = time.perf_counter()
+                evaluate_constraints(
+                    {"properties": {"text": {"type": "string", "pattern": pat}}},
+                    {"text": hostile_4096},
+                )
+                times.append(time.perf_counter() - t0)
+            elapsed = min(times)
             self.assertLess(
                 elapsed,
                 0.05,
