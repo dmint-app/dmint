@@ -638,5 +638,14 @@
     "tests": [
       "tests/core/test_postgres_tamper_race_b4.py"
     ]
+  },
+  {
+    "id": "MUT-70",
+    "file": "src/dmint/cli/create_policy.py",
+    "find": "        if rule.effect == Decision.ALLOW:",
+    "replace": "        if False:",
+    "tests": [
+      "tests/cli/test_prompt_injection_authoring_c2.py"
+    ]
   }
 ]

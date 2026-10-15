@@ -12,7 +12,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from dmint.policy import Policy, PolicyError
+from dmint.core.policy import AnyResource, Decision, Policy, PolicyError
 from dmint.cli.api import OpenAICompatClient, resolve_api_key
 from dmint.cli.errors import (
     APIError,
@@ -24,6 +24,38 @@ from dmint.cli.errors import (
 )
 from dmint.cli.io_utils import atomic_write_json, atomic_write_policy_json, load_system_prompt
 from dmint.cli.verify_policy import verify_policy_file
+
+
+def review_candidate_policy_security(policy: Policy) -> list[str]:
+    """Deterministic security validator that inspects candidate policy rules before human confirmation.
+
+    Flags in plain English:
+    - Every ALLOW rule (grants unconditional execution without requiring human approval).
+    - Every wildcard resource ('*' or AnyResource, matching arbitrary targets).
+    - Every rule with missing parameter constraints (unconstrained argument payloads).
+    """
+    warnings: list[str] = []
+    for idx, rule in enumerate(policy.rules, start=1):
+        if rule.effect == Decision.ALLOW:
+            warnings.append(
+                f"Rule #{idx} ({rule.tool}.{rule.action}): grants unconditional ALLOW access without requiring human approval."
+            )
+
+        res_val = rule.resource
+        is_wildcard = (
+            res_val == "*" or isinstance(res_val, AnyResource) or (isinstance(res_val, str) and res_val.strip() == "*")
+        )
+        if is_wildcard:
+            warnings.append(
+                f"Rule #{idx} ({rule.tool}.{rule.action}): specifies wildcard resource '*' matching all targets."
+            )
+
+        if not rule.constraints:
+            warnings.append(
+                f"Rule #{idx} ({rule.tool}.{rule.action}): missing parameter constraints (all input arguments permitted)."
+            )
+
+    return warnings
 
 
 def parse_tool_declarations_ast(file_path: Path) -> list[dict[str, str]]:
@@ -411,6 +443,12 @@ def run_create_policy_wizard(
             for r in verified_policy.rules:
                 res_str = r.resource if isinstance(r.resource, str) else type(r.resource).__name__
                 print(f"  [{r.effect.value.upper()}] tool='{r.tool}', action='{r.action}', resource='{res_str}'")
+
+            security_warnings = review_candidate_policy_security(verified_policy)
+            if security_warnings:
+                print("\n[!] Deterministic Security Validator Warnings:")
+                for warn in security_warnings:
+                    print(f"  [!] {warn}")
 
             if not auto_confirm and is_tty:
                 confirm = input("\nAccept candidate policy and write policy.json? [y/N]: ").strip().lower()

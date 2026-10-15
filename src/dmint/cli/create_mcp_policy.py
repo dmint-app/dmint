@@ -836,6 +836,14 @@ def run_create_mcp_policy_wizard(
                     f"\n[!] WARNING: Unpinned tools detected: {', '.join(unpinned_tools)}. These tools do not have schema hashes pinned."
                 )
 
+            from dmint.cli.create_policy import review_candidate_policy_security
+
+            security_warnings = review_candidate_policy_security(verified_policy)
+            if security_warnings:
+                print("\n[!] Deterministic Security Validator Warnings:")
+                for warn in security_warnings:
+                    print(f"  [!] {warn}")
+
             if not auto_confirm and is_tty:
                 confirm = (
                     input("\nAccept candidate policy and write policy.json + mcp_protection.json? [y/N]: ")
