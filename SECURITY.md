@@ -52,7 +52,7 @@ Dmint adheres to rigorous cryptographic specifications:
 | **Policy Digest** | SHA-256 with Domain Separation | Domain: `b"dmint/policy-digest/v1\x00"` |
 | **Approval Signatures** | Ed25519 (EdDSA over Curve25519) | Fast, deterministic public-key signatures resistant to side-channel and timing attacks. |
 | **Row Integrity** | HMAC-SHA256 with Domain Separation | Domain: `b"dmint/approval-record-integrity/v2\x00"` over canonical row bytes, state, version, and epoch. |
-| **Storage State Machine** | SQLite Immediate Transactions | Guarantees atomic, serialized state transitions without approval token replay. |
+| **Storage State Machine** | SQLite Immediate Transactions (WAL mode) / PostgreSQL Row Locks | Enforces atomic, serialized state transitions without approval token replay. |
 
 ### Database Rollback Limitations
 Restoring an older copy of the entire database file (a database rollback) is **not detected by row-level HMACs alone**, because the row MACs in the older snapshot were valid when created. Mitigations include:

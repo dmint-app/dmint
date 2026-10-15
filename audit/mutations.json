@@ -636,6 +636,7 @@
     "find": "                if record.state is ApprovalState.CONSUMED:\n                    raise ApprovalConsumedError(\"approval has already been consumed\")",
     "replace": "                if False:\n                    raise ApprovalConsumedError(\"approval has already been consumed\")",
     "tests": [
+      "tests/core/test_sql_storage_coverage_c1.py",
       "tests/core/test_postgres_tamper_race_b4.py"
     ]
   },
