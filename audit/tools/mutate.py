@@ -74,7 +74,18 @@ for m in muts:
         shutil.rmtree(tmp, ignore_errors=True)
     print(rows[-1][:3], flush=True)
 
-with open(run / "mutants.csv", "w", newline="", encoding="utf-8") as fh:
-    w = csv.writer(fh)
-    w.writerow(["id", "file", "status", "mutation", "last_line"])
-    w.writerows(rows)
+try:
+    with open(run / "mutants.csv", "w", newline="", encoding="utf-8") as fh:
+        w = csv.writer(fh)
+        w.writerow(["id", "file", "status", "mutation", "last_line"])
+        w.writerows(rows)
+except OSError as exc:
+    print(f"Warning: could not write mutants.csv to {run}: {exc}", file=sys.stderr)
+
+survived = [r for r in rows if r[2] not in ("KILLED", "KILLED_TIMEOUT")]
+if survived:
+    print(f"\n[!] Mutation testing failed: {len(survived)} mutants survived or errored:", file=sys.stderr)
+    for s in survived:
+        print(f"  {s[0]} ({s[1]}): {s[2]}", file=sys.stderr)
+    sys.exit(1)
+print(f"\n✓ All {len(rows)} mutants killed successfully.")
