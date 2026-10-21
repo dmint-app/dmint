@@ -15,10 +15,10 @@ repos:
 
   # 2. Ruff: The modern Python equivalent of ESLint + Prettier (Rust-powered, 100x faster)
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.6.9
+    rev: v0.16.10
     hooks:
       # Linter (like ESLint) with auto-fix enabled
-      - id: ruff
+      - id: ruff-check
         args: [--fix]
       # Formatter (like Prettier) with deterministic code formatting
       - id: ruff-format
