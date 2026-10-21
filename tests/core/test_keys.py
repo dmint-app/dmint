@@ -198,6 +198,7 @@ class TestCheckKeyFilePermissions:
         # Create a subdirectory that is group-writable
         subdir = tmp_path / "gwdir"
         subdir.mkdir(mode=0o775)
+        subdir.chmod(0o775)
         key = _gen_key()
         dest = subdir / "signing.key"
         _write_hex_key(dest, key, mode=0o600)
@@ -207,6 +208,7 @@ class TestCheckKeyFilePermissions:
     def test_parent_dir_world_writable_raises(self, tmp_path: Path) -> None:
         subdir = tmp_path / "wwdir"
         subdir.mkdir(mode=0o777)
+        subdir.chmod(0o777)
         key = _gen_key()
         dest = subdir / "signing.key"
         _write_hex_key(dest, key, mode=0o600)
