@@ -1,0 +1,106 @@
+---
+title: "Deployment Model and Process Isolation"
+description: "Process boundaries, OS user separation, key storage permissions, and the same-OS-user threat model."
+---
+
+# Deployment Model and Process Isolation
+
+This document outlines the security architecture, process isolation requirements, and credential storage policies for running Dmint services in production and local environments.
+
+<Warning>
+**CRITICAL OS PROCESS AND USER ISOLATION BOUNDARY**
+
+**Always run the Dmint Dashboard, policy authority, and AI agents as DIFFERENT OS users or in separate containers.**
+
+If an AI agent or any untrusted script executes under the **same OS user account** as Dmint services or configuration files, Dmint's cryptographic security boundaries fail closed to host OS privileges.
+</Warning>
+
+---
+
+## What Dmint Does NOT Protect Against
+
+Dmint is a deterministic application- and protocol-level authorization gate. It **does NOT protect against an agent executing under the same OS user account**.
+
+In adversarial penetration testing, an agent executing under the same local OS account can bypass protections via five vectors:
+
+1. **Signing Key Theft**: Reading the private Ed25519 signing key (`~/.config/dmint/signing.key`) from disk to self-sign approvals.
+2. **Policy File Tampering**: Directly editing `policy.json` to insert unrestricted `ALLOW` rules.
+3. **Database Modification**: Directly rewriting rows or checksums in the SQLite approvals database (`approvals.sqlite3`).
+4. **Dashboard Token Theft**: Reading the dashboard authentication token from configuration files or `/proc/<pid>/environ`.
+5. **Client Configuration Replacement**: Overwriting client settings to bypass `dmint-mcp` entirely and invoke unprotected tools directly.
+
+**The Isolation Rule:** Dmint's protection guarantees hold **strictly when the AI agent process runs under a different OS user or in an isolated container** with no filesystem access to Dmint keys, policies, or database stores.
+
+---
+
+## Component Isolation Architecture
+
+A secure reference production setup separates components into isolated trust zones:
+
+```text
+┌────────────────────────────────────────────────────────┐
+│ UNTRUSTED ZONE (OS User: agent-runner / Container)     │
+│                                                        │
+│  [ AI Agent Process ]                                  │
+│  (Cursor, Claude Code, Autonomous Worker)              │
+│       │                                                │
+│       │ stdio / loopback HTTP tool call                │
+└───────┼────────────────────────────────────────────────┘
+        │
+        ▼ (Strict Boundary: No shared filesystem access to keys)
+┌────────────────────────────────────────────────────────┐
+│ DMINT ENFORCEMENT ZONE (OS User: dmint-service)        │
+│                                                        │
+│  [ dmint-mcp Gateway ] / [ Python App with Decorator ] │
+│  ├── policy.json (Read-only, pinned SHA-256 digest)    │
+│  └── approvals.sqlite3 (Mode 0600)                     │
+└───────┬────────────────────────────────────────────────┘
+        │
+        ▼
+┌────────────────────────────────────────────────────────┐
+│ OPERATOR & SIGNING ZONE (OS User: dmint-authority)     │
+│                                                        │
+│  [ dmint dashboard ] / [ dmint approve CLI ]           │
+│  ├── signing.key (Mode 0600, accessible ONLY to       │
+│  │                  human operator UID)                │
+│  └── Signs Ed25519 approval assertions                 │
+└────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Process and Storage Isolation Matrix
+
+| Component | OS User / Container | File Permissions | Network Access | Secrets Held |
+|---|---|---|---|---|
+| **AI Agent** | `agent-user` (unprivileged) | Restricted to project workspace. **No access** to `~/.config/dmint/`. | Loopback to `dmint-mcp` only. | None. |
+| **Enforcement Gate (`dmint-mcp`)** | `dmint-svc` | `policy.json` (0400), `mcp_protection.json` (0400). | Downstream MCP servers; approval store. | Store integrity key (`integrity.key`). **Zero private signing keys.** |
+| **Approval Store (SQLite)** | `dmint-svc` | Database file `0600`. Directory `0700`. | Local filesystem only. | Row HMAC integrity tag. |
+| **Approval Store (PostgreSQL)** | Dedicated DB instance | Database role permissions. | Authenticated TLS connection on port 5432. | PostgreSQL credentials. |
+| **Approval Authority (`dmint approve`)** | `operator` (human) | `signing.key` (0600). Directory `0700`. | Approval store connection. | **Ed25519 Private Signing Key**. |
+| **Approval Dashboard (`dmint dashboard`)** | `operator` (human) | `signing.key` (0600), `dashboard.token` (0600). | Loopback `127.0.0.1:8080`. | Ed25519 Private Key, Dashboard Token. |
+
+---
+
+## Credential Visibility and Management
+
+### 1. Dashboard Bearer Tokens
+- **Command-line flags (`--auth-token`) — INSECURE on shared hosts**: Exposes credentials in the system process table (`ps aux` and `/proc/<pid>/cmdline`).
+- **Environment variables (`DMINT_DASHBOARD_TOKEN`) — CAUTION**: Readable by sibling processes running under the same UID via `/proc/<pid>/environ`.
+- **Restricted Token Files (`--token-file`) — RECOMMENDED**: Store the token in a file with `0600` permissions. Dmint refuses to initialize if permissions are looser than `0600` or `0400`.
+- **Ephemeral Startup Token — DEFAULT**: If no token is provided, Dmint generates a random 256-bit token at boot and prints it once to `stderr`.
+
+### 2. Ed25519 Private Signing Keys
+Private keys must **never** be accessible to the AI agent or loaded by the `dmint-mcp` gateway process.
+The verification module (`dmint.core.verification`) contains zero private-key loading or signing code by design. The gateway requires only public keys (`public_key_hex` or `public_key_pem`) to verify human assertions.
+
+### 3. Row Integrity HMAC Keys
+The SQLite approval store requires an HMAC integrity key to detect direct file tampering. The key must be stored with mode `0600` under `~/.config/dmint/integrity.key`.
+
+---
+
+## Next Steps
+
+- **[Security Model & Guarantees](/operations/security-model)**: Formal threat model and defense verification.
+- **[Known Limitations](/operations/known-limitations)**: Honest disclosure of non-goals and database rollback caveats.
+- **[Human Approvals Guide](/guides/human-approvals)**: Setting up the dashboard with secure token files.

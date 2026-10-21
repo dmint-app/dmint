@@ -1,0 +1,71 @@
+---
+title: "Known Limitations and Non-Goals"
+description: "A blunt list of what Dmint does not do, known boundary constraints, and threat trade-offs."
+---
+
+# Known Limitations and Non-Goals
+
+Honesty about security boundaries is essential. Dmint guarantees strict, deterministic protection for the operations it is configured to wrap, under specific architectural assumptions.
+
+This page documents the deliberate non-goals, architectural trade-offs, and known edge cases in the current release.
+
+---
+
+## 1. Non-Goals
+
+### Dmint is NOT an LLM Input Guardrail
+Dmint does not inspect prompts, detect jailbreak phrasing, or judge whether user intent is malicious. It operates at the execution layer: it evaluates whether a tool request matches an authorized capability, binding, and argument schema.
+
+### Dmint is NOT an In-Process Sandbox Escape Barrier
+If an AI agent runs under the same unisolated operating system user as the Dmint process and has access to a command shell, it can kill the Python runtime, read private keys from disk, or bypass the decorator. Operating system isolation (containers, virtual machines, or separate user accounts) is a required prerequisite.
+
+### Dmint is NOT an Enterprise IAM or SSO Directory
+Dmint does not manage employee login sessions or organization-wide role hierarchies. It answers one specific question: *"May this specific AI agent execute this exact capability with these exact arguments right now?"*
+
+---
+
+## 2. Storage Limitations and Edge Cases
+
+### Database Snapshot Rollback is Not Detected by Row HMACs
+Every record in SQLite or PostgreSQL includes a HMAC-SHA256 integrity tag over the canonical row contents. This detects row modification or insertion by an attacker who lacks the integrity key.
+
+However, if an attacker restores an **entire older snapshot of the database file** (a database rollback), the row HMACs in that older snapshot were valid when created.
+- **Mitigation 1: Short Assertion TTL**: Approvals expire after 5 minutes by default (`expires_at`), so old approvals in a restored database cannot be consumed if the system clock is accurate.
+- **Mitigation 2: Deployment Epochs**: Changing `DMINT_DEPLOYMENT_EPOCH` invalidates approvals from prior deployment lifecycles.
+- **Mitigation 3: Filesystem Permissions**: Restrict database file access to mode `0600` under a dedicated service user.
+
+### SQLite Concurrent Write Contention
+SQLite serializes write operations at the database level. Although Dmint enables WAL mode (`PRAGMA journal_mode=WAL`) and busy timeouts (`PRAGMA busy_timeout = 5000`), high-concurrency environments with dozens of simultaneous agents requesting approvals may experience lock contention.
+- **Remediation**: Use PostgreSQL via `DMINT_DATABASE_URL` in production for row-level locking (`SELECT ... FOR UPDATE`).
+
+---
+
+## 3. Tool and Decorator Boundaries
+
+### Generator Functions Cannot Be Protected
+Python generator functions (`yield`) and asynchronous generators (`yield` in `async def`) cannot be decorated with `@engine.protect`. Because generators yield control iteratively, atomic pre-execution authorization cannot be enforced across multiple resumed yields. Dmint raises `RequestValidationError` if you attempt to decorate a generator.
+
+### Symlinks are Not Resolved by Path Normalization
+Dmint's `path` resource matcher performs strict lexical normalization (resolving `.` and `..`, stripping trailing slashes, rejecting percent-encoded traversal and NUL bytes). However, lexical normalization cannot inspect the underlying filesystem to resolve symbolic links.
+- **Remediation**: If your application allows users to supply paths that may contain symlinks, your tool resolver must invoke `os.path.realpath()` before passing the resource to Dmint.
+
+---
+
+## 4. MCP Gateway Edge Cases
+
+### Downstream MCP Schema Drift Requires Explicit Pinning
+Downstream MCP servers may update their tool definitions between restarts. If an external MCP server changes its schema without notice, Dmint will evaluate requests against the existing policy rules.
+- **Remediation**: Enable `tool_schema_hash` in `mcp_protection.json`. When configured, Dmint compares the discovered schema digest against the pinned hash and fails closed if they differ.
+
+---
+
+## Summary Matrix
+
+| Scenario | Dmint Protection | Required External Defense |
+|---|---|---|
+| Prompt injection instructing tool execution | **Protected** (Fails closed on DENY or halts on APPROVAL_REQUIRED) | None. |
+| Altering approved arguments before retry | **Protected** (RFC 8785 hash mismatch $\to$ `DMT_APPROVAL_REQUEST_MISMATCH`) | None. |
+| Replaying a consumed approval token | **Protected** (Atomic single-use $\to$ `DMT_APPROVAL_CONSUMED`) | None. |
+| Agent modifying local `policy.json` | **Protected** (SHA-256 digest pinning $\to$ `PolicyError`) | Set `DMINT_EXPECTED_POLICY_DIGEST`. |
+| Agent reading private key file under same OS user | **Not Protected** (OS privilege boundary violation) | Run agent in separate container or user UID. |
+| Host restoring full database file backup | **Partially Protected** (Short TTL expires old tokens) | Secure filesystem permissions; short TTLs. |

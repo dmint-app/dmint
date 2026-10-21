@@ -17,13 +17,13 @@ ruff format .
 # 2. Lint and check for syntax / rule errors
 ruff check .
 
-# 3. Type check all 71 source files
+# 3. Type check all 79 source files
 mypy src/
 
 # 4. Run targeted tests for what you changed
 PYTHONPATH=src pytest tests/<subsystem>/ -v
 
-# 5. Run full test suite (must be 971 passed, 0 skipped, 0 failed)
+# 5. Run full test suite (must be 1515 passed, 0 skipped, 0 failed)
 PYTHONPATH=src pytest tests/ -q
 
 # 6. Run pre-commit hooks manually across all files
@@ -62,7 +62,7 @@ Follow these steps in exact order before you run `git commit`:
   ```bash
   mypy src/
   ```
-- **Expected result**: `Success: no issues found in 71 source files`
+- **Expected result**: `Success: no issues found in 79 source files`
 - **Tips for writing type hints**:
   - Always add type annotations to new function arguments and return values:
     ```python
@@ -87,7 +87,7 @@ Follow these steps in exact order before you run `git commit`:
   ```bash
   PYTHONPATH=src pytest tests/ -q
   ```
-- **Expected result**: `971 passed, 0 failed, 0 skipped` (or higher if you added new tests).
+- **Expected result**: `1515 passed, 0 failed, 0 skipped` (or higher if you added new tests).
 - **Rule**: `skipTest()` is banned. No skipped tests allowed.
 
 ### Step 6: Pre-Commit Hook Check
@@ -312,7 +312,7 @@ Before running `git commit`, confirm every box is checked:
 - [ ] Code linted with `ruff check .` (0 errors)
 - [ ] Types checked with `mypy src/` (0 errors across 71 files)
 - [ ] Subsystem tests pass for touched area
-- [ ] Full test suite passes (`971 passed, 0 skipped`)
+- [ ] Full test suite passes (`1515 passed, 0 skipped`)
 - [ ] Pre-commit hooks run cleanly (`pre-commit run --all-files`)
 - [ ] If docs/commands changed, `README.md` and `docs/` are updated
 - [ ] If docs touched, `npm run build` succeeds in `docs/`

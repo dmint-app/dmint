@@ -55,6 +55,33 @@ class TestSecurityHardeningV1(unittest.TestCase):
             integ.validate_connection()
         self.assertIn("private or link-local IP endpoint", str(ctx.exception))
 
+    def test_obfuscated_numeric_metadata_ips_rejected(self) -> None:
+        """Obfuscated octal/hex/short-form IPv4 literals targeting metadata/private ranges must be blocked."""
+        blocked_hosts = [
+            "0251.0376.0251.0376",  # octal dotted -> 169.254.169.254
+            "0xA9FEA9FE",  # hex integer -> 169.254.169.254
+            "0xa9.0xfe.0xa9.0xfe",  # hex dotted -> 169.254.169.254
+            "169.254.0xa9fe",  # mixed dotted -> 169.254.169.254
+            "169.16689662",  # short form -> 169.254.169.254
+            "2852039166",  # decimal integer -> 169.254.169.254
+            "0x0a000001",  # hex integer -> 10.0.0.1
+        ]
+        for host in blocked_hosts:
+            self.assertTrue(_is_private_or_metadata_ip(host), f"{host} must be treated as prohibited")
+
+        # Loopback literals remain allowed here (handled by the localhost rules)
+        self.assertFalse(_is_private_or_metadata_ip("017700000001"))
+        self.assertFalse(_is_private_or_metadata_ip("127.1"))
+
+        for url in (
+            "https://0251.0376.0251.0376/mcp",
+            "https://0xA9FEA9FE/mcp",
+            "https://169.16689662/mcp",
+        ):
+            with self.assertRaises(CLIError) as ctx:
+                _validate_https_endpoint(url, "MCP endpoint")
+            self.assertIn("private or link-local IP endpoint", str(ctx.exception))
+
     def test_install_skill_path_traversal_rejected(self) -> None:
         """install_skill must reject traversal characters in skill name."""
         with self.assertRaises(CLIError) as ctx:

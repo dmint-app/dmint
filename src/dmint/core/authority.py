@@ -145,6 +145,27 @@ class LocalApprovalAuthority:
     def public_key(self) -> Ed25519PublicKey:
         return self._private_key.public_key()
 
+    def issue_for_human(
+        self,
+        record: ApprovalRecord,
+        *,
+        subject_id: str,
+        now: datetime | None = None,
+    ) -> ApprovalAssertion:
+        """Issue an assertion recording a HUMAN approver identity.
+
+        This is the supported dashboard/host handoff entry point: the caller
+        supplies only the authenticated (or explicitly self-asserted) subject
+        label; the authority constructs the trusted boundary object itself.
+        """
+        _text(subject_id, "approver subject")
+        approver = ApprovalAuthority._from_trusted_boundary(
+            self._issuer_id,
+            subject_id,
+            ApprovalAuthorityKind.HUMAN,
+        )
+        return self.issue(record, approver, now=now)
+
     def issue(
         self,
         record: ApprovalRecord,

@@ -50,6 +50,35 @@ class PolicyTests(unittest.TestCase):
         self.assertIs(Policy((allow, deny)).evaluate(request), Decision.DENY)
         self.assertIs(Policy((deny, allow)).evaluate(request), Decision.DENY)
 
+    def test_wildcard_tool_and_action_deny_overrides_explicit_allow(self):
+        policy = Policy(
+            (
+                Rule.allow("database", "read", resource=ANY_RESOURCE),
+                Rule.deny("*", "*", resource=ANY_RESOURCE),
+            )
+        )
+        self.assertIs(policy.evaluate(make_request()), Decision.DENY)
+        self.assertIs(policy.evaluate(make_request(tool="shell", action="exec")), Decision.DENY)
+
+    def test_wildcard_action_approval_cannot_be_bypassed_by_explicit_allow(self):
+        policy = Policy(
+            (
+                Rule.allow("database", "drop", resource=ANY_RESOURCE),
+                Rule.approval_required("database", "*", resource=ANY_RESOURCE),
+            )
+        )
+        self.assertIs(policy.evaluate(make_request(action="drop")), Decision.APPROVAL_REQUIRED)
+
+    def test_wildcard_allow_matches_any_tool_and_action(self):
+        policy = Policy((Rule.allow("*", "*", resource=ANY_RESOURCE),))
+        self.assertIs(policy.evaluate(make_request()), Decision.ALLOW)
+        self.assertIs(policy.evaluate(make_request(tool="shell", action="exec")), Decision.ALLOW)
+
+    def test_wildcard_rule_still_requires_resource_match(self):
+        policy = Policy((Rule.allow("*", "*", resource="users/123"),))
+        self.assertIs(policy.evaluate(make_request()), Decision.ALLOW)
+        self.assertIs(policy.evaluate(make_request(resource="users/999")), Decision.DENY)
+
     def test_default_is_deny(self):
         self.assertIs(Policy().evaluate(make_request()), Decision.DENY)
 

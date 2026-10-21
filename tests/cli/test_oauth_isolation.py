@@ -264,6 +264,62 @@ class TestOAuthCallbackIsolation(unittest.TestCase):
         self.assertIn("timed out waiting for user response", str(ctx.exception))
         self.assertGreaterEqual(elapsed, 0.14)
 
+    def _drive_denial_callback(self, state: OAuthCallbackState) -> None:
+        """Send a real user-denied callback to a fresh server and wait for completion."""
+        server = OAuthCallbackServer(state, port=0)
+        server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+        server_thread.start()
+        try:
+            url = (
+                f"http://127.0.0.1:{server.selected_port}/callback?error=access_denied&error_description=User+declined"
+            )
+            with self.assertRaises(urllib.error.HTTPError) as ctx:
+                urllib.request.urlopen(url)
+            self.assertEqual(ctx.exception.code, 400)
+            self.assertTrue(state.received_event.wait(timeout=2.0))
+        finally:
+            server.shutdown()
+            server.server_close()
+
+    def test_denial_and_timeout_pairs_are_order_independent(self):
+        """Regression (TEST-OAUTH-ORDER): a completed denial callback must not leak
+        process-global legacy handler state into a subsequent timeout flow, in either order."""
+        OAuthCallbackHandler.callback_error = None
+        OAuthCallbackHandler.callback_code = None
+        OAuthCallbackHandler.callback_state = None
+        OAuthCallbackHandler.callback_iss = None
+        OAuthCallbackHandler.received_event.clear()
+
+        auth_reqs = MCPAuthRequirements(
+            required=True,
+            authorization_endpoint="https://auth.example.com/oauth/authorize",
+            token_endpoint="https://auth.example.com/oauth/token",
+        )
+        integ = MCPIntegration(
+            integration_id="order-mcp",
+            transport=MCPTransport.STREAMABLE_HTTP,
+            connection={"url": "https://example.com/mcp"},
+        )
+
+        def run_timeout_flow() -> None:
+            with self.assertRaises(CLIError) as ctx:
+                perform_oauth_flow(auth_reqs, integ, client_id="cid-1", timeout_seconds=0.15, open_browser=False)
+            self.assertIn("timed out waiting for user response", str(ctx.exception))
+
+        # Order 1: denial callback -> timeout flow
+        denial_state_a = OAuthCallbackState(expected_state="deny-a")
+        self._drive_denial_callback(denial_state_a)
+        run_timeout_flow()
+
+        # Order 2: timeout flow -> denial callback
+        run_timeout_flow()
+        denial_state_b = OAuthCallbackState(expected_state="deny-b")
+        self._drive_denial_callback(denial_state_b)
+        self.assertEqual(denial_state_b.error, "access_denied")
+        with self.assertRaises(CLIError) as err:
+            denial_state_b.validate(integration_id="order-mcp")
+        self.assertIn("access_denied", str(err.exception))
+
     def test_concurrent_oauth_flows_cannot_cross_satisfy(self):
         """Two concurrent OAuth flows running simultaneously on different ports with different states.
 

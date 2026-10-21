@@ -76,13 +76,13 @@ Modern AI agents (Claude Code, Cursor, Antigravity, AutoGPT, custom LangChain/Ll
 
 ## Subsystems
 
-`dmint` v2.0.0 is organized as a unified monorepo providing modular packages under a single distribution:
+`dmint` v2.0.1 is organized as a unified monorepo providing modular packages under a single distribution:
 
 | Module | Description | Primary Exports / Entrypoint |
 | :--- | :--- | :--- |
 | **`dmint.core`** | Deterministic policy engine, RFC 8785 canonicalizer, SQLite approval store | `from dmint import Dmint, Policy, Rule` |
 | **`dmint.cli`** | Developer CLI for authoring, compiling, validating, and managing policies | `dmint` command |
-| **`dmint.mcp`** | Transparent security proxy for Model Context Protocol (stdio & SSE/HTTP) | `dmint-mcp` command |
+| **`dmint.mcp`** | Transparent security proxy for Model Context Protocol (stdio & Streamable HTTP) | `dmint-mcp` command |
 | **`dmint.dashboard`** | Local web dashboard for human review and Ed25519 approval signing | `dmint dashboard` or `dmint-dashboard` |
 | **`dmint.skills`** | Packaged AI agent skills (`dmint-policy-manager`) for self-authoring policies | `dmint install-skill` |
 
@@ -118,6 +118,14 @@ pip install "dmint[all]"
 ---
 
 ## Quickstart: Python SDK
+
+Dmint's approval store is tamper-evident: pending records are HMAC-signed with a local integrity key, and approvals are signed with an Ed25519 key. Generate both once before running the example:
+
+```bash
+dmint init-keys
+```
+
+This writes `~/.config/dmint/signing.key` and `~/.config/dmint/integrity.key` (mode `0600`). In CI or containers, provide the integrity key with `DMINT_INTEGRITY_KEY` (64 hex characters) or `DMINT_INTEGRITY_KEY_FILE` (path to a `0600` key file) instead.
 
 Protecting local Python functions and agent tools with Dmint:
 
@@ -197,7 +205,7 @@ except ApprovalRequiredError as exc:
 ```
 
 > [!NOTE]
-> **Synchronous Callables Only (Tier 1)**: `@engine.protect` currently supports synchronous functions (`def`) only. Asynchronous functions (`async def`), class methods requiring instance/class context (`self`/`cls`), and generator functions are not supported until Tier 2.
+> **Supported callable types**: `@engine.protect` supports synchronous functions (`def`), asynchronous functions (`async def`), instance methods, class methods (`@classmethod`), and static methods (`@staticmethod`). Generator and async-generator functions are not supported.
 >
 > **Measured Performance**: In-memory policy evaluation runs in ~3 µs; persistent storage operations (SQLite/PostgreSQL approval lifecycle) take ~2-5 ms.
 
@@ -290,13 +298,17 @@ Add Dmint MCP as a stdio server in your client configuration (e.g. `.cursor/mcp.
 | :--- | :--- | :--- |
 | `dmint create-policy` | `dmint create-policy -f access.md -o policy.json` | Interactive LLM wizard that converts markdown access requirements into validated policies. |
 | `dmint create-mcp-policy` | `dmint create-mcp-policy --url https://api.example.com/mcp` | Discovers live MCP server tools and generates `policy.json` and `mcp_protection.json`. |
-| `dmint verify-policy` | `dmint verify-policy policy.json` | 100% offline schema, capability, and secret scanner. Zero network, zero LLM. |
-| `dmint compile-policy` | `dmint compile-policy policy.json -o compiled.json` | Normalizes and canonicalizes policies with RFC 8785 for deployment. |
+| `dmint protect-mcp` | `dmint protect-mcp --url https://api.example.com/mcp` | Compatibility alias for `dmint create-mcp-policy` (identical options). |
+| `dmint verify-policy` | `dmint verify-policy policy.json` | 100% offline schema and capability validation. Zero network, zero LLM. |
+| `dmint policy-digest` | `dmint policy-digest policy.json` | Computes the SHA-256 digest of the exact policy file bytes (for `DMINT_EXPECTED_POLICY_DIGEST`). |
+| `dmint compile-policy` | `dmint compile-policy -f access.md -o policy.json` | [Compatibility] Legacy LLM wizard delegating to `create-policy` non-interactive mode. |
 | `dmint pending` | `dmint pending` | Lists all approval requests currently in `PENDING` state across SQLite or PostgreSQL. |
 | `dmint approve` | `dmint approve <id> [--reason "..."]` | Signs and approves a pending request via Core Ed25519 primitives after policy re-verification. |
 | `dmint reject` | `dmint reject <id> [--reason "..."]` | Marks a pending request as `REJECTED` with an optional audit reason. |
 | `dmint dashboard` | `dmint dashboard --db-path ./approvals.sqlite3` | Launches the local human approval web dashboard (FastAPI). |
 | `dmint install-skill` | `dmint install-skill -y` | Installs the `dmint-policy-manager` skill into `.agents/skills/` for AI coding assistants. |
+| `dmint init-keys` | `dmint init-keys` | Generates and persists Ed25519 signing and HMAC integrity keys (`0600`, atomic). |
+| `dmint export-public-key` | `dmint export-public-key --format json` | Prints the public key (hex + PEM) and issuer ID for gateway `trusted_issuers`. |
 
 ---
 
@@ -328,7 +340,7 @@ Dmint enforces five fundamental invariants across all modules:
 2. **Fail-Closed Default**: Any request not explicitly allowed by a matching rule evaluates to `DENY`.
 3. **Exact Request Binding**: Requests are canonicalized using RFC 8785 and fingerprinted with SHA-256 domain separation. Mismatched arguments invalidate approval tokens.
 4. **Single-Use Approvals**: Approvals transition atomically in SQLite (`PENDING` $\to$ `APPROVED` $\to$ `CONSUMED`) to prevent race conditions and replay attacks.
-5. **SSRF & Network Hardening**: Remote MCP transports reject loopback, link-local, private RFC 1918 addresses, and cloud instance metadata endpoints (`169.254.169.254`). *(Note: A DNS-rebinding TOCTOU window exists until connection-level IP pinning in Tier 2).*
+5. **SSRF & Network Hardening**: Remote MCP transports reject loopback, link-local, private RFC 1918 addresses, cloud instance metadata endpoints (`169.254.169.254`), and DNS-rebinding attempts via connection-level IP pinning.
 
 For complete vulnerability reporting guidelines and threat boundaries, see [SECURITY.md](SECURITY.md).
 
@@ -387,18 +399,20 @@ ruff format .
 # 2. Lint and check for syntax / rule errors
 ruff check .
 
-# 3. Type check all 71 source files
+# 3. Type check all 79 source files
 mypy src/
 
 # 4. Run targeted tests for what you changed
 pytest tests/<subsystem>/ -v   # e.g., tests/core/, tests/cli/, tests/mcp/, tests/dashboard/
 
-# 5. Run full test suite (baseline: 1181 passed, 0 skipped, 0 failed)
+# 5. Run full test suite (baseline: 1515 passed, 0 skipped, 0 failed)
 pytest tests/ -q
 
 # 6. Run pre-commit checks across all files
 pre-commit run --all-files
 ```
+
+**Full-suite prerequisites:** PostgreSQL-backed suites require a reachable server (`DMINT_TEST_DATABASE_URL`; default `postgresql://postgres:postgres@localhost:5432/dmint_test`) and fail loudly — never skip — when it is unreachable. RFC 8785 cross-checks and node-parity fuzzing require Node.js plus `npm ci` inside `tests/fixtures/`.
 
 For detailed checklists per subsystem, see [`FLOW.md`](FLOW.md).
 
@@ -436,10 +450,10 @@ python3 -m venv /tmp/dmint-test-env
 source /tmp/dmint-test-env/bin/activate
 
 # Install the wheel with all extras
-pip install "dist/dmint-2.0.0-py3-none-any.whl[all]"
+pip install "dist/dmint-2.0.1-py3-none-any.whl[all]"
 
 # 4. Verify all installed CLI entrypoints
-dmint --version        # Expected: dmint 2.0.0
+dmint --version        # Expected: dmint 2.0.1
 dmint --help           # Policy wizards and verification commands
 dmint-mcp --help       # MCP multi-server gateway
 dmint-dashboard --help # Approval web review console
@@ -471,7 +485,7 @@ npm run dev
 ```
 
 - Open **[http://localhost:3334](http://localhost:3334)** in your web browser.
-- All 24 pages (Quickstart, Core Concepts, Guides, Architecture, and API Reference) are fully browsable with live search and code highlighting.
+- All 28 pages (Quickstart, Core Concepts, Guides, Architecture, and API Reference) are fully browsable with live search and code highlighting.
 - Changes to any `.mdx` file or `docs.json` update instantly via Vite HMR.
 
 ### Production Preview (Build & Serve)

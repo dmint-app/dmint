@@ -140,6 +140,7 @@ class MCPGateway:
                     self._approval_store = ThreadSafeApprovalStore(
                         db_file,
                         deployment_epoch=approval_store._deployment_epoch,
+                        integrity_key=approval_store._integrity_key,
                         recovery_epoch_file=approval_store._recovery_file,
                         redact_keys=approval_store._redact_keys,
                         max_pending_per_principal=approval_store._max_pending_per_principal,

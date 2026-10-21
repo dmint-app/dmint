@@ -125,6 +125,10 @@ class EnforcementGate:
         if webhook_notifier is not None and not isinstance(webhook_notifier, WebhookNotifier):
             raise MCPConfigurationError("webhook_notifier must be a WebhookNotifier")
         self._webhook_notifier = webhook_notifier
+        # Serialize and run notification I/O off the event loop.  A slow or
+        # failing webhook must never block MCP protocol handling for other
+        # requests, and at most one notification dispatch runs at a time.
+        self._notify_lock = asyncio.Lock()
 
         # Synchronize authoritative policy into store via public API if empty
         if self._approval_store is not None and self._policy_provenance is not None:
@@ -290,6 +294,20 @@ class EnforcementGate:
         except Exception as exc:
             logger.warning("Failed to dispatch policy denial webhook: %s", exc)
 
+    async def _notify_approval_required_async(self, record: ApprovalRecord) -> None:
+        async with self._notify_lock:
+            try:
+                await asyncio.to_thread(self._notify_approval_required, record)
+            except Exception as exc:
+                logger.warning("Failed to schedule approval webhook dispatch: %s", exc)
+
+    async def _notify_denial_async(self, request: ToolRequest) -> None:
+        async with self._notify_lock:
+            try:
+                await asyncio.to_thread(self._notify_denial, request)
+            except Exception as exc:
+                logger.warning("Failed to schedule denial webhook dispatch: %s", exc)
+
     async def route_call(
         self,
         *,
@@ -319,7 +337,7 @@ class EnforcementGate:
         )
 
         if decision is Decision.DENY:
-            self._notify_denial(mapped.tool_request)
+            await self._notify_denial_async(mapped.tool_request)
             deny_code = code if code in ("DMT_CONSTRAINT_VIOLATION", "DMT_RESOURCE_INVALID") else "DMT_POLICY_DENIED"
             raise AuthorizationError(
                 "policy denied the request",
@@ -335,7 +353,7 @@ class EnforcementGate:
                 and self._approval_ttl is not None
             ):
                 persisted = self._persist_pending(mapped.tool_request)
-                self._notify_approval_required(persisted)
+                await self._notify_approval_required_async(persisted)
                 raise ApprovalRequiredError(
                     "trusted approval is required",
                     request_id=persisted.request_id,

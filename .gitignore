@@ -52,8 +52,20 @@ __pycache__
 coverage.xml
 coverage.lcov
 htmlcov/
-audit/results/*
-!audit/results/.gitkeep
+# Local security audit reports and generated evidence
+/audit/
+/AUDIT_REPORT*.md
+/EVIDENCE.md
+/TEST_RESULTS*.md
+/FIX_VERIFICATION.md
+/DOCS_FINDINGS.md
+/REMEDIATION_REPORT*.md
+/VERSION_REPORT*.md
+/FIX_REPORT.md
+/FIX_PROGRESS.md
+/00-target.txt
+/mutations-subset.json
+/audit_tools.zip
 
 # Virtual Environments
 .venv/

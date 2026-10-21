@@ -2,6 +2,7 @@
 
 import socket
 import unittest
+from ipaddress import IPv4Address
 from unittest.mock import patch
 
 from dmint.mcp.errors import MCPConfigurationError
@@ -88,6 +89,18 @@ class TestMCPSSRF(unittest.TestCase):
             validate_mcp_url("https://2886729729/mcp", resolve_dns=False)
         self.assertIn("prohibited ip", str(ctx.exception).lower())
 
+    def test_obfuscated_numeric_ip_literals_decoded(self):
+        # Octal/hex/short-form literals must canonicalize to their true IPv4 address
+        self.assertEqual(parse_ip_literal("0251.0376.0251.0376"), IPv4Address("169.254.169.254"))
+        self.assertEqual(parse_ip_literal("0xA9FEA9FE"), IPv4Address("169.254.169.254"))
+        self.assertEqual(parse_ip_literal("0xa9.0xfe.0xa9.0xfe"), IPv4Address("169.254.169.254"))
+        self.assertEqual(parse_ip_literal("169.254.0xa9fe"), IPv4Address("169.254.169.254"))
+        self.assertEqual(parse_ip_literal("169.16689662"), IPv4Address("169.254.169.254"))
+        self.assertEqual(parse_ip_literal("017700000001"), IPv4Address("127.0.0.1"))
+        self.assertEqual(parse_ip_literal("127.1"), IPv4Address("127.0.0.1"))
+        self.assertIsNone(parse_ip_literal("08.0.0.1"))  # invalid octal digit
+        self.assertIsNone(parse_ip_literal("example.com"))
+
     def test_private_ipv6_literals_blocked(self):
         private_ipv6 = [
             "https://[fe80::1]/mcp",  # link-local
@@ -124,6 +137,22 @@ class TestMCPSSRF(unittest.TestCase):
                 validate_mcp_url("https://malicious-dns.example.com/mcp", resolve_dns=True)
             self.assertIn("ssrf violation", str(ctx.exception).lower())
             self.assertIn("192.168.1.50", str(ctx.exception))
+
+    def test_remote_hostname_resolving_to_loopback_blocked(self):
+        """allow_loopback permits explicit loopback URLs, not a remote DNS answer."""
+        for loopback in ("127.0.0.1", "127.0.0.2", "::1"):
+            family = socket.AF_INET6 if ":" in loopback else socket.AF_INET
+            with self.subTest(loopback=loopback):
+                with patch("socket.getaddrinfo") as mock_gai:
+                    mock_gai.return_value = [(family, socket.SOCK_STREAM, 6, "", (loopback, 443))]
+                    with self.assertRaises(MCPConfigurationError) as ctx:
+                        validate_mcp_url(
+                            "https://redirected.example.com/mcp",
+                            allow_loopback=True,
+                            resolve_dns=True,
+                        )
+                    self.assertIn("ssrf violation", str(ctx.exception).lower())
+                    self.assertIn(loopback, str(ctx.exception))
 
     def test_dns_resolution_failure_handled(self):
         with patch("socket.getaddrinfo", side_effect=socket.gaierror(-2, "Name or service not known")):

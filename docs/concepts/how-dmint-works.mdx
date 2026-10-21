@@ -1,0 +1,145 @@
+---
+title: "How Dmint Works"
+description: "The request execution boundary, the deterministic decision engine, and the cryptographic verification lifecycle."
+---
+
+# How Dmint Works
+
+Dmint is an in-process and network-level authorization gate that evaluates AI agent tool calls against deterministic policy rules before execution.
+
+---
+
+## The Core Concept
+
+When an AI agent chooses to call a tool, Dmint intercepts the call, canonicalizes its arguments using RFC 8785 JSON Canonicalization Scheme (JCS), hashes the result into a SHA-256 fingerprint, and evaluates the request against pure boolean rules.
+
+The result is strictly one of three states:
+
+| Decision | Runtime Behavior | Tool Execution Status |
+|---|---|---|
+| `ALLOW` | The request matches an explicit allow rule and satisfies all parameter constraints. | **Executes immediately**. |
+| `DENY` | The request matches a deny rule, or fails to match any allow rule (default-deny). | **Blocked**. Callable is never invoked. Raises `AuthorizationError`. |
+| `APPROVAL_REQUIRED` | The request matches a human-review rule. | **Halted**. Execution stops; request parameters are fingerprinted and written to persistent storage. Raises `ApprovalRequiredError`. |
+
+There are no probabilistic decisions, confidence thresholds, or model calls in the runtime decision loop.
+
+---
+
+## The Call Flow
+
+```text
+               AI Agent / Tool-Calling Loop
+                           │
+                           │ 1. Invocation (tool, action, arguments, context)
+                           ▼
+             ┌───────────────────────────┐
+             │  Dmint Enforcement Gate   │
+             └─────────────┬─────────────┘
+                           │
+                           │ 2. Parameter Canonicalization (RFC 8785 JCS)
+                           │ 3. SHA-256 Request Fingerprint
+                           │ 4. Deterministic Policy Evaluation
+                           ▼
+               ┌───────────────────────┐
+               │  Three Decisions Only │
+               └───────────┬───────────┘
+         ┌─────────────────┼─────────────────┐
+         ▼                 ▼                 ▼
+     [ ALLOW ]    [ APPROVAL_REQUIRED ]   [ DENY ]
+         │                 │                 │
+         │                 │ Persist pending │ Execution blocked;
+         │                 │ record & emit   │ raises AuthorizationError
+         │                 │ webhook alert   │ (Tool never called)
+         │                 ▼                 ▼
+         │        ┌─────────────────┐
+         │        │ Approval Store  │ (SQLite / PostgreSQL)
+         │        └────────┬────────┘
+         │                 │
+         │                 │ 5. Human Reviews & Signs (Dashboard or CLI)
+         │                 ▼
+         │        ┌─────────────────┐
+         │        │ Signed Ed25519  │
+         │        │ Assertion Token │
+         │        └────────┬────────┘
+         │                 │
+         │                 │ 6. Host Retries Tool Call with Approval
+         │                 ▼
+         │        ┌─────────────────┐
+         │        │ Verification    │ - Checks Ed25519 signature
+         │        │ & Single-Use    │ - Matches request fingerprint
+         │        │ Consumption     │ - Transitions state to CONSUMED
+         │        └────────┬────────┘
+         │                 │
+         └─────────────────┴────────┐
+                                    ▼
+                         ┌─────────────────────┐
+                         │   Protected Tool    │
+                         │      Executes       │
+                         └─────────────────────┘
+```
+
+---
+
+## Detailed Step-by-Step Breakdown
+
+### 1. Interception and Argument Snapshotting
+Whether invoked via the `@engine.protect` decorator or via the `dmint-mcp` gateway proxy, Dmint captures the exact arguments passed to the tool. Variadic positional (`*args`) and keyword arguments (`**kwargs`) are normalized into a frozen dictionary representation.
+
+### 2. RFC 8785 Canonicalization
+JSON serialization is non-deterministic in standard libraries: dictionary keys can be ordered arbitrarily, whitespace varies, and numeric representations can differ. Dmint normalizes all request arguments using RFC 8785 JSON Canonicalization Scheme (JCS):
+- Lexicographical sorting of object keys by UTF-16 code units.
+- Strict IEEE 754 float representation without trailing zeros or unnecessary exponents.
+- Removal of all insignificant whitespace.
+
+### 3. SHA-256 Request Fingerprinting
+The canonicalized payload is hashed using SHA-256 with domain separation:
+`Domain: b"dmint/request-fingerprint/v2\x00"`
+
+The fingerprint binds:
+- Tool namespace and action name (e.g. `ledger.transfer_funds`).
+- Calling agent identifier (`agent_id`).
+- Integration identifier (`integration_id`).
+- Immutable trusted context attributes (e.g. `environment: production`).
+- Exact canonical arguments.
+
+### 4. Deterministic Policy Evaluation
+The policy engine evaluates rules in strict sequence:
+- **Deny-Overrides**: If any matching rule specifies `DENY`, the request is denied immediately.
+- **Fail-Closed Default**: If no rule matches, the request is denied.
+- **Constraint Validation**: Constraints defined on `ALLOW` rules (such as numerical bounds, string lengths, or regex patterns) must be satisfied. Any constraint failure immediately evaluates to `DENY`.
+
+### 5. Persistent Approval & Notification
+When an action requires approval:
+- An approval record (`req_...` / `apr_...`) is inserted into SQLite or PostgreSQL in the `PENDING` state.
+- If configured, an outgoing webhook notification is asynchronously dispatched to Slack, Discord, or Microsoft Teams with sanitized metadata.
+
+### 6. Human Authorization & Atomic Consumption
+When an authorized human reviews and approves the request:
+- An Ed25519 digital signature is generated over the approval assertion.
+- When the host retries the operation, Dmint executes an atomic transaction (`SELECT ... FOR UPDATE` in PostgreSQL or immediate transaction in SQLite) that transitions the record to `CONSUMED`.
+- If another process attempts to use the same approval token, Dmint rejects it with `DMT_APPROVAL_CONSUMED`.
+
+---
+
+## Performance Characteristics
+
+| Operation | Typical Latency | Notes |
+|---|---|---|
+| In-Memory Policy Evaluation | **~3 µs** | Pure CPU boolean matching and JCS canonicalization. |
+| SQLite Approval Operation | **~2–5 ms** | Disk I/O with WAL mode and row HMAC calculation. |
+| PostgreSQL Approval Operation | **~3–8 ms** | Network round-trip and row-level locking transaction. |
+
+---
+
+## What Dmint Does Not Do
+
+- **No Semantic Text Analysis**: Dmint does not scan tool arguments for offensive language or attempt to guess the user's feelings. It enforces structural and cryptographic policies.
+- **No In-Process Sandbox Escape Defense**: If an agent running as the same OS user has unrestricted shell access, it can terminate the Python process or edit files directly. Dmint protects the API boundaries it wraps; system-level isolation requires OS containers or dedicated user accounts.
+
+---
+
+## Next Steps
+
+- **[Policy Authoring & Rule Structure](/concepts/policies)**: Explore rule effects, conditions, and argument constraints.
+- **[Request Binding & Cryptographic Invariants](/concepts/request-binding)**: Learn how RFC 8785 guarantees byte-level immutability.
+- **[Approval Lifecycle](/concepts/approvals)**: Review the 7-state lifecycle machine and replay defenses.

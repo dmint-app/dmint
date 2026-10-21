@@ -179,6 +179,39 @@ class PolicyCreateWizardTests(unittest.TestCase):
         self.assertEqual(mock_client.chat_completion.call_count, 3)
 
     @patch("dmint.cli.create_policy.OpenAICompatClient")
+    def test_clarification_loop_is_capped_and_fails_closed(self, mock_client_cls):
+        """A model that only ever requests clarification must not loop forever (SRC-05)."""
+        mock_client = MagicMock()
+        mock_client.model = "gpt-4o-mini"
+        mock_client.base_url = "https://api.openai.com/v1"
+
+        call_budget = {"remaining": 10}
+
+        def _always_clarify(*args, **kwargs):
+            if call_budget["remaining"] <= 0:
+                raise RuntimeError("clarification loop exceeded the test budget of 10 model calls")
+            call_budget["remaining"] -= 1
+            return json.dumps({"type": "clarification_needed", "questions": ["Which resources must be scoped?"]})
+
+        mock_client.chat_completion.side_effect = _always_clarify
+        mock_client_cls.return_value = mock_client
+
+        with self.assertRaises(JSONExtractionError) as ctx:
+            run_create_policy_wizard(
+                access_md_file=self.md_file,
+                output_json_file=self.json_file,
+                api_key="sk-test",
+                non_interactive=True,
+                auto_confirm=True,
+            )
+
+        self.assertIn("clarification", str(ctx.exception).lower())
+        # Bounded model calls: the cap must stop the exchange long before the test budget.
+        self.assertLessEqual(10 - call_budget["remaining"], 5)
+        # Fail closed: no policy file is written.
+        self.assertFalse(self.json_file.exists())
+
+    @patch("dmint.cli.create_policy.OpenAICompatClient")
     def test_validation_retry_loop_recovers_on_second_attempt(self, mock_client_cls):
         mock_client = MagicMock()
         mock_client.model = "gpt-4o-mini"

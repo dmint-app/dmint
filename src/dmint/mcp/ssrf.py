@@ -47,11 +47,46 @@ DISALLOWED_SCHEMES: frozenset[str] = frozenset(
 )
 
 
+def canonicalize_hostname(hostname: str) -> str:
+    """Return a canonical comparison form for a hostname.
+
+    Domain names are converted to their IDNA (punycode) ASCII form, IPv6
+    literals are normalized, and case is folded.  Trailing dots are removed for
+    comparison only; callers that accept user-supplied URLs reject trailing
+    dots before canonicalization.  Invalid IDNA input fails closed.
+    """
+    if not isinstance(hostname, str) or not hostname.strip():
+        return ""
+    clean = hostname.strip()
+    if clean.startswith("[") and clean.endswith("]"):
+        clean = clean[1:-1]
+    clean = clean.strip().lower()
+    while clean.endswith("."):
+        clean = clean[:-1]
+    if not clean:
+        return ""
+    try:
+        return str(ipaddress.ip_address(clean))
+    except ValueError:
+        pass
+    try:
+        ascii_host = clean.encode("idna").decode("ascii")
+    except UnicodeError as exc:
+        raise MCPConfigurationError("invalid internationalized hostname") from exc
+    ascii_host = ascii_host.lower().strip(".")
+    if not ascii_host or any(not label for label in ascii_host.split(".")):
+        raise MCPConfigurationError("hostname contains an empty label")
+    return ascii_host
+
+
 def is_loopback_host(hostname: str) -> bool:
     """Check if hostname points to localhost or loopback interface."""
     if not hostname:
         return False
-    clean = hostname.lower().strip("[]").strip()
+    try:
+        clean = canonicalize_hostname(hostname)
+    except MCPConfigurationError:
+        return False
     if clean in ("localhost", "localhost.localdomain", "ip6-localhost", "ip6-loopback"):
         return True
     try:
@@ -101,20 +136,67 @@ def is_private_or_metadata_ip(
     return False
 
 
+def _decode_numeric_ipv4(clean: str) -> ipaddress.IPv4Address | None:
+    """Canonically decode numeric IPv4 literals in every legacy notation.
+
+    Handles decimal, octal, and hex octets (``0251.0376.0251.0376``,
+    ``0xa9.0xfe.0xa9.0xfe``), integer forms (``2130706433``, ``017700000001``,
+    ``0xA9FEA9FE``) and short forms (``127.1``, ``169.16689662``) using
+    ``inet_aton`` semantics. Returns ``None`` when the string is not a valid
+    numeric IPv4 literal.
+    """
+    parts = clean.split(".")
+    if not 1 <= len(parts) <= 4:
+        return None
+
+    octets: list[int] = []
+    for part in parts:
+        if not part:
+            return None
+        try:
+            if part.startswith("0x"):
+                octets.append(int(part, 16))
+            elif len(part) > 1 and part.startswith("0") and part.isdigit():
+                octets.append(int(part, 8))  # legacy octal notation
+            elif part.isdigit():
+                octets.append(int(part, 10))
+            else:
+                return None
+        except ValueError:
+            return None
+
+    if any(octet < 0 for octet in octets):
+        return None
+    if any(octet > 255 for octet in octets[:-1]):
+        return None
+
+    count = len(octets)
+    last_limit = {1: 0xFFFFFFFF, 2: 0xFFFFFF, 3: 0xFFFF, 4: 0xFF}[count]
+    if octets[-1] > last_limit:
+        return None
+
+    if count == 1:
+        return ipaddress.IPv4Address(octets[0])
+    if count == 2:
+        return ipaddress.IPv4Address((octets[0] << 24) | octets[1])
+    if count == 3:
+        return ipaddress.IPv4Address((octets[0] << 24) | (octets[1] << 16) | octets[2])
+    return ipaddress.IPv4Address((octets[0] << 24) | (octets[1] << 16) | (octets[2] << 8) | octets[3])
+
+
 def parse_ip_literal(hostname: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
-    """Parse hostname if it is an IPv4 or IPv6 address literal (including integer format)."""
+    """Parse hostname if it is an IPv4 or IPv6 address literal.
+
+    Numeric IPv4 literals are canonically decoded from decimal, octal, hex,
+    dotted-mixed, and short-form notations before classification.
+    """
     clean = hostname.lower().strip("[]").strip()
     if not clean:
         return None
 
-    # Check numeric integer format (e.g. 2130706433 or 0)
-    if clean.isdigit():
-        try:
-            ip_int = int(clean)
-            if 0 <= ip_int <= 0xFFFFFFFF:
-                return ipaddress.IPv4Address(ip_int)
-        except (ValueError, OverflowError):
-            pass
+    decoded = _decode_numeric_ipv4(clean)
+    if decoded is not None:
+        return decoded
 
     try:
         return ipaddress.ip_address(clean)
@@ -185,7 +267,7 @@ class PinnedAsyncNetworkBackend:
     def __init__(self, target_host: str, pinned_ip: str, base_backend: Any = None) -> None:
         import httpcore2._backends.anyio
 
-        self._target_host = target_host.lower()
+        self._target_host = canonicalize_hostname(target_host)
         self._pinned_ip = pinned_ip
         self._base = base_backend or httpcore2._backends.anyio.AnyIOBackend()
 
@@ -197,9 +279,16 @@ class PinnedAsyncNetworkBackend:
         local_address: str | None = None,
         socket_options: Any = None,
     ) -> Any:
-        connect_host = self._pinned_ip if host.lower() == self._target_host else host
+        try:
+            incoming_host = canonicalize_hostname(host)
+        except MCPConfigurationError as exc:
+            raise MCPConnectionError(f"invalid hostname for pinned transport: {host!r}") from exc
+        if incoming_host != self._target_host:
+            raise MCPConnectionError(
+                "refusing unpinned connection: transport host does not match the validated endpoint"
+            )
         return await self._base.connect_tcp(
-            connect_host,
+            self._pinned_ip,
             port,
             timeout=timeout,
             local_address=local_address,
@@ -212,7 +301,7 @@ class PinnedAsyncNetworkBackend:
         timeout: float | None = None,
         socket_options: Any = None,
     ) -> Any:
-        return await self._base.connect_unix_socket(path, timeout=timeout, socket_options=socket_options)
+        raise MCPConnectionError("unix sockets are not permitted through a pinned MCP transport")
 
     async def sleep(self, seconds: float) -> None:
         await self._base.sleep(seconds)
@@ -230,8 +319,18 @@ def create_pinned_async_transport(
 
     transport = httpx2.AsyncHTTPTransport(verify=verify, **kwargs)
     backend = PinnedAsyncNetworkBackend(target_host, pinned_ip)
-    if hasattr(transport, "_pool") and hasattr(transport._pool, "_network_backend"):
-        setattr(transport._pool, "_network_backend", backend)
+    pool = getattr(transport, "_pool", None)
+    if pool is None or not hasattr(pool, "_network_backend"):
+        close = getattr(transport, "close", None)
+        if callable(close):
+            try:
+                close()
+            except Exception:
+                pass
+        raise MCPConfigurationError(
+            "secure DNS pinning transport could not be installed; refusing an unpinned MCP connection"
+        )
+    setattr(pool, "_network_backend", backend)
     return transport
 
 
@@ -255,7 +354,8 @@ def resolve_and_verify_dns(
         MCPConfigurationError: If any resolved IP is restricted or resolution fails.
     """
     try:
-        addr_info = socket.getaddrinfo(hostname, port, proto=socket.IPPROTO_TCP)
+        normalized_hostname = canonicalize_hostname(hostname)
+        addr_info = socket.getaddrinfo(normalized_hostname, port, proto=socket.IPPROTO_TCP)
     except socket.gaierror as exc:
         raise MCPConfigurationError(f"DNS resolution failed for downstream endpoint '{hostname}': {exc}") from exc
     except Exception as exc:
@@ -339,15 +439,20 @@ def validate_mcp_url(
             f"security violation: remote MCP endpoint URL must not contain embedded userinfo: '{clean_url}'"
         )
 
-    hostname = (parsed.hostname or "").lower()
-    if not hostname:
+    raw_hostname = (parsed.hostname or "").lower()
+    if not raw_hostname:
         raise MCPConfigurationError(f"remote MCP endpoint URL '{clean_url}' is missing a hostname")
 
-    clean_host = hostname.strip("[]").strip()
+    clean_host = raw_hostname.strip("[]").strip()
     if clean_host.endswith(".") or any(not label for label in clean_host.split(".")):
         raise MCPConfigurationError(
-            f"SSRF violation: trailing-dot or empty-label hostnames are prohibited: '{hostname}'"
+            f"SSRF violation: trailing-dot or empty-label hostnames are prohibited: '{raw_hostname}'"
         )
+
+    try:
+        hostname = canonicalize_hostname(clean_host)
+    except MCPConfigurationError as exc:
+        raise MCPConfigurationError(f"SSRF violation: invalid hostname '{raw_hostname}': {exc}") from exc
 
     if is_obfuscated_or_short_ip(clean_host):
         raise MCPConfigurationError(
@@ -392,8 +497,11 @@ def validate_mcp_url(
             )
 
         if resolve_dns and not is_loopback:
-            # Host is a remote domain name: check DNS pre-resolution
-            resolved_ips = resolve_and_verify_dns(hostname, port, allow_loopback=allow_loopback)
+            # A remote hostname must never resolve into loopback, even when
+            # explicit loopback endpoints are allowed for this gateway.  The
+            # allow_loopback flag applies to the hostname itself, not to a DNS
+            # answer controlled by a remote domain.
+            resolved_ips = resolve_and_verify_dns(hostname, port, allow_loopback=False)
             if resolved_ips:
                 pinned_ip = resolved_ips[0]
         elif is_loopback:

@@ -1,7 +1,0 @@
-asset,same_user,different_user,container,evidence_id,defenses_relied_on
-"signing key","SUCCEEDED","BLOCKED","BLOCKED","E-067","OS file permissions (mode 0600 / owner UID)"
-"approvals DB","SUCCEEDED","BLOCKED","BLOCKED","E-067","OS file permissions (mode 0600 / owner UID)"
-"dashboard token","SUCCEEDED","BLOCKED","BLOCKED","E-067","OS /proc/environ permission (0400) + 0600 token file + loopback netns"
-"policy.json","SUCCEEDED","BLOCKED","BLOCKED","E-067","OS file write permission + process kill isolation"
-"MCP client config","SUCCEEDED","BLOCKED","BLOCKED","E-067","OS file permissions (mode 0600 / owner UID)"
-"gateway process","SUCCEEDED","BLOCKED","BLOCKED","E-067","Linux kernel process UID boundary (signal/ptrace EPERM)"

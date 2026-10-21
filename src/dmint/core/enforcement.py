@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import inspect
 import logging
+import warnings
 import weakref
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
@@ -40,12 +41,49 @@ ResourceSpec = NoResource | ResourceResolver
 _AUTHORIZATION_TOKEN = object()
 
 
+def _weak_callable_ref(function: Callable[..., Any]) -> weakref.ReferenceType[Any] | None:
+    """Return a weak reference to a protected callable, or None when unsupported.
+
+    ``classmethod``/``staticmethod`` descriptor objects cannot be weakly referenced;
+    for those, the underlying function (``__func__``) is what gets registered.
+    """
+    try:
+        return weakref.ref(function)
+    except TypeError:
+        return None
+
+
 @dataclass(frozen=True)
 class _ProtectedBinding:
+    """Resolved binding for one protected callable.
+
+    The protected callable is referenced weakly whenever possible so the enforcement
+    registry (a ``WeakKeyDictionary``) cannot retain entries after the caller drops
+    the callable. Callables that do not support weak references fall back to a strong
+    reference, but such callables are never stored in the registry keyed by
+    themselves (the key assignment is skipped when it cannot be weakly referenced),
+    so no registry entry is retained on their behalf.
+    """
+
     owner: "Dmint"
-    function: Callable[..., Any]
+    _function_ref: weakref.ReferenceType[Any] | None
+    _function_fallback: Callable[..., Any] | None
     capability: str
     resource: ResourceSpec
+
+    @property
+    def function(self) -> Callable[..., Any]:
+        """Resolve the protected callable through its weak reference (fail closed if gone)."""
+        if self._function_ref is not None:
+            function = self._function_ref()
+            if function is not None:
+                return cast(Callable[..., Any], function)
+        elif self._function_fallback is not None:
+            return self._function_fallback
+        raise AuthorizationError(
+            "protected callable is no longer available",
+            code="DMT_AUTHORIZATION_FAILED",
+        )
 
 
 def _capability_parts(capability: str) -> tuple[str, str]:
@@ -297,6 +335,14 @@ class Dmint:
             raise TypeError("clock must be callable")
         if webhook_notifier is not None and not isinstance(webhook_notifier, WebhookNotifier):
             raise TypeError("webhook_notifier must be a WebhookNotifier")
+        if webhook_notifier is not None:
+            warnings.warn(
+                "Dmint(webhook_notifier=...) is deprecated and does not dispatch notifications. "
+                "Core authorization stays network-free; use the dmint-mcp gateway or call a "
+                "WebhookNotifier from your integration layer.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
         object.__setattr__(self, "_policy", policy)
         object.__setattr__(self, "_agent_id", validate_text(agent_id, "agent_id"))
         object.__setattr__(self, "_context", context)
@@ -423,7 +469,14 @@ class Dmint:
             raise RequestValidationError("resource must be NO_RESOURCE or a resolver over bound arguments")
         target = _validate_function(function)
         raw_target = target.__func__ if isinstance(target, (classmethod, staticmethod)) else target
-        binding = _ProtectedBinding(self, raw_target, capability, resource)
+        function_ref = _weak_callable_ref(raw_target)
+        binding = _ProtectedBinding(
+            self,
+            function_ref,
+            raw_target if function_ref is None else None,
+            capability,
+            resource,
+        )
         try:
             self._registered[raw_target] = binding
         except TypeError:
@@ -478,6 +531,7 @@ class Dmint:
 
     @property
     def webhook_notifier(self) -> WebhookNotifier | None:
+        """Deprecated compatibility accessor; Core never dispatches webhooks."""
         return self._webhook_notifier
 
     def _persist_pending(self, request: ToolRequest) -> None:

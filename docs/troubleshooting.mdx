@@ -1,0 +1,112 @@
+---
+title: "Troubleshooting"
+description: "Diagnose and resolve common runtime errors, configuration issues, and permission failures in Dmint."
+---
+
+# Troubleshooting
+
+This guide indexes common error messages, their root causes, and immediate remediation steps.
+
+---
+
+## Quick Diagnostic Checklist
+
+Run these commands to verify your environment:
+
+```bash
+# 1. Check installed CLI version:
+dmint --version
+
+# 2. Verify policy validity offline (LLM-free):
+dmint verify-policy policy.json
+
+# 3. Check pending approvals in store:
+dmint pending --db-path approvals.sqlite3
+
+# 4. Verify signing key permissions (must be mode 0600):
+ls -la ~/.config/dmint/
+```
+
+---
+
+## Symptom Index
+
+| Error Message or Symptom | Likely Cause | Solution |
+|---|---|---|
+| `DMT_APPROVAL_REQUEST_MISMATCH` | Arguments changed between approval and execution retry. | Ensure retried call uses identical arguments as approved. |
+| `DMT_APPROVAL_CONSUMED` | Approval token was already used. | Approvals are single-use; re-request approval for subsequent call. |
+| `DMT_APPROVAL_EXPIRED` | TTL (default 5 min) elapsed before retry. | Approvals expire after 5 minutes; re-request approval. |
+| `DMT_APPROVAL_POLICY_INVALID` | `policy.json` modified after approval issued. | Re-request approval under the updated policy. |
+| `DMT_KEY_PERMISSION_ERROR` | Key file permissions looser than `0600`. | Run `chmod 0600 ~/.config/dmint/*.key`. |
+| `DMT_MCP_PROTOCOL_ERROR: duplicate JSON key` | Inbound MCP JSON contains duplicate keys. | Strip duplicate dictionary keys in caller payload. |
+| `DMT_MCP_SCHEMA_MISMATCH` | Downstream MCP tool schema changed. | Inspect changes and update `tool_schema_hash` in `mcp_protection.json`. |
+| `ApprovalStoreConfigurationError: connection refused` | PostgreSQL unreachable on port 5432. | Ensure PostgreSQL container or service is running. |
+| `PolicyError: constraints cannot be applied to DENY rules` | `policy.json` defines constraints on `DENY`. | Remove `constraints` from the `DENY` rule. |
+
+---
+
+## Detailed Error Remediations
+
+### 1. `DMT_APPROVAL_REQUEST_MISMATCH`
+
+```text
+dmint.core.errors.ApprovalRequestMismatchError: DMT_APPROVAL_REQUEST_MISMATCH
+```
+- **What happened**: A human approved an action, but when the host application retried, the arguments differed from the approved snapshot.
+- **Why this is rejected**: Dmint binds approvals to the SHA-256 fingerprint of the exact RFC 8785 canonical arguments to prevent argument injection attacks.
+- **Fix**: Inspect the argument dictionary passed on retry. Ensure floats, strings, and keys match the approved request exactly.
+
+---
+
+### 2. `DMT_KEY_PERMISSION_ERROR`
+
+```text
+dmint.core.errors.KeyPermissionError: key file '/home/user/.config/dmint/signing.key' has insecure permissions
+```
+- **What happened**: Dmint refused to load a private signing key because its filesystem permissions allow other users or groups on the machine to read it.
+- **Fix**: Run:
+  ```bash
+  chmod 0600 ~/.config/dmint/signing.key
+  chmod 0600 ~/.config/dmint/integrity.key
+  chmod 0700 ~/.config/dmint/
+  ```
+
+---
+
+### 3. `DMT_MCP_SCHEMA_MISMATCH`
+
+```text
+dmint.mcp.errors.MCPProxyError: [DMT_MCP_SCHEMA_MISMATCH] downstream tool 'query' schema does not match pinned hash
+```
+- **What happened**: The downstream MCP server updated its tool description or input schema, differing from `tool_schema_hash` in `mcp_protection.json`.
+- **Fix**:
+  1. Review downstream server updates to verify the schema change is expected and safe.
+  2. Re-generate the protection configuration:
+     ```bash
+     dmint create-mcp-policy --config-output mcp_protection.json
+     ```
+
+---
+
+### 4. `DMT_APPROVAL_POLICY_INVALID`
+
+```text
+dmint.core.errors.ApprovalPolicyInvalidError: DMT_APPROVAL_POLICY_INVALID
+```
+- **What happened**: An unconsumed approval was generated under a previous version of `policy.json`. A new policy was loaded, which automatically changes the policy SHA-256 digest and epoch.
+- **Fix**: Have the operator review and approve the request under the new policy.
+
+---
+
+### 5. `ApprovalStoreConfigurationError: connection refused`
+
+```text
+dmint.core.errors.ApprovalStoreConfigurationError: Failed to connect to database: (psycopg2.OperationalError) connection to server at "localhost", port 5432 failed: Connection refused
+```
+- **What happened**: Dmint was configured with `DMINT_DATABASE_URL` pointing to PostgreSQL, but the database daemon is unreachable.
+- **Fix**:
+  1. Verify the PostgreSQL container or service is active:
+     ```bash
+     docker ps | grep postgres
+     ```
+  2. To fall back to local SQLite for development, unset `DMINT_DATABASE_URL`.

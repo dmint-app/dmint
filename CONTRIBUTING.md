@@ -19,7 +19,7 @@ All contributors, maintainers, and community members are expected to adhere to o
 ## Development Setup
 
 ### Prerequisites
-- **Python 3.10+** (Python 3.10, 3.11, or 3.12)
+- **Python 3.10+** (CI matrix: Python 3.10, 3.11, 3.12, 3.13)
 - **Git**
 - **pip** and **virtualenv**
 
@@ -120,7 +120,9 @@ PYTHONPATH=src mypy src/
 ```
 
 ### 4. Running the Test Suite
-Dmint maintains over 890 automated tests covering unit tests, security invariants, concurrency, and end-to-end flows.
+Dmint maintains over 1,500 automated tests covering unit tests, security invariants, concurrency, and end-to-end flows.
+
+**Full-suite prerequisites:** PostgreSQL-backed suites need a reachable server (e.g. `docker run -d -p 5432:5432 -e POSTGRES_PASSWORD=postgres postgres:15-alpine`) and fail loudly — never skip — when it is unreachable; override the default `postgresql://postgres:postgres@localhost:5432/dmint_test` with `DMINT_TEST_DATABASE_URL`. RFC 8785 cross-checks and node-parity fuzzing need Node.js plus `npm ci` inside `tests/fixtures/`.
 
 ```bash
 # Run all tests
@@ -134,6 +136,14 @@ PYTHONPATH=src pytest tests/dashboard/
 PYTHONPATH=src pytest tests/skills/
 ```
 
+#### PostgreSQL-backed Tests
+
+Suites that exercise PostgreSQL — `tests/core/test_postgres_subsystems.py`, `tests/core/test_postgres_tamper_race_b4.py`, and the PostgreSQL integration class in `tests/core/test_storage_pluggable.py` — run against `DMINT_TEST_DATABASE_URL` (default: `postgresql://postgres:postgres@localhost:5432/dmint_test`). When the server is unreachable these tests **fail with an explicit error instead of skipping**; CI always provisions PostgreSQL automatically. For a throwaway local server:
+
+```bash
+docker run -d --name dmint-pg -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=dmint_test -p 5432:5432 postgres:15-alpine
+```
+
 ### 5. Packaging & Local Wheel Verification
 Verify that source distributions (`.tar.gz`) and wheels (`.whl`) build cleanly and install in an isolated environment:
 ```bash
@@ -144,7 +154,7 @@ twine check dist/*
 # Test-install the wheel in an isolated venv:
 python3 -m venv /tmp/test-env
 source /tmp/test-env/bin/activate
-pip install "dist/dmint-2.0.0-py3-none-any.whl[all]"
+pip install "dist/dmint-2.0.1-py3-none-any.whl[all]"
 dmint --version
 dmint --help
 deactivate
@@ -185,7 +195,7 @@ Any pull request modifying core authorization or transport code **must preserve 
 2. **Work in Progress**: Feel free to open a Draft PR early to solicit architectural feedback.
 3. **Tests Required**: Every feature or bug fix must include corresponding tests in `tests/`.
 4. **CI Checks**: Ensure all GitHub Actions workflows pass:
-   - Multi-version testing on Python 3.10, 3.11, 3.12
+   - Multi-version testing on Python 3.10, 3.11, 3.12, 3.13
    - Ruff linting and formatting check
    - Mypy static type checking
    - Twine package verification

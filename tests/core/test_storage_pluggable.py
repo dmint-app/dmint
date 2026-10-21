@@ -39,43 +39,7 @@ from dmint.errors import (
     ApprovalNotFoundError,
     ApprovalRequiredError,
 )
-
-POSTGRES_TEST_URL = os.environ.get(
-    "DMINT_TEST_DATABASE_URL",
-    "postgresql://postgres:postgres@localhost:5432/dmint_test",
-)
-
-
-def _normalize_pg_url(url: str) -> str:
-    if url.startswith("postgres://"):
-        url = "postgresql://" + url[len("postgres://") :]
-    if url.startswith("postgresql://"):
-        try:
-            import psycopg  # noqa: F401
-        except ImportError:
-            try:
-                import psycopg2  # noqa: F401
-
-                url = "postgresql+psycopg2://" + url[len("postgresql://") :]
-            except ImportError:
-                pass
-    return url
-
-
-def _is_postgres_available(url: str) -> bool:
-    try:
-        from sqlalchemy import create_engine, text
-
-        eng = create_engine(_normalize_pg_url(url), connect_args={"connect_timeout": 2})
-        with eng.connect() as conn:
-            conn.execute(text("SELECT 1"))
-        eng.dispose()
-        return True
-    except Exception:
-        return False
-
-
-POSTGRES_AVAILABLE = _is_postgres_available(POSTGRES_TEST_URL)
+from tests.postgres_support import POSTGRES_TEST_URL, require_postgres
 
 
 class StoragePluggableInterfaceTests(unittest.TestCase):
@@ -173,11 +137,11 @@ class StoragePluggableInterfaceTests(unittest.TestCase):
         store.close()
 
 
-@unittest.skipUnless(POSTGRES_AVAILABLE, f"PostgreSQL not reachable at {POSTGRES_TEST_URL}")
 class PostgreSQLStorageIntegrationTests(unittest.TestCase):
     """Full lifecycle, security guarantees, and concurrency tests against live PostgreSQL."""
 
     def setUp(self) -> None:
+        require_postgres(POSTGRES_TEST_URL)
         self.now = datetime(2026, 4, 1, 12, 0, 0, tzinfo=timezone.utc)
         self.expires = self.now + timedelta(minutes=15)
         self.epoch = f"pg-epoch-{os.urandom(4).hex()}"

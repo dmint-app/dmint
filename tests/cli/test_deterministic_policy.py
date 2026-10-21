@@ -236,6 +236,102 @@ class NoSecretsInPolicyTests(unittest.TestCase):
             )
         self.assertIn("embedded credential", str(ctx.exception))
 
+    def test_aws_access_key_id_in_value_fails(self):
+        """AWS access key IDs are unambiguous credential shapes and must be rejected (SRC-13)."""
+        with self.assertRaises(CLIError) as ctx:
+            _assert_no_secrets_in_policy(
+                {
+                    "rules": [
+                        {
+                            "effect": "allow",
+                            "tool": "aws",
+                            "action": "s3:GetObject",
+                            "resource": "AKIAIOSFODNN7EXAMPLE",
+                        }
+                    ]
+                }
+            )
+        self.assertIn("embedded credential", str(ctx.exception))
+
+    def test_pem_private_key_block_in_value_fails(self):
+        """PEM private key blocks must be rejected even without a sensitive field name (SRC-13)."""
+        # Construct the marker at runtime so this negative fixture does not
+        # itself trip repository secret scanners.
+        pem = "-----BEGIN RSA " + "PRIVATE KEY-----\nMIIEowIBAAKCAQEA7ecret\n-----END RSA " + "PRIVATE KEY-----"
+        with self.assertRaises(CLIError) as ctx:
+            _assert_no_secrets_in_policy(
+                {"rules": [{"effect": "allow", "tool": "sign", "action": "run", "resource": pem}]}
+            )
+        self.assertIn("embedded credential", str(ctx.exception))
+
+    def test_github_pat_in_value_fails(self):
+        """GitHub personal access tokens must be rejected (SRC-13)."""
+        with self.assertRaises(CLIError) as ctx:
+            _assert_no_secrets_in_policy(
+                {
+                    "rules": [
+                        {
+                            "effect": "allow",
+                            "tool": "gh",
+                            "action": "repo:read",
+                            "resource": "ghp_0123456789abcdefghijklmnopqrstuvwx",
+                        }
+                    ]
+                }
+            )
+        self.assertIn("embedded credential", str(ctx.exception))
+
+    def test_nested_constraint_secret_key_fails(self):
+        """Screening must recurse into nested rule values, not only top-level fields (SRC-13)."""
+        with self.assertRaises(CLIError) as ctx:
+            _assert_no_secrets_in_policy(
+                {
+                    "rules": [
+                        {
+                            "effect": "allow",
+                            "tool": "pg",
+                            "action": "query",
+                            "constraint": {"headers": {"authorization": "Basic abc"}},
+                        }
+                    ]
+                }
+            )
+        self.assertIn("secret field", str(ctx.exception))
+
+    def test_nested_constraint_embedded_credential_fails(self):
+        """Embedded credential material nested inside lists/dicts must be rejected (SRC-13)."""
+        with self.assertRaises(CLIError) as ctx:
+            _assert_no_secrets_in_policy(
+                {
+                    "rules": [
+                        {
+                            "effect": "allow",
+                            "tool": "pg",
+                            "action": "query",
+                            "constraint": {"notes": ["safe", "api_key=sk-live-nested-123"]},
+                        }
+                    ]
+                }
+            )
+        self.assertIn("embedded credential", str(ctx.exception))
+
+    def test_deeply_nested_rule_aborts_safely(self):
+        """Recursive rule screening must abort safely without RecursionError on hostile nesting (SRC-13)."""
+        from dmint.cli.limits import MAX_RECURSION_DEPTH
+
+        deep: dict[str, object] = {"nested": {}}
+        curr = deep
+        for _ in range(MAX_RECURSION_DEPTH + 10):
+            nxt: dict[str, object] = {}
+            curr["nested"] = nxt
+            curr = nxt
+
+        with self.assertRaises(CLIError) as ctx:
+            _assert_no_secrets_in_policy(
+                {"rules": [{"effect": "allow", "tool": "pg", "action": "query", "constraint": deep}]}
+            )
+        self.assertIn("exceeds maximum allowed recursion depth", str(ctx.exception))
+
 
 class DeterministicSortingTests(unittest.TestCase):
     """Req 10 & 11: Tool and integration ordering is deterministic."""

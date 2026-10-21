@@ -1,0 +1,103 @@
+---
+title: "Resource Matching Engine"
+description: "How Dmint normalizes, validates, and matches paths, URLs, hostnames, and identifiers without ReDoS or traversal vulnerabilities."
+---
+
+# Resource Matching Engine
+
+Security policies frequently govern access to specific targets: file paths, database tables, hostnames, or remote endpoints.
+
+In Dmint, resources are categorized by **kind**. Each kind applies deterministic normalization, character validation, and segment-based matching before comparison against policy patterns.
+
+If a resource string is malformed or attempts path traversal, Dmint rejects the request immediately with `DMT_RESOURCE_INVALID` (which deterministically evaluates to `DENY`).
+
+---
+
+## Supported Resource Kinds
+
+| Kind | Purpose | Example Resource | Example Policy Pattern |
+|---|---|---|---|
+| `path` | Filesystem paths | `/var/log/app/output.log` | `/var/log/**/*.log` |
+| `url` | Remote HTTP/HTTPS endpoints | `https://api.github.com/repos/org/repo` | `https://api.github.com/repos/*/*` |
+| `host` | Network hostnames and domains | `db.production.internal` | `*.production.internal` |
+| `identifier` | Entity names (tables, queues, users) | `users_v2` | `users_*` |
+| `exact` | Uncategorized strings | `my-opaque-token-123` | `my-opaque-token-123` (literal only) |
+
+---
+
+## 1. Path Normalization (`kind: "path"`)
+
+String-based path matching is vulnerable to canonicalization discrepancies and directory traversal attacks (`../`). Dmint's path engine enforces strict normalization before matching:
+
+### Normalization Rules
+1. **NFC Unicode Normalization**: Converts decomposed characters into canonical precomposed form.
+2. **Separator Normalization**: Resolves duplicate slashes (`//` $\to$ `/`), `./` segments, and trailing slashes.
+3. **Traversal Resolution**: Resolves relative `../` segments within bounds.
+
+### Hard Rejections (Fail-Closed)
+- **Root Escapes**: Paths attempting to traverse above the root directory (e.g. `/var/../../etc/passwd`) are rejected with `DMT_RESOURCE_INVALID`.
+- **NUL Bytes (`\0`)**: Immediately rejected.
+- **Percent-Encoded Traversal**: Tokens such as `%2f` (`/`) and `%2e%2e` (`..`) are rejected.
+- **Backslashes (`\`)**: Rejected in POSIX path mode.
+
+### Wildcard Matching
+- `*`: Matches within a single path segment (never crosses `/`).
+- `**`: Matches across multiple path segments.
+- Matching uses a deterministic segment tokenizer with zero regular expressions, completely immune to ReDoS backtracking.
+
+<Warning>
+**Symlink Resolution Responsibility**: String-based path normalization cannot inspect the host filesystem. Resolving symbolic links (e.g. via `os.path.realpath()`) is the tool resolver's responsibility before passing the resolved path to Dmint.
+</Warning>
+
+---
+
+## 2. URL and Host Normalization (`kind: "url"`, `"host"`)
+
+Remote endpoints are normalized to prevent server-side request forgery (SSRF) and domain-evasion attacks:
+
+### Normalization Rules
+1. **Scheme Validation**: Fails closed if the scheme is not explicitly `http` or `https`. Schemes like `file://`, `ftp://`, or `gopher://` are rejected.
+2. **Punycode Conversion**: Internationalized domain names (IDN) with non-ASCII characters are converted to Punycode (`xn--...`).
+3. **Trailing-Dot Removal**: Normalizes `example.com.` to `example.com`. Repeated trailing dots (e.g. `example.com..`) are strictly rejected.
+4. **Default Port Stripping**: Removes `:80` for HTTP and `:443` for HTTPS.
+5. **Userinfo Stripping/Rejection**: URLs containing credentials (e.g. `https://user:pass@evil.com`) are rejected to prevent authority confusion.
+6. **Traversal Defense**: URL paths containing `%2f` or `%2e%2e` are rejected.
+
+### Wildcard Semantics
+- Domain wildcards (`*.example.com`) strictly match subdomains (e.g. `api.example.com`, `auth.example.com`).
+- Path wildcards follow segment-based matching rules.
+
+---
+
+## 3. Identifiers (`kind: "identifier"`)
+
+Used for database tables, topic names, queue names, and user identifiers:
+- Leading and trailing whitespace is rejected.
+- NUL bytes and control characters are rejected.
+- Wildcards (`*`) match strictly alphanumeric and standard identifier characters (`[A-Za-z0-9_.-]*`).
+
+---
+
+## Defining Resources in Code
+
+When protecting Python callables, specify a resource extractor:
+
+```python
+# Fixed resource:
+@engine.protect("database.query", resource="public.users")
+def query_users(): ...
+
+# Dynamic resource extracted from arguments:
+@engine.protect(
+    "fs.read_file",
+    resource=lambda args: args["filepath"],  # Extracted from arguments
+)
+def read_file(filepath: str) -> str: ...
+```
+
+---
+
+## Next Steps
+
+- **[Policy Authoring Guide](/guides/authoring-policies)**: Learn how to author policies with path and domain wildcards.
+- **[MCP Gateway SSRF Defenses](/guides/protecting-mcp)**: Review connection-level IP pinning and private network blocking.

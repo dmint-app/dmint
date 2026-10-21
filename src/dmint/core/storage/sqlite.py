@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import contextlib
+import functools
 import json
 import hashlib
 import hmac
@@ -9,10 +11,21 @@ import logging
 import os
 import re
 import sqlite3
-from collections.abc import Callable, Collection, Mapping
+import threading
+from collections.abc import Callable, Collection, Iterator, Mapping
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ParamSpec, TypeVar, cast
+
+try:  # POSIX cross-process lock
+    import fcntl
+except ImportError:  # pragma: no cover - exercised on Windows
+    fcntl = None  # type: ignore[assignment]
+
+try:  # Windows cross-process lock
+    import msvcrt
+except ImportError:  # pragma: no cover - exercised on POSIX
+    msvcrt = None  # type: ignore[assignment]
 
 import rfc8785
 
@@ -276,6 +289,29 @@ def _required(row: sqlite3.Row, field: str) -> Any:
     return value
 
 
+_P = ParamSpec("_P")
+_R = TypeVar("_R")
+
+
+def _synchronized(method: Callable[_P, _R]) -> Callable[_P, _R]:
+    """Serialize a store method's use of the single shared sqlite connection.
+
+    The connection is opened with ``check_same_thread=False`` so one store
+    instance may serve multiple threads.  Interleaving operations on the same
+    connection (for example two ``BEGIN IMMEDIATE`` statements) raises sqlite
+    errors and can reset other threads' cursors, so every operation owns the
+    connection for its whole duration.
+    """
+
+    @functools.wraps(method)
+    def wrapper(*args: _P.args, **kwargs: _P.kwargs) -> _R:
+        store = cast("SQLiteApprovalStore", args[0])
+        with store._connection_lock:
+            return method(*args, **kwargs)
+
+    return wrapper
+
+
 class SQLiteApprovalStore(ApprovalStore):
     """Small SQLite repository for pending exact-request approval records.
 
@@ -295,6 +331,9 @@ class SQLiteApprovalStore(ApprovalStore):
         max_pending_per_principal: int = 100,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
+        # Serialize every use of the single sqlite connection so one shared
+        # store instance stays safe across threads (check_same_thread=False).
+        self._connection_lock = threading.RLock()
         if type(deployment_epoch) is not str or not deployment_epoch or deployment_epoch != deployment_epoch.strip():
             raise ValueError("deployment_epoch must be a non-empty string")
         if type(max_pending_per_principal) is not int or max_pending_per_principal <= 0:
@@ -333,6 +372,7 @@ class SQLiteApprovalStore(ApprovalStore):
         try:
             self._connection = sqlite3.connect(db_str, check_same_thread=False)
             self._connection.row_factory = sqlite3.Row
+            self._connection.execute("PRAGMA journal_mode=WAL")
             self._connection.execute("PRAGMA foreign_keys = ON")
             self._connection.execute("PRAGMA busy_timeout = 5000")
             self._connection.execute(_CREATE_TABLE)
@@ -350,7 +390,68 @@ class SQLiteApprovalStore(ApprovalStore):
                 raise
             raise ApprovalStoreError("could not initialize approval store") from exc
 
+    @contextlib.contextmanager
+    def _recovery_lock(self) -> Iterator[None]:
+        """Hold a cross-process exclusive lock for the recovery counter check.
+
+        The SQLite transaction protects the database row, but the recovery
+        sidecar is a separate file.  A per-instance ``RLock`` cannot prevent a
+        second store instance (or process) from advancing the sidecar between
+        our database read and sidecar read.  The lock file is deliberately
+        separate from the sidecar because the sidecar is replaced atomically;
+        locking a replaced inode would not serialize later writers.
+        """
+        if self._recovery_file is None:
+            yield
+            return
+        lock_path = self._recovery_file.with_name(self._recovery_file.name + ".lock")
+        flags = os.O_CREAT | os.O_RDWR | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+        fd = os.open(str(lock_path), flags, 0o600)
+        try:
+            try:
+                if fcntl is not None:
+                    fcntl.flock(fd, fcntl.LOCK_EX)
+                elif msvcrt is not None:  # pragma: no cover - Windows-only branch
+                    if os.fstat(fd).st_size == 0:
+                        os.write(fd, b"\0")
+                    os.lseek(fd, 0, os.SEEK_SET)
+                    msvcrt.locking(fd, msvcrt.LK_LOCK, 1)
+                else:  # pragma: no cover - no supported lock primitive
+                    raise ApprovalStoreError("cross-process recovery counter locking is unavailable")
+            except OSError as exc:
+                raise ApprovalStoreError("could not acquire recovery counter lock") from exc
+            yield
+        finally:
+            try:
+                if fcntl is not None:
+                    fcntl.flock(fd, fcntl.LOCK_UN)
+                elif msvcrt is not None:  # pragma: no cover - Windows-only branch
+                    os.lseek(fd, 0, os.SEEK_SET)
+                    msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+            except OSError:
+                pass
+            finally:
+                os.close(fd)
+
+    def _write_recovery_sidecar(self, counter: int) -> None:
+        if self._recovery_file is None:
+            return
+        temp_file = self._recovery_file.with_name(self._recovery_file.name + ".tmp")
+        temp_file.write_text(str(counter), encoding="utf-8")
+        try:
+            os.chmod(str(temp_file), 0o600)
+        except OSError:
+            pass
+        temp_file.replace(self._recovery_file)
+
+    @_synchronized
     def _sync_recovery_counter(self, *, increment: bool = False) -> None:
+        if self._recovery_file is None:
+            return
+        with self._recovery_lock():
+            self._sync_recovery_counter_locked(increment=increment)
+
+    def _sync_recovery_counter_locked(self, *, increment: bool = False) -> None:
         if self._recovery_file is None:
             return
         try:
@@ -363,6 +464,9 @@ class SQLiteApprovalStore(ApprovalStore):
                 if content:
                     sidecar_counter = int(content)
 
+            # A counter regression is the actual rollback signal.  The lock
+            # makes this comparison atomic with respect to every other
+            # cooperating store/process.
             if db_counter < sidecar_counter:
                 raise ApprovalStoreError("database rollback detected: storage recovery counter mismatch")
 
@@ -382,12 +486,20 @@ class SQLiteApprovalStore(ApprovalStore):
                     (new_counter, now_str),
                 )
                 self._connection.commit()
-                temp_file = self._recovery_file.with_suffix(".tmp")
-                temp_file.write_text(str(new_counter), encoding="utf-8")
-                temp_file.replace(self._recovery_file)
-        except (sqlite3.Error, ValueError) as exc:
+                self._write_recovery_sidecar(new_counter)
+            elif db_counter > sidecar_counter:
+                # A crash after the DB commit but before the sidecar write is
+                # not a rollback.  Advance the sidecar under the lock so the
+                # next reader sees a consistent snapshot.
+                self._write_recovery_sidecar(db_counter)
+        except (sqlite3.Error, OSError, ValueError) as exc:
+            try:
+                self._connection.rollback()
+            except sqlite3.Error:
+                pass
             raise ApprovalStoreError("recovery epoch counter check failed") from exc
 
+    @_synchronized
     def close(self) -> None:
         if hasattr(self, "_connection") and self._connection is not None:
             try:
@@ -403,6 +515,7 @@ class SQLiteApprovalStore(ApprovalStore):
         except Exception:
             pass
 
+    @_synchronized
     def set_authoritative_policy(self, policy: Policy, provenance: PolicyProvenance) -> None:
         from ..models import AnyResource
         from ..policy import Policy, Rule
@@ -443,6 +556,7 @@ class SQLiteApprovalStore(ApprovalStore):
         except sqlite3.Error as exc:
             raise ApprovalStoreError("could not update store policy") from exc
 
+    @_synchronized
     def get_authoritative_policy(self) -> tuple[Policy, PolicyProvenance] | None:
         from ..policy import Policy
 
@@ -463,6 +577,7 @@ class SQLiteApprovalStore(ApprovalStore):
         except (MalformedApprovalError, CorruptApprovalRecordError, KeyError) as exc:
             raise CorruptApprovalRecordError("stored policy is corrupted") from exc
 
+    @_synchronized
     def _rollback_safely(self) -> None:
         if getattr(self, "_connection", None) is None:
             return
@@ -477,6 +592,7 @@ class SQLiteApprovalStore(ApprovalStore):
     def __exit__(self, exception_type: Any, exception: Any, traceback: Any) -> None:
         self.close()
 
+    @_synchronized
     def cleanup_expired(self, *, now: datetime | None = None) -> int:
         ts = _timestamp(now or self._clock())
         try:
@@ -489,6 +605,7 @@ class SQLiteApprovalStore(ApprovalStore):
         except sqlite3.Error as exc:
             raise ApprovalStoreError("could not clean up expired records") from exc
 
+    @_synchronized
     def save_pending(self, record: ApprovalRecord) -> ApprovalRecord:
         if type(record) is not ApprovalRecord or record.state is not ApprovalState.PENDING:
             raise MalformedApprovalError("Stage 2B only persists pending approvals")
@@ -539,6 +656,7 @@ class SQLiteApprovalStore(ApprovalStore):
         self._save(record)
         return record
 
+    @_synchronized
     def save_approved(self, record: ApprovalRecord) -> None:
         if type(record) is not ApprovalRecord or record.state is not ApprovalState.APPROVED:
             raise MalformedApprovalError("Stage 2D requires an approved approval record")
@@ -557,6 +675,7 @@ class SQLiteApprovalStore(ApprovalStore):
         except sqlite3.Error as exc:
             raise ApprovalStoreError("could not persist approved approval") from exc
 
+    @_synchronized
     def _save(self, record: ApprovalRecord) -> None:
         if type(record) is not ApprovalRecord:
             raise MalformedApprovalError("store requires an ApprovalRecord")
@@ -569,6 +688,7 @@ class SQLiteApprovalStore(ApprovalStore):
         except sqlite3.Error as exc:
             raise ApprovalStoreError("could not persist approval record") from exc
 
+    @_synchronized
     def _insert_values(self, values: tuple[Any, ...]) -> None:
         cols = ", ".join((*_STORED_COLUMNS, "record_checksum"))
         placeholders = ", ".join("?" * (len(_STORED_COLUMNS) + 1))
@@ -589,6 +709,7 @@ class SQLiteApprovalStore(ApprovalStore):
             raise CorruptApprovalRecordError("stored record is not approved")
         return record
 
+    @_synchronized
     def get(self, approval_id: str) -> ApprovalRecord | None:
         if type(approval_id) is not str or not _ID_PATTERN.fullmatch(approval_id) or not approval_id.startswith("apr_"):
             raise CorruptApprovalRecordError("invalid approval_id lookup")
@@ -601,6 +722,7 @@ class SQLiteApprovalStore(ApprovalStore):
             return None
         return self._deserialize(row)
 
+    @_synchronized
     def _fetch_row(self, approval_id: str) -> sqlite3.Row | None:
         return self._connection.execute(
             "SELECT * FROM approval_records WHERE approval_id = ?",
@@ -613,6 +735,7 @@ class SQLiteApprovalStore(ApprovalStore):
             raise ApprovalNotFoundError("approval record was not found")
         return record
 
+    @_synchronized
     def invalidate_approved(
         self,
         record: ApprovalRecord,
@@ -641,6 +764,7 @@ class SQLiteApprovalStore(ApprovalStore):
             self._rollback_safely()
             raise ApprovalStoreError("could not invalidate approval") from exc
 
+    @_synchronized
     def consume_approved(
         self,
         *,
@@ -747,6 +871,7 @@ class SQLiteApprovalStore(ApprovalStore):
 
     _MAX_QUERY_LIMIT: int = 1000
 
+    @_synchronized
     def list_pending(self, *, limit: int = 100) -> list[ApprovalRecord]:
         """Return unexpired PENDING records, newest first.
 
@@ -787,6 +912,7 @@ class SQLiteApprovalStore(ApprovalStore):
             )
         return results
 
+    @_synchronized
     def list_records(
         self,
         *,
@@ -851,6 +977,7 @@ class SQLiteApprovalStore(ApprovalStore):
             )
         return records
 
+    @_synchronized
     def approve_pending(
         self,
         approval_id: str,
@@ -919,10 +1046,14 @@ class SQLiteApprovalStore(ApprovalStore):
         except (ApprovalStoreError, MalformedApprovalError):
             self._rollback_safely()
             raise
+        except sqlite3.Error as exc:
+            self._rollback_safely()
+            raise ApprovalStoreError("could not approve pending approval") from exc
         except Exception:
             self._rollback_safely()
             raise
 
+    @_synchronized
     def reject_pending(
         self,
         approval_id: str,
@@ -983,6 +1114,9 @@ class SQLiteApprovalStore(ApprovalStore):
         except (ApprovalStoreError, MalformedApprovalError):
             self._rollback_safely()
             raise
+        except sqlite3.Error as exc:
+            self._rollback_safely()
+            raise ApprovalStoreError("could not reject pending approval") from exc
         except Exception:
             self._rollback_safely()
             raise

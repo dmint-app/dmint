@@ -34,16 +34,16 @@ Every tool call passes through a deterministic policy evaluator before it reache
 
 ---
 
-## 3. MONOREPO ARCHITECTURE (v2.0.0)
+## 3. MONOREPO ARCHITECTURE (v2.0.1)
 
-The monorepo lives at `~/dmint` and ships as a **single distribution package** (`dmint v2.0.0`) containing five unified subsystems:
+The monorepo lives at `~/dmint` and ships as a **single distribution package** (`dmint v2.0.1`) containing five unified subsystems:
 
 ```text
 ~/dmint
 ├── src/dmint/                    # Single distribution package
 │   ├── core/                     # Deterministic policy engine, SQLite approval store, Ed25519 signing
 │   ├── cli/                      # Policy authoring wizards, MCP config generator, skill installer
-│   ├── mcp/                      # Multi-integration MCP gateway, stdio/SSE proxy, SSRF filter
+│   ├── mcp/                      # Multi-integration MCP gateway, stdio/Streamable-HTTP proxy, SSRF filter
 │   ├── dashboard/                # Local human approval UI (FastAPI + Jinja2, zero direct SQL)
 │   └── skills/                   # Installable skill assets (dmint-policy-manager)
 ├── tests/                        # Test suites mirroring src/ structure
@@ -74,7 +74,7 @@ The monorepo lives at `~/dmint` and ships as a **single distribution package** (
 |---|---|---|---|
 | **Core Engine** | `dmint.core` | Python API | Deterministic authorization, frozen SQLite state machine, Ed25519 signing |
 | **CLI** | `dmint.cli` | `dmint` command | Policy authoring wizards, offline validation, skill installer, dashboard launcher |
-| **MCP Gateway** | `dmint.mcp` | `dmint-mcp` command | Transparent stdio/SSE proxy, protocol-level enforcement, SSRF defense |
+| **MCP Gateway** | `dmint.mcp` | `dmint-mcp` command | Transparent stdio/Streamable-HTTP proxy, protocol-level enforcement, SSRF defense |
 | **Dashboard** | `dmint.dashboard` | `dmint-dashboard` command | Human approval UI — never queries SQLite directly |
 | **Skills** | `dmint.skills` | `dmint install-skill` | Installable AI coding assistant skill assets |
 
@@ -96,7 +96,7 @@ ruff check .
 # Format check:
 ruff format --check .
 
-# Type check (all 71 source files must pass):
+# Type check (all 79 source files must pass):
 mypy src/
 ```
 
@@ -104,8 +104,9 @@ mypy src/
 
 - **Always run from `~/dmint`** (the monorepo root).
 - **Always set `PYTHONPATH=src`** so all `dmint.*` imports resolve correctly.
-- **Current baseline:** 971 tests — 971 passed, 0 failed, 0 skipped.
+- **Current baseline:** 1515 tests — 1515 passed, 0 failed, 0 skipped.
 - **Any new code must maintain 0 skipped tests.** The `skipTest()` pattern is banned. If a test depends on a file, that file must exist at the exact path (no fallback logic).
+- **PostgreSQL-backed suites must fail, never skip.** They run against `DMINT_TEST_DATABASE_URL` (default `postgresql://postgres:postgres@localhost:5432/dmint_test`) through the shared `tests/postgres_support.py` gate (`require_postgres()`); when the server is unreachable they fail loudly with an actionable error instead of skipping (CI provisions PostgreSQL automatically).
 
 ### Pre-commit Hooks
 
@@ -160,7 +161,7 @@ No other states. No probabilistic decisions. No LLM calls in the decision path.
 - Point test subprocess helpers directly to `tests/mcp/mock_server.py` (never via legacy fallback paths).
 - Keep `proxy_entrypoint.py` self-contained with `sys.path` setup so it works as a spawned subprocess.
 - Match the `PYTHONPATH=src` prefix when running any `pytest` or `mypy` invocation.
-- Update `pyproject.toml` as the single source of truth for version (`version = "2.0.0"`).
+- Update `pyproject.toml` as the single source of truth for version (`version = "2.0.1"`).
 
 ---
 
@@ -191,15 +192,15 @@ python3 -m build --no-isolation
 twine check dist/*
 ```
 
-Build artifacts: `dist/dmint-2.0.0-py3-none-any.whl` and `dist/dmint-2.0.0.tar.gz`
+Build artifacts: `dist/dmint-2.0.1-py3-none-any.whl` and `dist/dmint-2.0.1.tar.gz`
 
 ---
 
 ## 9. VERSION & VERSION BUMPING PROTOCOL
 
-**Current Version: `2.0.0`**
+**Current Version: `2.0.1`**
 
-Version is the single source of truth in `pyproject.toml` (`version = "2.0.0"`) and propagated to:
+Version is the single source of truth in `pyproject.toml` (`version = "2.0.1"`) and propagated to:
 - `src/dmint/version.py`
 - `src/dmint/core/__init__.py` (`__version__`)
 - All subsystem `__init__.py` files

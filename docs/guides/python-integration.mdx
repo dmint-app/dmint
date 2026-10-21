@@ -1,194 +1,191 @@
 ---
-title: "Direct Python Integration"
-description: "How to protect backend functions, service APIs, and agent loops using the @dmint.protected decorator."
-icon: "python"
+title: "Python Decorator Integration"
+description: "How to protect Python functions, async coroutines, class methods, and static methods using the @engine.protect decorator."
 ---
 
-# Direct Python Integration
+# Python Decorator Integration
 
-For custom agent backends, FastAPI services, or Python tool suites, Dmint provides in-process protection via the `@dmint.protected` decorator and programmatic authorization APIs.
+The `@engine.protect` decorator places a deterministic authorization gate directly in front of Python callables.
+
+Dmint intercepts invocations, canonicalizes arguments, verifies policies, and persists pending approval records without altering your business logic.
 
 ---
 
-## 1. Setup & Initialization
+## 1. Supported Callable Types
 
-Install `dmint` in your environment:
+Dmint supports the following callable types:
 
-```bash
-pip install dmint
-```
+- **Synchronous Functions** (`def`)
+- **Asynchronous Coroutines** (`async def`)
+- **Instance Methods** (methods taking `self`)
+- **Class Methods** (`@classmethod`, taking `cls`)
+- **Static Methods** (`@staticmethod`)
 
-Initialize your approval store and policy:
+<Note>
+**Generators are not supported**: Python generator functions (`yield`) and asynchronous generators (`yield` in `async def`) cannot be decorated because execution resumes in chunks across multiple caller ticks, violating atomic pre-execution authorization.
+</Note>
 
-```python title="security.py"
-import json
+---
+
+## 2. Basic Synchronous Protection
+
+```python title="sync_example.py"
 from datetime import datetime, timezone, timedelta
 from dmint import (
     Dmint,
     Policy,
+    Rule,
     PolicyProvenance,
-    policy_digest,
-    create_approval_store,
     SQLiteApprovalStore,
     TrustedContext,
+    policy_digest,
 )
 
-# Option A: Universal factory (reads DMINT_DATABASE_URL for PostgreSQL, or falls back to SQLite)
-store = create_approval_store(deployment_epoch="prod-v1")
+policy = Policy([
+    Rule.allow("payments", "get_status"),
+    Rule.approval_required("payments", "refund"),
+])
 
-# Option B: Direct SQLite file store
-# store = SQLiteApprovalStore("./approvals.sqlite3", deployment_epoch="prod-v1")
+store = SQLiteApprovalStore("approvals.sqlite3", deployment_epoch="default")
+provenance = PolicyProvenance("v1", policy_digest(policy), datetime.now(timezone.utc))
 
-# Load compiled policy mapping
-with open("policy.json", "r", encoding="utf-8") as f:
-    policy = Policy.from_mapping(json.load(f))
-
-# Compute policy provenance for approval tracking
-provenance = PolicyProvenance("prod-v1", policy_digest(policy), datetime.now(timezone.utc))
-
-# Create Dmint instance bound to this agent identity
-dmint = Dmint(
+engine = Dmint(
     policy=policy,
+    agent_id="agent-01",
+    context=TrustedContext({"environment": "production"}),
     approval_store=store,
-    context=TrustedContext({}),
-    agent_id="agent-backend-service",
-    approval_ttl=timedelta(minutes=15),
     policy_provenance=provenance,
+    approval_ttl=timedelta(minutes=5),
 )
-```
 
-<Note>
-**Deployment Epoch & Rollback Detection**: `deployment_epoch` is a required parameter for approval stores. It participates in Core's rollback and recovery protection, tracking epoch state in an associated `.epoch` file alongside SQLite databases to prevent replay attacks from restored database backups.
-</Note>
+@engine.protect("payments.get_status")
+def get_payment_status(payment_id: str) -> dict:
+    return {"id": payment_id, "status": "SETTLED"}
 
-<Warning>
-**RFC 8785 Strict Numeric Canonicalization**: Dmint enforces RFC 8785 canonicalization for cryptographic request fingerprints. Whole numeric values must always be passed as integers (`42`), not integer-valued floats (`42.0`), which are rejected to eliminate cross-platform float ambiguity.
-</Warning>
-
----
-
-## 2. The `@dmint.protected` Decorator
-
-> [!WARNING]
-> **Synchronous Callables Only (Tier 1)**: In the current release, `@dmint.protected` supports synchronous functions (`def`) only. Asynchronous functions (`async def`), methods requiring instance/class context (`self`/`cls`), and generator functions are not supported and will raise an error. Full async, generator, and method support is scheduled for Tier 2.
-
-Decorate any synchronous Python function with a capability identifier in the format `tool.action`:
-
-```python title="tools.py"
-from security import dmint
-
-@dmint.protected("database.select")
-def query_users(role: str):
-    """Permitted by ALLOW rule — runs immediately."""
-    return [{"id": 1, "name": "Alice", "role": role}]
-
-@dmint.protected("database.update")
-def set_user_role(user_id: int, new_role: str):
-    """Triggers APPROVAL_REQUIRED — halts and persists request."""
-    return f"User {user_id} updated to {new_role}"
-
-@dmint.protected("database.drop")
-def drop_database():
-    """Triggers DENY — halts immediately."""
-    return "Database dropped"
+@engine.protect("payments.refund")
+def issue_refund(payment_id: str, amount: float) -> dict:
+    return {"id": payment_id, "refunded": amount}
 ```
 
 ---
 
-## 3. Handling Interception & Retries
+## 3. Asynchronous (`async def`) Protection
 
-When a function requires approval, Dmint halts execution and raises `ApprovalRequiredError`:
+When wrapping an `async def` coroutine, Dmint evaluates authorization before the coroutine begins and returns an awaitable result:
 
-```python title="agent_loop.py"
-from dmint.errors import ApprovalRequiredError, AuthorizationError
-from tools import set_user_role
+```python title="async_example.py"
+import asyncio
+from dmint import Dmint, Policy, Rule, TrustedContext, ApprovalRequiredError
 
-try:
-    # 1. Attempt privileged action
-    set_user_role(user_id=42, new_role="admin")
-except ApprovalRequiredError as exc:
-    # Action paused awaiting approval: exc.request_id, exc.approval_id
-    print(f"Action paused: {exc} (approval_id: {exc.approval_id})")
-    # The request is now recorded as PENDING in SQLite.
-```
+policy = Policy([
+    Rule.allow("api", "fetch"),
+    Rule.approval_required("api", "mutate"),
+])
 
-Once approved by a human (via `dmint dashboard`), the agent retrieves the approved assertion and passes it via `dmint.retry()`:
-
-```python
-from security import dmint, store
-
-# 2. Retrieve approved record from store
-approved_record = store.get_approved(exc.approval_id)
-
-# 3. Retry execution using dmint.retry()
-result = dmint.retry(
-    set_user_role,
-    user_id=42,
-    new_role="admin",
-    approval_credential=approval_assertion,
+engine = Dmint(
+    policy=policy,
+    agent_id="async-worker-01",
+    context=TrustedContext({"environment": "staging"}),
 )
-print("Execution complete:", result)
-```
 
----
+@engine.protect("api.mutate")
+async def async_database_mutate(record_id: str, payload: dict) -> dict:
+    await asyncio.sleep(0.01)  # Simulated async I/O
+    return {"record_id": record_id, "updated": True}
 
-## 4. Programmatic Authorization (`dmint.authorize`)
 
-If you prefer explicit two-phase authorization control without decorating functions directly:
-
-```python
-from security import dmint
-
-def process_refund(order_id: str, amount_usd: int):
-    return f"Refunded ${amount_usd} for {order_id}"
-
-# 1. Register the callable for the capability
-dmint.register(process_refund, "payment_gateway.refund")
-
-# 2. Pre-authorize the call with exact runtime arguments
-# (Note: whole numbers must be integers under RFC 8785)
-try:
-    authorized = dmint.authorize(
-        process_refund,
-        "order_12345",
-        150,
-        capability="payment_gateway.refund",
-    )
-    # 3. Execute the pre-authorized execution token
-    result = dmint.execute(authorized)
-    print("Execution complete:", result)
-except ApprovalRequiredError as exc:
-    print(f"Approval required: approval_id={exc.approval_id}")
-except AuthorizationError as exc:
-    print(f"Action denied: {exc}")
-```
-
----
-
-## 5. Multi-Threaded Web Framework Integration (FastAPI)
-
-When running inside multi-threaded or multi-process web applications like FastAPI, Uvicorn, or Gunicorn, store access is completely isolated. Core's `ThreadSafeApprovalStore` (or `SQLAlchemyApprovalStore` under PostgreSQL) manages connection pooling and transactional isolation safely.
-
-Both synchronous `def` and native `async def` route handlers/methods are supported with pre-execution authorization. (Note: generators and async generators cannot be protected because streaming execution breaks atomic pre-execution snapshot boundaries).
-
-```python title="main.py"
-from fastapi import FastAPI, HTTPException
-from security import dmint, store
-from tools import set_user_role
-
-app = FastAPI()
-
-@app.post("/users/{user_id}/role")
-def change_role(user_id: int, role: str, approval_token: str | None = None):
+async def main():
     try:
-        if approval_token:
-            return dmint.retry(
-                set_user_role,
-                user_id=user_id,
-                new_role=role,
-                approval_credential=bytes.fromhex(approval_token),
-            )
-        return set_user_role(user_id=user_id, new_role=role)
-    except Exception as exc:
-        raise HTTPException(status_code=403, detail=str(exc))
+        result = await async_database_mutate("rec_99", {"status": "archived"})
+        print(f"Result: {result}")
+    except ApprovalRequiredError as exc:
+        print(f"Halted: {exc.code} for request {exc.request_id}")
+
+if __name__ == "__main__":
+    asyncio.run(main())
 ```
+
+---
+
+## 4. Class Methods, Static Methods, and Instance Methods
+
+Dmint cleanly handles OOP method signatures:
+
+```python title="methods_example.py"
+class LedgerService:
+    def __init__(self, tenant_id: str):
+        self.tenant_id = tenant_id
+
+    # Instance method: Dmint extracts 'self' and normalizes explicit arguments
+    @engine.protect("ledger.record_entry")
+    def record_entry(self, entry_id: str, amount: float) -> str:
+        return f"Tenant {self.tenant_id}: Recorded entry {entry_id} for ${amount:.2f}"
+
+    # Class method: Dmint preserves class reference
+    @classmethod
+    @engine.protect("ledger.get_version")
+    def get_version(cls) -> str:
+        return "ledger-v2.1"
+
+    # Static method:
+    @staticmethod
+    @engine.protect("ledger.compute_tax")
+    def compute_tax(subtotal: float, rate: float) -> float:
+        return subtotal * rate
+```
+
+---
+
+## 5. Dynamic Resource Resolvers
+
+Policies can match against specific resources (such as file paths, database tables, or target URLs). Use a callable `resource` resolver to extract the resource string dynamically from the function's arguments:
+
+```python
+# Resource extracted dynamically from arguments dict:
+@engine.protect(
+    "filesystem.read",
+    resource=lambda args: args["path"],
+)
+def read_system_file(path: str) -> str:
+    with open(path, "r", encoding="utf-8") as f:
+        return f.read()
+
+# Dynamic resource with compound formatting:
+@engine.protect(
+    "database.table_operation",
+    resource=lambda args: f"{args['schema']}.{args['table']}",
+)
+def run_table_op(schema: str, table: str, query: str):
+    ...
+```
+
+If the resource resolver returns an invalid type or fails validation, Dmint fails closed with `RequestValidationError`.
+
+---
+
+## 6. Remote Policy Loading and Digest Pinning
+
+In microservices or containerized workers, policies can be loaded directly from a centralized HTTPS endpoint with strict SHA-256 digest pinning:
+
+```python
+import os
+from dmint import Dmint, TrustedContext
+
+# Remote policy loading requires expected_policy_digest:
+engine = Dmint(
+    policy_file="https://internal-security.company.com/policies/billing-v2.json",
+    expected_policy_digest=os.environ["DMINT_EXPECTED_POLICY_DIGEST"],
+    agent_id="agent-01",
+    context=TrustedContext({"env": "prod"}),
+)
+```
+
+If the remote payload does not match the expected SHA-256 digest, Dmint refuses to start and raises `PolicyError`.
+
+---
+
+## Next Steps
+
+- **[Human Approvals Guide](/guides/human-approvals)**: How to review pending calls and execute approved retries.
+- **[Notifications Guide](/guides/notifications)**: Receive instant webhook alerts in Slack, Discord, or Teams.
+- **[Core API Reference](/reference/core-api)**: Complete parameter reference for `Dmint` and `Policy`.

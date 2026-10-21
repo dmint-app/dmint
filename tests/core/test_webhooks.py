@@ -38,6 +38,22 @@ from dmint.core.webhooks import (
 from dmint.errors import ApprovalRequiredError
 
 
+def _public_getaddrinfo(*_args: Any, **_kwargs: Any) -> list[tuple[int, int, int, str, tuple[str, int]]]:
+    """Return a fixed public IP for any hostname.
+
+    Dispatch tests must not depend on the host resolver: DNS64/NAT64 networks
+    synthesize ``64:ff9b::/96`` addresses (reserved, rejected by the SSRF guard)
+    and some hostnames fail to resolve at all.
+    """
+    return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 0))]
+
+
+@pytest.fixture
+def _hermetic_dns(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pin DNS resolution to a fixed public address for dispatch tests."""
+    monkeypatch.setattr("dmint.core.webhooks.socket.getaddrinfo", _public_getaddrinfo)
+
+
 def _make_sample_record(
     approval_id: str | None = None,
     tool: str = "bash",
@@ -376,6 +392,7 @@ class TestWebhookConfig:
         assert config.timeout == DEFAULT_WEBHOOK_TIMEOUT_SECONDS
 
 
+@pytest.mark.usefixtures("_hermetic_dns")
 class TestWebhookNotifierDispatch:
     """Verify HTTP requests made by WebhookNotifier."""
 
@@ -408,7 +425,7 @@ class TestWebhookNotifierDispatch:
         assert isinstance(req, urllib.request.Request)
         assert req.full_url == slack_url
         assert req.headers["Content-type"] == "application/json"
-        assert req.headers["User-agent"] == "dmint-webhook/2.0.0"
+        assert req.headers["User-agent"] == "dmint-webhook/2.0.1"
 
         body = json.loads(req.data.decode("utf-8"))
         assert "🛡️ Dmint Approval Required" in body["text"]
@@ -477,6 +494,7 @@ class TestWebhookNotifierDispatch:
         assert "https://teams.example.com" in called_urls
 
 
+@pytest.mark.usefixtures("_hermetic_dns")
 class TestWebhookFailureIsolation:
     """CRITICAL SECURITY REQUIREMENT: Webhook failures must NEVER propagate or affect decisions."""
 
@@ -524,6 +542,77 @@ class TestWebhookFailureIsolation:
             notifier.send_approval_required(record)  # Must not raise
 
         assert "Failed to dispatch Slack webhook" in caplog.text
+
+    @patch("urllib.request.urlopen", side_effect=urllib.error.URLError("Connection refused"))
+    def test_dispatch_failure_log_redacts_webhook_url_and_secret_path(
+        self, mock_urlopen: MagicMock, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Network failure: the log must contain only the platform and host, never the token path."""
+        secret_url = "https://hooks.slack.com/services/" + "T00000000/B00000000/" + "X" * 24
+        config = WebhookConfig(slack_url=secret_url)
+        notifier = WebhookNotifier(config)
+        record = _make_sample_record()
+
+        with caplog.at_level(logging.WARNING):
+            notifier.send_approval_required(record)  # Must not raise
+
+        assert "Failed to dispatch Slack webhook" in caplog.text
+        assert "hooks.slack.com" in caplog.text
+        assert secret_url not in caplog.text
+        assert "XXXXXXXXXXXXXXXXXXXXXXXX" not in caplog.text
+        assert "/services/" not in caplog.text
+
+    def test_validation_failure_log_redacts_webhook_url_in_exception(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Validation errors echo the URL; the log must redact the URL in both the line and the error text."""
+        secret_url = "http://hooks.slack.com/services/T00000000/B00000000/SEKRITPATHVALUE"
+        config = WebhookConfig(slack_url=secret_url)
+        notifier = WebhookNotifier(config)
+        record = _make_sample_record()
+
+        with caplog.at_level(logging.WARNING):
+            notifier.send_approval_required(record)  # Must not raise
+
+        assert "Failed to dispatch Slack webhook" in caplog.text
+        assert secret_url not in caplog.text
+        assert "SEKRITPATHVALUE" not in caplog.text
+
+    def test_validation_failure_log_redacts_webhook_userinfo(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Userinfo credentials embedded in a webhook URL must never reach the log."""
+        secret_url = "https://user:sup3rs3cret@hooks.slack.com/services/T0/B0/USERINFOTOKEN"
+        config = WebhookConfig(slack_url=secret_url)
+        notifier = WebhookNotifier(config)
+        record = _make_sample_record()
+
+        with caplog.at_level(logging.WARNING):
+            notifier.send_approval_required(record)  # Must not raise
+
+        assert "Failed to dispatch Slack webhook" in caplog.text
+        assert secret_url not in caplog.text
+        assert "sup3rs3cret" not in caplog.text
+        assert "USERINFOTOKEN" not in caplog.text
+
+    @patch("urllib.request.urlopen")
+    def test_unresolvable_hostname_is_refused_before_http(
+        self, mock_urlopen: MagicMock, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A webhook hostname that fails DNS resolution must be refused before any HTTP call (SRC-11)."""
+
+        def _fail_resolution(*_args: Any, **_kwargs: Any) -> Any:
+            raise socket.gaierror("Name or service not known")
+
+        # Override the class-level hermetic DNS: this hostname must not resolve.
+        monkeypatch.setattr("dmint.core.webhooks.socket.getaddrinfo", _fail_resolution)
+
+        config = WebhookConfig(slack_url="https://unresolvable-host.invalid/services/T0/B0/SEKRIT")
+        notifier = WebhookNotifier(config)
+
+        with caplog.at_level(logging.WARNING):
+            notifier.send_approval_required(_make_sample_record())  # Must not raise
+
+        # Fail closed: no HTTP attempt was made, and the secret path stays out of logs.
+        assert mock_urlopen.call_count == 0
+        assert "Failed to dispatch Slack webhook" in caplog.text
+        assert "SEKRIT" not in caplog.text
 
     @patch("urllib.request.urlopen")
     def test_one_failure_does_not_block_subsequent_webhooks(
@@ -628,15 +717,16 @@ class TestCoreZeroNetworkCalls:
 
         mock_notifier = MagicMock(spec=WebhookNotifier)
 
-        engine = Dmint(
-            policy=policy,
-            agent_id="test-agent",
-            context=TrustedContext({}),
-            approval_store=store,
-            policy_provenance=provenance,
-            approval_ttl=timedelta(minutes=5),
-            webhook_notifier=mock_notifier,
-        )
+        with pytest.warns(DeprecationWarning, match="webhook_notifier"):
+            engine = Dmint(
+                policy=policy,
+                agent_id="test-agent",
+                context=TrustedContext({}),
+                approval_store=store,
+                policy_provenance=provenance,
+                approval_ttl=timedelta(minutes=5),
+                webhook_notifier=mock_notifier,
+            )
 
         @engine.protect("system.reboot")
         def reboot() -> str:
@@ -667,12 +757,13 @@ class TestCoreZeroNetworkCalls:
         policy = Policy([Rule.deny("admin", "delete_all")])
         mock_notifier = MagicMock(spec=WebhookNotifier)
 
-        engine = Dmint(
-            policy=policy,
-            agent_id="test-agent",
-            context=TrustedContext({}),
-            webhook_notifier=mock_notifier,
-        )
+        with pytest.warns(DeprecationWarning, match="webhook_notifier"):
+            engine = Dmint(
+                policy=policy,
+                agent_id="test-agent",
+                context=TrustedContext({}),
+                webhook_notifier=mock_notifier,
+            )
 
         @engine.protect("admin.delete_all")
         def delete_all() -> str:
@@ -851,11 +942,27 @@ class TestWebhookSanitizationAndSSRF:
         allowed = validate_webhook_url("http://127.0.0.1:9999/webhook", allowed_hosts=("127.0.0.1",))
         assert allowed == "http://127.0.0.1:9999/webhook"
 
+    def test_ssrf_guard_refuses_unresolvable_hostnames(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """DNS resolution failure must fail closed: unresolvable hosts are refused (SRC-11)."""
+        from dmint.core.webhooks import validate_webhook_url
+
+        def _fail_resolution(*_args: Any, **_kwargs: Any) -> Any:
+            raise socket.gaierror("Name or service not known")
+
+        monkeypatch.setattr("dmint.core.webhooks.socket.getaddrinfo", _fail_resolution)
+        with pytest.raises(ValueError, match="resolve"):
+            validate_webhook_url("https://nonexistent-audit-probe.invalid/hook")
+
+        # Resolution succeeding but yielding no usable addresses is equally untrusted.
+        monkeypatch.setattr("dmint.core.webhooks.socket.getaddrinfo", lambda *_args, **_kwargs: [])
+        with pytest.raises(ValueError, match="resolve"):
+            validate_webhook_url("https://no-addresses.invalid/hook")
+
     def test_local_fake_http_receiver_hostile_values_and_redirects(self) -> None:
         """Run a local fake HTTP server to verify live transmission with hostile values and redirect prevention."""
         import http.server
         import threading
-        from dmint.core.webhooks import WebhookConfig, WebhookNotifier, _post_json
+        from dmint.core.webhooks import WebhookConfig, WebhookNotifier, _post_json, validate_webhook_url
 
         received_requests: list[dict[str, Any]] = []
 
@@ -919,7 +1026,11 @@ class TestWebhookSanitizationAndSSRF:
             # 2. Redirect prevention: ensure redirects are rejected and never followed
             redirect_url = f"http://127.0.0.1:{port}/redirect"
             with pytest.raises(urllib.error.HTTPError) as exc_info:
-                _post_json(redirect_url, {"test": "data"}, timeout=2.0)
+                _post_json(
+                    validate_webhook_url(redirect_url, allowed_hosts=("127.0.0.1",)),
+                    {"test": "data"},
+                    timeout=2.0,
+                )
             assert exc_info.value.code == 302
             assert "Redirects are disabled" in str(exc_info.value.reason)
         finally:

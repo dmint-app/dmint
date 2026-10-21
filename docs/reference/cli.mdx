@@ -21,15 +21,31 @@ dmint [command] [options]
 | `-h`, `--help` | Display help text and available commands. |
 | `-V`, `--version` | Display the installed `dmint` version. |
 
-### Global Environment Variables
+### Environment Variables
 
 | Variable | Default | Description |
 |---|---|---|
 | `DMINT_DATABASE_URL` | None | Active database connection string (`postgresql://...` or `sqlite:///...`). Governs Core, MCP proxy, Dashboard, and CLI. |
 | `DMINT_DB_PATH` | `./approvals.sqlite3` / `dmint.db` | Fallback path to the SQLite approval store database. |
 | `DMINT_DEPLOYMENT_EPOCH` | `default` | Deployment epoch identifier used for cross-environment and rollback isolation. |
+| `DMINT_KEY_FILE` | None | Path to private Ed25519 signing key file (0600 permissions enforced). |
+| `DMINT_PRIVATE_KEY` | None | Raw hex signing key (requires `DMINT_ALLOW_INLINE_KEY=1` for explicit security opt-in). |
+| `DMINT_ALLOW_INLINE_KEY` | `0` | Set to `1` to permit inline `DMINT_PRIVATE_KEY` instead of a 0600 file. |
+| `DMINT_ALLOW_INSECURE_KEY_PERMISSIONS` | `0` | Set to `1`/`true`/`yes` to allow key files on non-POSIX platforms where 0600 permission enforcement is unavailable (fails closed otherwise). |
+| `DMINT_ISSUER_ID` | `dmint-authority` | Issuer identifier label associated with signing keys. |
+| `DMINT_AUTHORITY_AUDIENCE` | `dmint-enforcement-gateway` | Expected audience parameter in approval assertions. |
+| `DMINT_EXPECTED_POLICY_DIGEST` | None | Pinned SHA-256 digest of active `policy.json`. Halts on mismatch. |
+| `DMINT_AUTH_TOKEN` | None | Bearer token for agent transport authentication in `dmint-mcp`. |
+| `DMINT_DASHBOARD_HOST` | `127.0.0.1` | Bind host for `dmint dashboard`. |
+| `DMINT_DASHBOARD_PORT` | `8080` | Bind port for `dmint dashboard`. |
+| `DMINT_DASHBOARD_TOKEN` | None | Static bearer token / password for dashboard access. |
+| `DMINT_DASHBOARD_PASSWORD` | None | Alias for `DMINT_DASHBOARD_TOKEN`. |
+| `DMINT_DASHBOARD_TOKEN_FILE` | None | Path to 0600 file containing dashboard bearer token. |
+| `DMINT_DASHBOARD_ALLOW_PUBLIC_BIND` | `0` | Set to `1` or `true` to allow binding dashboard to `0.0.0.0`. |
+| `DMINT_DASHBOARD_TRUSTED_PROXY` | `0` | Set to `1` or `true` to trust `X-Forwarded-Proto` and enable trusted-proxy identity mode behind a reverse proxy. |
+| `DMINT_DASHBOARD_IDENTITY_HEADER` | None | Trusted reverse-proxy header carrying the human identity. Requires `DMINT_DASHBOARD_TRUSTED_PROXY=1` or `--trusted-proxy`; startup fails otherwise. |
 | `DMINT_VERSION` | Package version | Optional environment override for the reported version string. |
-| `DMINT_USER_AGENT` | Dynamic | Optional environment override for the outgoing HTTP User-Agent string. |
+| `DMINT_USER_AGENT` | Dynamic | Optional environment override for outgoing HTTP User-Agent string. |
 
 ---
 
@@ -45,14 +61,37 @@ dmint create-policy [options]
 
 | Flag | Default | Description |
 |---|---|---|
-| `-f`, `--file` | None | Path to input requirements file (e.g. `access.md`). |
-| `-o`, `--output` | `policy.json` | Path to destination policy JSON file. |
+| `-f`, `--file` | **Required** | Path to input requirements file (e.g. `access.md`). |
+| `-o`, `--output` | **Required** | Path to destination policy JSON file (e.g. `policy.json`). |
 | `-provider`, `--provider` | `openai` | LLM provider: `openai`, `gemini`, `groq`, `openrouter`, `ollama`. |
 | `-model`, `--model` | Provider default | Specific model name (e.g. `gpt-4o-mini`, `gemini-1.5-flash`). |
 | `-api_key`, `--api-key` | Env var | API key (or set `OPENAI_API_KEY`, `GEMINI_API_KEY`). |
 | `--non-interactive` | `False` | Run in non-interactive batch mode. |
 | `-y`, `--yes` | `False` | Automatically accept generated policy without confirmation. |
 | `--timeout` | `60.0` | API request timeout in seconds. |
+| `--tools` | None | Path to tool source file (for schema discovery / compatibility). |
+
+---
+
+## `dmint compile-policy` (Compatibility)
+
+Legacy batch compiler for natural-language policy requirements. It is a thin compatibility wrapper delegating to the `create-policy` non-interactive flow; prefer `dmint create-policy` for modern authoring.
+
+```bash
+dmint compile-policy -f access.md -o policy.json
+```
+
+### Options
+
+| Flag | Description |
+|---|---|
+| `-f`, `--file` | **Required**. Input policy markdown/text file (e.g. `access.md`). |
+| `-o`, `--output` | **Required**. Output policy JSON file (e.g. `policy.json`). |
+| `-provider`, `--provider` | LLM provider: `openai`, `gemini`, `groq`, `openrouter`, `ollama`. |
+| `-base_url`, `--base-url` | OpenAI-compatible base URL (default: `https://api.openai.com/v1`). |
+| `-api_key`, `--api-key` | API key (or set `OPENAI_API_KEY` / `GEMINI_API_KEY`). |
+| `-model`, `--model` | Model name (e.g. `gpt-4o-mini`, `gemini-1.5-flash`). |
+| `--timeout` | API request timeout in seconds (default: `60.0`). |
 
 ---
 
@@ -82,6 +121,18 @@ dmint create-mcp-policy [options]
 <Note>
 **Capability Naming Compatibility**: In the current release, `dmint create-mcp-policy` outputs tool capabilities prefixed with `mcp.` (e.g. `"capability": "mcp.postgres.query"`). To ensure runtime policy matching against rules with `tool="postgres"`, ensure your `mcp_protection.json` capability is configured as `"<integration>.<action>"` (e.g. `"postgres.query"`).
 </Note>
+
+---
+
+## `dmint protect-mcp` (Compatibility alias)
+
+Alias for `dmint create-mcp-policy` with identical options; provided for backward compatibility with older tutorials and scripts.
+
+```bash
+dmint protect-mcp --url https://api.example.com/mcp
+```
+
+See [`dmint create-mcp-policy`](#dmint-create-mcp-policy) for the full option table.
 
 ---
 
@@ -119,6 +170,9 @@ dmint install-skill [options]
 | `--dest`, `--target` | Install to a specific custom directory. |
 | `--global` | Install globally to `~/.gemini/config/skills/`. |
 | `--claude` | Install globally to `~/.claude/skills/`. |
+| `--skill` | Skill name to install (default: `dmint-policy-manager`). |
+| `--list` | List available installable skills and exit. |
+| `-f`, `--force` | Overwrite existing skill files without prompting. |
 
 ---
 
@@ -152,19 +206,24 @@ If your application initialized `SQLiteApprovalStore` with a custom `deployment_
 
 | Flag | Default | Description |
 |---|---|---|
-| `--db-path` | `DMINT_DB_PATH` | Path to the Core SQLite database file (required if `--database-url` is not set). |
+| `--db-path` | `DMINT_DB_PATH` / built-in default | Path to the Core SQLite database file. Used when `--database-url` is not set. |
 | `--database-url` | `DMINT_DATABASE_URL` | Database connection URL (`postgresql://...` or `sqlite:///...`). Takes precedence over `--db-path`. |
 | `--host` | `127.0.0.1` | Local bind host. |
 | `--port` | `8080` | Local bind port. |
+| `--allow-public-bind` | `False` | Explicitly permit binding to `0.0.0.0` / all interfaces. |
+| `--auth-token` | `DMINT_DASHBOARD_TOKEN` | Bearer token / password for dashboard access. |
+| `--token-file` | `DMINT_DASHBOARD_TOKEN_FILE` | Path to 0600 file containing dashboard auth token. |
+| `--key-file` | `DMINT_KEY_FILE` / `~/.config/dmint/signing.key` | Path to Ed25519 signing key file. |
+| `--trusted-proxy` | `False` | Trust `X-Forwarded-Proto` and enable trusted-proxy identity mode. Configure the header separately with `DMINT_DASHBOARD_IDENTITY_HEADER`. |
 | `--deployment-epoch` | `default` | Deployment epoch matching running Core instance. Must match the agent's `deployment_epoch`. |
 | `--authority-issuer` | `dmint-dashboard` | Issuer identifier for signed approvals. |
-| `--approver-id` | `dashboard-human` | Human approver identifier stamped on records. |
+| `--approver-id` | **Required** via flag or `DMINT_APPROVER_ID` | Human approver identifier stamped on records. |
 
 ---
 
 ## `dmint pending`
 
-Lists all approval requests currently in `PENDING` state. Works seamlessly against either SQLite or PostgreSQL (via `DMINT_DATABASE_URL` or `--database-url`).
+Lists all approval requests currently in `PENDING` state. Works against either SQLite or PostgreSQL (via `DMINT_DATABASE_URL` or `--database-url`).
 
 ```bash
 dmint pending [options]
@@ -198,9 +257,9 @@ dmint pending --database-url postgresql://user:pass@localhost:5432/dmint
 
 Approves and cryptographically signs a pending tool execution request via Core's Ed25519 signing primitives.
 
-Before signing, `dmint approve` **re-verifies the request against the current policy**. If the policy has changed such that this request is now denied, approval is refused (`POLICY_INVALIDATED`).
+Before signing, `dmint approve` **re-verifies the request against the current policy**. If the policy has changed such that this request is now denied, approval is refused and the record stays `PENDING`; no assertion is written. The CLI prints an explanatory error and exits non-zero.
 
-#### Policy Resolution Order & PostgreSQL Authoritative Caching
+### Policy Resolution Order and PostgreSQL Authoritative Caching
 
 When re-evaluating the request before signing, `dmint approve` resolves the current active policy using a deterministic precedence hierarchy:
 
@@ -244,6 +303,9 @@ dmint approve apr_abc123... --approver-id "alice@company.com" --policy ./policy.
 | `--policy` | Auto-detected | Path to policy file for re-verification before signing. |
 | `--approver-id` | `DMINT_APPROVER_ID` or username | Approver principal identity stamped on the approval record. |
 | `--authority-issuer` | `DMINT_AUTHORITY_ISSUER` / `dmint-cli` | Authority issuer identifier. |
+| `--key-file` | `DMINT_KEY_FILE` | Path to Ed25519 signing key file. |
+| `--audience` | `DMINT_AUTHORITY_AUDIENCE` / `dmint/dashboard/v1` | Target audience for the approval assertion. |
+| `--output-assertion` | None | File path to write the signed approval assertion bytes for retry. The assertion is a single-use credential; replay fails closed. |
 
 ---
 
@@ -276,3 +338,88 @@ dmint reject apr_abc123... --reason "Destructive operation not permitted during 
 | `--deployment-epoch` | `DMINT_DEPLOYMENT_EPOCH` / `default` | Deployment epoch matching running Core instance. |
 | `--approver-id` | `DMINT_APPROVER_ID` or username | Rejecter principal identity stamped on the record. |
 | `--authority-issuer` | `DMINT_AUTHORITY_ISSUER` / `dmint-cli` | Authority issuer identifier. |
+
+---
+
+## `dmint policy-digest`
+
+Computes and prints the SHA-256 digest of exact policy file bytes. Use this to obtain the value for `DMINT_EXPECTED_POLICY_DIGEST` or the `expected_policy_digest` parameter in `Dmint()`.
+
+```bash
+dmint policy-digest <policy.json>
+```
+
+### Arguments
+
+| Argument | Description |
+|---|---|
+| `policy_file` | *Positional, Required.* Path to the `policy.json` file to digest. |
+
+### Example
+
+```bash
+# Print the digest of a policy file:
+dmint policy-digest ./policy.json
+
+# Pin the digest at runtime:
+export DMINT_EXPECTED_POLICY_DIGEST=$(dmint policy-digest ./policy.json)
+```
+
+---
+
+## `dmint init-keys`
+
+Generates and persists a new Ed25519 signing key and HMAC storage integrity key (enforcing `0600` file permissions).
+
+```bash
+dmint init-keys [options]
+```
+
+### Options
+
+| Flag | Default | Description |
+|---|---|---|
+| `--key-file` | `~/.config/dmint/signing.key` | Destination path for the private signing key file. |
+| `--integrity-key-file` | `integrity.key` next to key-file | Destination path for the HMAC storage integrity key file. |
+| `--issuer-id` | `dmint-authority` (or `DMINT_ISSUER_ID`) | Issuer identifier to associate with this key. |
+| `--force` | `False` | Overwrite existing key files (invalidates pending approvals signed with the old key). |
+
+---
+
+## `dmint export-public-key`
+
+Exports the public key (hex, PEM, or JSON) and issuer ID for configuring gateway `trusted_issuers`.
+
+```bash
+dmint export-public-key [options]
+```
+
+### Options
+
+| Flag | Default | Description |
+|---|---|---|
+| `--key-file` | `~/.config/dmint/signing.key` | Path to the private key file. |
+| `--issuer-id` | `dmint-authority` (or `DMINT_ISSUER_ID`) | Issuer ID label to display. |
+| `--format` | `both` | Output format: `hex`, `pem`, `both`, `json`. |
+
+---
+
+## `dmint-mcp` (MCP Gateway)
+
+The standalone CLI entry point for running the Model Context Protocol enforcement gateway.
+
+```bash
+dmint-mcp [action] [options]
+```
+
+### Options
+
+| Flag | Default | Description |
+|---|---|---|
+| `-c`, `--config` | `mcp_protection.json` | Path to gateway configuration file. |
+| `--transport` | `stdio` | Agent-facing transport: `stdio` or `http`. |
+| `--host` | `127.0.0.1` | Bind host address for HTTP transport. |
+| `--port` | `8000` | Bind port for HTTP transport. |
+| `--auth-token` | `DMINT_AUTH_TOKEN` | Bearer token for incoming agent HTTP requests. |
+| `--log-level` | `info` | Logging verbosity: `critical`, `error`, `warning`, `info`, `debug`, `trace`. |
+| `--expected-policy-digest` | None | Pinned SHA-256 digest of `policy.json`. Fails closed if mismatched. |

@@ -1,357 +1,211 @@
 ---
-title: "Policies & Rules"
-description: "How Dmint evaluates rules, enforces fail-closed defaults, and guarantees deterministic execution."
-icon: "file-code"
+title: "Policies and Rules"
+description: "Declarative JSON policies, rule effects, deny-overrides precedence, wildcard selectors, context conditions, and argument constraints."
 ---
 
-# Policies & Rules
+# Policies and Rules
 
-In Dmint, a **policy** is a static, declarative JSON document specifying the exact authorization boundaries for AI tool calls.
+A Dmint **policy** is a static, declarative JSON document that defines which AI-agent tool calls are allowed, denied, or require human approval. The evaluator is deterministic: it never calls an LLM and never learns from traffic.
 
-Policies are authored at development time, validated offline against strict schemas, and loaded into Core at runtime.
+```text
+Policy rule matches?
+        │
+        ▼
+DENY  >  APPROVAL_REQUIRED  >  ALLOW
+        │
+        └── no rule matches ──► DENY (DMT_DEFAULT_DENIED)
+```
 
 ---
 
-## The Policy Schema (`policy.json`)
+## Policy Structure
 
-Here is an example production policy:
+A policy contains an array of `rules`. Every rule has a lowercase `effect`, an exact `tool` selector, an exact `action` selector, and optional scoping fields:
 
 ```json title="policy.json"
 {
   "rules": [
     {
       "effect": "allow",
-      "tool": "postgres",
-      "action": "select",
-      "resource": "public.analytics"
+      "tool": "database",
+      "action": "query",
+      "resource": "public.*"
     },
     {
       "effect": "approval_required",
-      "tool": "postgres",
+      "tool": "database",
       "action": "update",
-      "resource": "public.users"
+      "resource": "public.accounts",
+      "constraints": {
+        "properties": {
+          "amount": {
+            "type": "number",
+            "maximum": 50000
+          }
+        }
+      }
     },
     {
       "effect": "deny",
-      "tool": "postgres",
+      "tool": "database",
       "action": "drop",
       "resource": "*"
-    },
-    {
-      "effect": "allow",
-      "tool": "filesystem",
-      "action": "read",
-      "resource": "/var/log/app.log"
-    },
-    {
-      "effect": "deny",
-      "tool": "filesystem",
-      "action": "write",
-      "resource": "/etc/passwd"
     }
   ]
 }
 ```
 
----
-
-## Rule Effects
-
-Every rule must declare one of three effects:
-
-| Effect | Runtime Behavior |
-|---|---|
-| **`allow`** | The capability is permitted. The tool executes immediately with zero human friction or latency. |
-| **`approval_required`** | Execution halts. Dmint persists the exact request fingerprint in the approval store (SQLite or PostgreSQL) and raises `DMT_APPROVAL_REQUIRED`. Execution resumes only after a signed human assertion is presented. |
-| **`deny`** | The capability is explicitly forbidden. Execution halts immediately and raises `DMT_POLICY_DENIED`. |
-
----
-
-## Evaluation Order & Invariants
-
-When evaluating an incoming `ToolRequest`, Dmint executes a deterministic 5-stage evaluation pipeline:
-
-```text
-1. Candidate Filter → 2. Resource Validation → 3. Rule Matching → 4. Decision Precedence → 5. Fail-Closed Default
-```
-
-1. **Candidate Rule Filtering**:
-   Identifies all rules in `policy.json` matching the requested `tool` and `action` (and `agent_id` if specified).
-2. **Resource Syntax Validation (Fail-Closed Pre-Check)**:
-   For every candidate rule identified in Stage 1, the request resource is validated against that rule's explicit `resource_kind`:
-   - Non-string resources (`None`, `int`, `float`, `bool`, `list`, `dict`) fail closed with `DMT_RESOURCE_INVALID` if any candidate rule expects a resource (`kind not in ("any", "none")`).
-   - If resource normalization fails for **any** candidate rule's kind (e.g. root escape `/../`, NUL byte `\x00`, backslash `\`, encoded traversal `%2f`/`%2e%2e`, URL userinfo tricks), evaluation halts immediately with `DENY` and code `DMT_RESOURCE_INVALID`.
-3. **Rule Matching**:
-   For candidate rules that passed syntax validation, evaluates whether the request matches the rule's resource pattern and trusted context `conditions`.
-4. **Deterministic Decision Precedence**:
-   Among matching rules:
-   - If any matching rule has effect `DENY`, the decision is `DENY` with code `DMT_POLICY_DENIED`.
-   - Else if any matching rule has effect `APPROVAL_REQUIRED`, the decision is `APPROVAL_REQUIRED` with code `DMT_APPROVAL_REQUIRED`.
-   - Else if any matching rule has effect `ALLOW`, the decision is `ALLOW` (code `None`).
-5. **Fail-Closed Default Deny**:
-   If no rules matched the request, evaluation falls through to the fail-closed default: `DENY` with code `DMT_DEFAULT_DENIED`.
-
-<Warning>
-**Note on Mixed-Kind Candidate Rules**:
-Because Stage 2 validates the request resource against the declared kind of *every* candidate rule for the requested `tool` + `action`, configuring mixed resource kinds under the same capability can cause unexpected rejections.
-
-For example, consider a policy with two rules for `network.request`:
-- Rule A: `allow network.request` on `api.github.com` (`resource_kind: "host"`)
-- Rule B: `deny network.request` on `https://internal.lan/admin` (`resource_kind: "url"`)
-
-If an agent sends a tool request with `resource: "api.github.com"`, Stage 2 validates `"api.github.com"` against both Rule A's kind (`host`) and Rule B's kind (`url`). Because `"api.github.com"` lacks an HTTP scheme, URL validation fails, causing Dmint to return `DENY DMT_RESOURCE_INVALID`—even though Rule A would have allowed the request!
-
-To avoid this surprise, ensure all rules for a given capability use consistent resource kinds, or use distinct capabilities (e.g. `http.request` with `url` vs `dns.lookup` with `host`).
-</Warning>
-
----
-
-## Deterministic Resource Matching
-
-Policy rules can specify a `resource_kind` (`path`, `url`, `host`, `identifier`, or omit for exact match). Dmint evaluates matching through strict kind-specific deterministic algorithms:
-
-### Fail-Closed Normalization Pre-Check
-Before any rule matching occurs, Dmint verifies that the request's resource can be legally normalized for all relevant rule kinds configured in the policy. If the request resource cannot be safely normalized (e.g., path root escape `/../etc/passwd`, NUL byte `\x00`, backslash `\`, encoded traversal sequences `%2f` / `%2e%2e`, URL userinfo tricks, or unsupported schemes), policy evaluation immediately returns `DENY` with code `DMT_RESOURCE_INVALID`. This fail-closed pre-check occurs before any matching, preventing malformed inputs from slipping through to permissive fallback rules such as `ALLOW *`.
-
-### Path Matching (`path`)
-- **POSIX Path Normalization**: Resolves `.` and `..` segments, collapses duplicate slashes, strips trailing slashes, and fixes the POSIX implementation-defined `//` quirk (collapsing multiple leading slashes to `/`).
-- **Fail-Closed Security Rejection**: Paths that escape the root directory (e.g. `/../etc/passwd`), contain NUL bytes (`\x00`), Windows backslashes (`\`), or encoded traversal sequences (`%2f`, `%2e%2e`) fail normalization and fail closed immediately.
-- **Unicode NFC Normalization**: Both rule patterns and incoming path arguments are normalized to Unicode Normalization Form C (NFC).
-- **Segment Globs**:
-  - `*` matches zero or more characters within a single path segment (never crosses `/`).
-  - `**` matches zero or more complete path segments across slashes (e.g. `/workspace/**/*.py`).
-  - Single-character `?` wildcards are explicitly not supported to maintain deterministic predictability.
-- **Case Sensitivity & OS Filesystems**: Path matching is strictly case-sensitive by default. Deployments running on case-insensitive filesystems (such as macOS APFS or Windows NTFS) require setting `case_sensitive=False` to prevent case-variation bypasses (e.g. `/ETC/PASSWD`).
-- **Filesystem & Symlink Boundary**: String-based path matching cannot inspect the host filesystem. Resolving symbolic links (e.g., via `os.path.realpath()`) is strictly the tool resolver's responsibility before passing request parameters to Dmint.
-- **Identical Normalization Across Effects**: Both `DENY` and `ALLOW` rules undergo the exact same normalization pipeline. Even if an attacker uses obfuscated paths such as `//workspace//secrets/../secrets/key.pem`, `DENY` rules match the normalized path and override any broader `ALLOW` rules.
-
-### URL & Host Matching (`url`, `host`)
-- **Scheme Validation**: Strictly permits `http` and `https` schemes; non-HTTP schemes (`file:`, `ftp:`, `javascript:`, etc.) fail closed immediately.
-- **Userinfo Rejection**: Rejects userinfo tricks containing `@` or `\` in authority/path (`https://api.github.com@evil.com/`, `https://evil.com\@github.com`).
-- **Host Canonicalization**: Normalizes hostnames to lowercase, strips DNS trailing dots (`api.github.com.` -> `api.github.com`), converts internationalized domain names (IDN) to Punycode, and safely handles bracketed IPv6 literals (e.g. `[::1]`).
-- **Port Normalization**: Strips default protocol ports (`:80` for HTTP, `:443` for HTTPS).
-- **Path Traversal Defense**: URL paths undergo full path normalization and reject `%2f` or `%2e%2e` sequences.
-- **Wildcards**: Supports domain wildcards (e.g. `*.github.com`) and path segment globs (e.g. `https://api.github.com/repos/**`).
-
-### Plain Identifiers (`identifier`)
-- **Whitespace Rejection**: Leading or trailing whitespace is strictly rejected rather than stripped, failing closed on irregular inputs.
-- **Restricted Wildcard**: The `*` wildcard strictly matches alphanumeric, underscore, hyphen, and period characters (`[A-Za-z0-9_.-]*`).
-
-### Unknown & Omitted Kinds (Exact Match)
-- If `resource_kind` is omitted or unrecognized, Dmint defaults strictly to an **exact string match** (`input == rule`), with zero wildcard expansion.
-
----
-
-## Offline Validation (LLM-Free)
-
-Before deploying a policy to production, always verify its syntactic and semantic integrity using the `dmint` CLI:
+Validate the file before deploying it:
 
 ```bash
 dmint verify-policy policy.json
+dmint policy-digest policy.json
 ```
 
-The verification command checks:
-- JSON syntax and schema compliance
-- Presence of required fields (`rules`, `effect`, `tool`, `action`)
-- Absence of unknown keys or invalid effect values
-- Maximum safe size limits to prevent resource exhaustion
+`verify-policy` is offline and deterministic. `policy-digest` prints the domain-separated SHA-256 digest used for policy provenance.
 
-If valid, it outputs a human-readable summary and exits with code `0`:
+---
+
+## The Three Rule Effects
+
+| Effect | Meaning |
+|---|---|
+| `allow` | Permit execution if every matching rule’s conditions and constraints pass. |
+| `deny` | Reject execution immediately. The protected function never runs. |
+| `approval_required` | Persist one pending request and stop. No tool execution occurs until a trusted human approves the exact request. |
+
+Effects are **lowercase only**. `ALLOW`, `APPROVAL_REQUIRED`, and `DENY` are rejected by the loader and `verify-policy`.
+
+All three effects are represented by the runtime enum `Decision.ALLOW`, `Decision.DENY`, and `Decision.APPROVAL_REQUIRED`.
+
+---
+
+## Precedence Is Fixed, Not Sequential
+
+Rules are **not** evaluated first-match-wins. Dmint collects every rule whose selectors, conditions, and constraints match, then applies this fixed precedence:
+
 ```text
-✓ Verified policy.json: 5 rule(s)
-  [ALLOW] tool='postgres', action='select', resource='public.analytics'
-  [APPROVAL_REQUIRED] tool='postgres', action='update', resource='public.users'
-  [DENY] tool='postgres', action='drop', resource='*'
-  [ALLOW] tool='filesystem', action='read', resource='/var/log/app.log'
-  [DENY] tool='filesystem', action='write', resource='/etc/passwd'
+1. DENY               (highest priority)
+2. APPROVAL_REQUIRED
+3. ALLOW              (lowest priority)
 ```
+
+Ordering in the JSON file has no effect. A matching `deny` overrides every matching `approval_required` and `allow`; a matching `approval_required` overrides a matching `allow`.
+
+This is deliberate: a policy author cannot accidentally widen access by placing an `allow` before a `deny`.
+
+If no rule matches, or if a matching rule’s constraint fails, the result is `DENY`:
+
+| Case | Decision | Code |
+|---|---|---|
+| A `deny` rule matches | `DENY` | `DMT_POLICY_DENIED` |
+| No rule matches | `DENY` | `DMT_DEFAULT_DENIED` |
+| A matching rule’s constraints fail | `DENY` | `DMT_CONSTRAINT_VIOLATION` |
+| A matching `approval_required` rule exists (and no deny wins) | `APPROVAL_REQUIRED` | `DMT_APPROVAL_REQUIRED` |
+
+**Constraint failures do not “fall through” to another rule.** If a request matches an `allow` rule but violates its constraints, Dmint denies the request. To express different handling for different argument ranges, use distinct capabilities (for example `billing.issue_small_refund` and `billing.issue_large_refund`) selected by trusted host code, as the tutorial demonstrates.
 
 ---
 
-## Authoritative Policy Storage & Provenance
+## Selectors
 
-In distributed deployments (such as MCP Gateways or clusters using PostgreSQL), policy rules can be stored directly within the database store via the `store_policy` table:
+### `tool` and `action`
 
-- **Policy Digest Invalidation**: Every policy is cryptographically fingerprinted using SHA-256. If a policy changes, any previously issued pending approval bound to the older policy epoch is refused during verification (`POLICY_INVALIDATED`).
-- **Store-Backed Policy (`store_policy`)**: Dmint gateways synchronize their authoritative policy into the database store via `store.set_authoritative_policy(policy, provenance)`.
-- **Precedence Hierarchy during Approval**:
-  1. Explicit `--policy <path>` command-line flag
-  2. Database store authoritative policy (`store_policy` table)
-  3. Local `./policy.json` file fallback
+- An exact, case-sensitive string matches the request’s `tool` or `action`.
+- `"*"` is a whole-field wildcard. It matches any tool or action.
+- Partial wildcards such as `"read_*"` are not supported; use exact values or `"*"`.
 
-<Note>
-When using PostgreSQL, `dmint approve` without `--policy` will re-verify against the database's `store_policy` table. If you are testing changes in a local `./policy.json`, pass `--policy ./policy.json` explicitly.
-</Note>
+Wildcard rules participate in the same fixed precedence as exact rules. A wildcard `deny` therefore overrides any more specific `allow`.
 
----
+### `resource`
 
-## Argument Constraints
+The `resource` selector is optional.
 
-Dmint rules support deterministic argument constraints evaluated by the pure policy engine before matching effects.
+| Omitted or `NO_RESOURCE` | `"*"` | Exact string / pattern |
+|---|---|---|
+| Matches only requests with **no resource** | Matches **any** resource | Matches the request resource according to `resource_kind` |
 
-> **Prompt injection cannot change what is allowed; it can only act within the argument limits your policy sets.**
+A global deny or approval rule must use `"resource": "*"`. Writing `Rule.deny("database", "drop")` without a resource does **not** deny resource-bearing calls; it only matches no-resource calls.
 
-### Pure Constraint Evaluation & Fail-Closed Errors
-- **Pure Evaluation**: All argument validation is purely deterministic with zero external calls, zero LLM dependencies, and zero argument mutations.
-- **Fail-Closed Default**: Any constraint violation (missing required parameter, disallowed extra argument, type mismatch, number out of bounds, regex mismatch) immediately yields `DENY` with error code `DMT_CONSTRAINT_VIOLATION`. It never throws an unhandled exception or silently skips the rule.
-- **Exact Request Binding**: Constraints apply to the exact arguments serialized into the cryptographic RFC 8785 request fingerprint. Mutating arguments after evaluation invalidates the assertion.
+Supported `resource_kind` values are `exact`, `path`, `url`, `host`, and `identifier`. The default is derived from the resource value: no-resource for omitted, any for `"*"`, exact for a string. Set `case_sensitive` only where the chosen kind supports it.
 
-### Multi-Rule Precedence & Evaluation Order
-1. **Candidate Rule Filtering**: Rules are filtered by `tool`, `action`, and optional `agent_id` matching the request.
-2. **Resource Normalization & Fail-Closed Pre-Check**: The request's resource is validated against the required `resource_kind` for each candidate rule. Any normalization failure immediately DENIES the entire request with `DMT_RESOURCE_INVALID`.
-3. **Constraint Evaluation**: All candidate rules matching the tool, action, and agent_id have their argument constraints evaluated:
-   - **Multiple Matching ALLOW Rules (AND Semantics)**: Multiple matching `ALLOW` rules must **all** pass their constraints. If multiple candidate rules apply to the request, every single rule's constraints must be satisfied. If any rule's constraints fail (e.g. missing required field, type mismatch, regex mismatch, bound error), evaluation immediately **DENIES the entire request with `DMT_CONSTRAINT_VIOLATION`**. A broader or unconstrained `ALLOW` rule will **never** override or rescue a request that fails a narrower constrained rule.
-   - **Constraints on DENY Rules Never Loosen a Denial**: Adding constraints to a `DENY` rule specifies the prohibited argument envelope. If arguments violate the constraint schema (missing required key, wrong type, extra property under strict schemas), evaluation fails closed with `DMT_CONSTRAINT_VIOLATION`. If arguments satisfy the prohibited envelope, the rule matches and rejects with `DMT_POLICY_DENIED`. In **neither** case can a constrained `DENY` rule allow a request to fall through to an `ALLOW` rule.
-   - **APPROVAL_REQUIRED Rules with Constraints**: Arguments that violate constraints yield `DMT_CONSTRAINT_VIOLATION` before any approval record is created; a human cannot approve an invalid request.
-4. **Effect Matching**: Candidate rules that pass constraints are evaluated in strict order: `DENY` > `APPROVAL_REQUIRED` > `ALLOW`.
-5. **Default Deny**: If no rules match, the request is rejected with `DMT_DEFAULT_DENIED`.
+### `agent_id`
 
-### Additional Properties & Policy-Level `strict_arguments`
-<Warning>
-**`additionalProperties` Defaults to `true`**: In JSON Schema, object schemas without an explicit `"additionalProperties": false` permit unlisted properties by default. In security policies, unconstrained arguments can permit attacker-controlled parameters to slip through. We strongly recommend always setting `"additionalProperties": false` on your argument constraint objects.
-</Warning>
+`agent_id` optionally narrows a rule to one principal. Omit it to match every principal.
 
-To enforce strict arguments across your entire policy without repeating `"additionalProperties": false` in every rule, set the optional top-level policy setting:
+### `conditions`
+
+Conditions evaluate only against the host-supplied `TrustedContext`. They never read model output or request arguments.
+
 ```json
 {
-  "strict_arguments": true,
-  "rules": [...]
-}
-```
-When `"strict_arguments": true` is enabled, all constraint schemas default `additionalProperties` to `false` unless explicitly opted out with `"additionalProperties": true`.
-
-### Integer and Float Rules
-- **Boolean Rejection**: In Python and JSON engines, booleans (`True`, `False`) are subclasses of integers. Dmint's numeric validator strictly rejects booleans where numbers or integers are expected.
-- **Strict Integer Types**: For fields marked with `"type": "integer"`, whole floating-point numbers like `1.0` or `100.0` are strictly rejected. Integer fields require explicit, exact integers (`type(val) is int`). Float types with integer values must not masquerade as integers.
-- **NaN and Infinity**: `NaN`, `Infinity`, and `-Infinity` are strictly rejected.
-- **Safe Integer Limits**: Integers must reside within RFC 8785 safe 53-bit range (`-9,007,199,254,740,991` to `9,007,199,254,740,991` / `2^53 - 1`). Larger IDs must be passed as strings.
-- **Safe Numeric Comparison**: Float and integer bounds are evaluated using exact arbitrary-precision decimal representations (`Decimal`) without floating-point rounding errors.
-
-### Pattern Constraints & ReDoS Protection
-- **Anchored Matching**: All string patterns are strictly anchored full-string matches (`fullmatch` / `^...$`). Partial substring matching is rejected.
-- **Deterministic Single Engine**: Evaluated deterministically with Python's standard regular expression engine across all environments.
-- **Strict Grammar & Repetition Budget Caps**: Patterns are verified at policy load time against a strict allowlist grammar:
-  - **Bounded Repeats Cap**: Every bounded count `{m}` or `{m,n}` is capped at a maximum of 64 (`MAX_QUANTIFIER_BOUND = 64`).
-  - **Total Quantifier Cap**: At most 3 quantifiers of any kind are permitted in total across the pattern (`MAX_TOTAL_QUANTIFIERS = 3`).
-  - **Unbounded Repeats Cap**: At most 2 unbounded repeats (`*`, `+`, `{m,}`) across the entire pattern (`MAX_UNBOUNDED_QUANTIFIERS = 2`), and multiple unbounded repeats require an intervening literal delimiter to prevent overlapping ambiguity.
-  - **Repetition Budget & Pattern Cost Budget**: The product of bounded quantifier upper bounds cannot exceed $1,000,000$ (`MAX_REPETITION_BUDGET = 1_000_000`). Additionally, load-time worst-case cost $n^{(\text{unbounded})} \times \prod(\text{bounded})$ is budgeted against the maximum input length (`MAX_PATTERN_COST_BUDGET = 250_000_000`), rejecting hostile backtracking patterns over budget or requiring `maxLength <= 512`.
-  - **No Hostile Constructs**: Nested quantifiers (e.g. `(a*)*`, `(a+)+`), alternations inside repeats (e.g. `(a|b)+`), backreferences, and lookarounds (`(?=...)`, `(?!...)`) are strictly rejected with `PolicyError` at load time.
-  - **ASCII Character Classes**: Patterns are compiled with `re.ASCII` by default, ensuring character classes like `\d`, `\w`, and `\s` strictly match ASCII characters only.
-  - **Input & Length Limits**: Pattern length is capped at 256 characters, and input evaluation length is capped at 4096 characters.
-  - **Performance Bound**: Pattern constraints evaluate within a strict bounded time (< 50 ms worst-case bound; sub-millisecond ~3 µs for typical constraint checks).
-
-### Examples
-
-#### 1. Refund Limit
-Restrict customer refunds to a maximum amount and approved currencies:
-```json
-{
-  "effect": "allow",
-  "tool": "payments",
-  "action": "refund",
-  "resource": "*",
-  "constraints": {
-    "required": ["amount", "currency"],
-    "additionalProperties": false,
-    "properties": {
-      "amount": { "type": "number", "minimum": 0.01, "maximum": 500.0 },
-      "currency": { "type": "string", "enum": ["USD", "EUR", "GBP"] }
-    }
-  }
-}
-```
-
-#### 2. SQL Weak Input Filter (Warning: Not an Authorization Boundary)
-<Warning>
-**Regex cannot enforce read-only SQL**: Read-only database access MUST be enforced by a read-only database role, connection permissions, and parameterized queries. Regex pattern filters cannot enforce SQL security and easily accept multi-statement injections (such as `SELECT 1; DROP TABLE users`). Pattern matching on SQL queries serves only as a shallow syntactic pre-filter, never a security boundary.
-</Warning>
-
-A syntactic filter requiring queries to begin with `SELECT`:
-```json
-{
-  "effect": "allow",
-  "tool": "database",
-  "action": "query",
-  "resource": "*",
-  "constraints": {
-    "required": ["sql"],
-    "properties": {
-      "sql": {
-        "type": "string",
-        "pattern": "(?i)^\\s*SELECT\\s+[\\s\\S]+$"
-      }
-    }
-  }
-}
-```
-
-#### 3. Allowed-Values Enum
-Constrain cloud server provisioning to approved regions and instance sizes:
-```json
-{
-  "effect": "allow",
+  "effect": "approval_required",
   "tool": "cloud",
-  "action": "provision_vm",
-  "resource": "*",
-  "constraints": {
-    "required": ["region", "instance_type"],
-    "properties": {
-      "region": { "type": "string", "enum": ["us-east-1", "us-west-2", "eu-west-1"] },
-      "instance_type": { "type": "string", "enum": ["t3.micro", "t3.small", "t3.medium"] }
-    }
-  }
+  "action": "deploy",
+  "conditions": [
+    { "field": "environment", "operator": "equals", "value": "production" }
+  ]
 }
 ```
 
-#### 4. Multiple Matching ALLOW Rules (AND Semantics)
-When multiple `ALLOW` rules match the same tool and action, the request must satisfy **all** candidate rules' constraints simultaneously:
-```json
-[
-  {
-    "effect": "allow",
-    "tool": "billing",
-    "action": "refund",
-    "resource": "*",
-    "constraints": {
-      "properties": {
-        "amount": { "type": "number", "maximum": 500.0 }
-      }
-    }
-  },
-  {
-    "effect": "allow",
-    "tool": "billing",
-    "action": "refund",
-    "resource": "*",
-    "constraints": {
-      "required": ["reason"],
-      "properties": {
-        "reason": { "type": "string", "minLength": 5 }
-      }
-    }
-  }
-]
-```
-- A refund of `$100.00` with reason `"Customer dissatisfaction"` satisfies both rules and is **ALLOWED**.
-- A refund of `$600.00` with reason `"Customer dissatisfaction"` violates Rule 1's `$500.00` maximum bound and is **DENIED** (`DMT_CONSTRAINT_VIOLATION`), even though it fully satisfies Rule 2.
-- A refund of `$100.00` with no reason violates Rule 2's required field and is **DENIED** (`DMT_CONSTRAINT_VIOLATION`), even though it fully satisfies Rule 1.
+Supported operators: `equals`, `notEquals`, `in`, `contains`, `startsWith`, and `endsWith`.
 
+### `constraints`
 
-<Note>
-**Constraint Evaluation & Invariants**:
-- **Multiple matching ALLOW rules are AND**: When multiple `ALLOW` rules match a tool request, all matched rules' constraints must be satisfied simultaneously. A failed constraint on any matched rule denies the entire request (`DMT_CONSTRAINT_VIOLATION`).
-- **No constraints on DENY rules**: Rules with `effect: "deny"` cannot specify `constraints`. A `DENY` rule rejects matching tool calls unconditionally; defining constraints on a `DENY` rule is strictly rejected at policy load time with `PolicyError`.
-</Note>
+Constraints validate a rule’s argument values. They can be attached to `allow` and `approval_required` rules; attaching constraints to a `deny` rule is rejected. A matching rule with failing constraints produces `DENY` (`DMT_CONSTRAINT_VIOLATION`) before any effect is applied.
 
 ---
 
-## Next Steps
+## Complete Example
 
-<CardGroup cols={2}>
-  <Card title="Authoring Policies Guide" icon="wand-magic-sparkles" href="/guides/authoring-policies">
-    Use the interactive CLI wizard to convert natural language into policy.json.
-  </Card>
-  <Card title="Policy Schema Reference" icon="list" href="/reference/policy-schema">
-    Inspect the formal JSON schema and validation constraints.
-  </Card>
-</CardGroup>
+```json title="policy.json"
+{
+  "rules": [
+    {
+      "effect": "allow",
+      "tool": "filesystem",
+      "action": "read_file",
+      "resource": "/var/log/*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "database",
+      "action": "update",
+      "resource": "*",
+      "constraints": {
+        "properties": {
+          "amount": { "type": "number", "maximum": 50000 }
+        }
+      }
+    },
+    {
+      "effect": "deny",
+      "tool": "*",
+      "action": "*",
+      "resource": "*"
+    }
+  ]
+}
+```
+
+In this policy the final wildcard `deny` overrides the first two rules for every request. It is a backstop only if it is intended to make the policy deny everything; usually a catch-all deny is omitted because unmatched requests already fail closed. Prefer an explicit deny for the specific dangerous capabilities you want to document.
+
+---
+
+## Policy Provenance
+
+Every pending approval records the policy version and digest that produced the decision. If the policy changes before the request is retried, Dmint rejects the approval with `DMT_APPROVAL_POLICY_INVALID` and invalidates the record. This prevents an approval granted under one policy from authorizing execution under another.
+
+Use `policy-digest` in deployment tooling and pin the value with `expected_policy_digest` when loading a policy from a remote URL.
+
+---
+
+## Verification Checklist
+
+1. Run `dmint verify-policy policy.json` after every edit.
+2. Use lowercase effects.
+3. Put `"resource": "*"` on any global `deny` or approval rule.
+4. Do not rely on rule order.
+5. Remember that constraint failure is a deny, not an `else` branch.
+6. Keep `policy.json` under version control and rotate its digest deliberately.

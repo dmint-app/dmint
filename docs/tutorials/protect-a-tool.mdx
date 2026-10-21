@@ -1,0 +1,318 @@
+---
+title: "Protect a Tool End-to-End"
+description: "Build a complete customer refund service where small refunds execute automatically and larger refunds require a human-approved, single-use credential."
+---
+
+# Tutorial: Require Approval for Sensitive Actions
+
+In this tutorial you will build a customer-support refund service with two deterministic outcomes:
+
+1. Refunds below **$100.00** execute automatically.
+2. Refunds from **$100.00 through $500.00** stop and require human approval.
+3. The approved host retries the exact same call with a single-use Ed25519 assertion.
+
+The example uses two distinct capabilities so the policy remains deterministic. Dmint does not use “first matching rule” or an `else` branch: a failed constraint is a deny, not a fallthrough. The trusted host code chooses the capability based on the refund amount.
+
+---
+
+## 1. Prerequisites
+
+Create a workspace and install Dmint:
+
+```bash
+mkdir dmint-refund-tutorial && cd dmint-refund-tutorial
+python3 -m venv .venv
+source .venv/bin/activate
+pip install dmint
+```
+
+Generate the signing key and storage-integrity key:
+
+```bash
+dmint init-keys
+```
+
+The default key paths are:
+
+```text
+~/.config/dmint/signing.key
+~/.config/dmint/integrity.key
+```
+
+The command also prints the public key and issuer ID. Copy the `public_key_hex` value; the host verifier needs it. The private key stays with the approval process.
+
+---
+
+## 2. Define the Policy
+
+Create `policy.json`:
+
+```json title="policy.json"
+{
+  "rules": [
+    {
+      "effect": "allow",
+      "tool": "billing",
+      "action": "issue_small_refund",
+      "constraints": {
+        "properties": {
+          "amount": {
+            "type": "number",
+            "maximum": 99.99
+          }
+        }
+      }
+    },
+    {
+      "effect": "approval_required",
+      "tool": "billing",
+      "action": "issue_large_refund",
+      "constraints": {
+        "properties": {
+          "amount": {
+            "type": "number",
+            "minimum": 100,
+            "maximum": 500
+          }
+        }
+      }
+    }
+  ]
+}
+```
+
+Validate it:
+
+```bash
+dmint verify-policy policy.json
+```
+
+```text
+✓ Verified policy.json: 2 rule(s)
+  [ALLOW] tool='billing', action='issue_small_refund', resource='NoResource'
+  [APPROVAL_REQUIRED] tool='billing', action='issue_large_refund', resource='NoResource'
+```
+
+Both rules omit `resource`, which means they match requests with **no resource**. That is intentional for this example, because the capability itself identifies the operation. If you add resource-bearing calls, use an explicit resource selector (and `"resource": "*"` for a global rule).
+
+No catch-all `deny` rule is needed. A request that matches no rule is denied by default with `DMT_DEFAULT_DENIED`.
+
+Record the policy digest:
+
+```bash
+dmint policy-digest policy.json
+```
+
+---
+
+## 3. Protect the Host Functions
+
+Create `app.py`. Replace `PASTE_PUBLIC_KEY_HEX` with the value printed by `dmint init-keys`.
+
+```python title="app.py"
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+import sys
+
+from dmint import (
+    ApprovalRequiredError,
+    AuthorizationError,
+    ApprovalVerifier,
+    Dmint,
+    Policy,
+    PolicyProvenance,
+    SQLiteApprovalStore,
+    TrustedContext,
+    policy_digest,
+)
+from dmint.core import public_key_from_hex
+
+PUBLIC_KEY_HEX = "PASTE_PUBLIC_KEY_HEX"
+
+policy = Policy.from_file("policy.json")
+store = SQLiteApprovalStore("approvals.sqlite3", deployment_epoch="default")
+
+provenance = PolicyProvenance(
+    version_id="refund-policy-v1",
+    policy_digest=policy_digest(policy),
+    evaluated_at=datetime.now(timezone.utc),
+)
+
+verifier = ApprovalVerifier(
+    trusted_issuers={
+        "dmint-authority": public_key_from_hex(PUBLIC_KEY_HEX),
+    },
+    audience="dmint/dashboard/v1",
+)
+
+engine = Dmint(
+    policy=policy,
+    agent_id="support-agent-01",
+    context=TrustedContext({"tenant": "prod-us"}),
+    approval_store=store,
+    approval_verifier=verifier,
+    policy_provenance=provenance,
+    approval_ttl=timedelta(minutes=5),
+)
+
+@engine.protect("billing.issue_small_refund")
+def issue_small_refund(customer_id: str, amount: float, reason: str) -> str:
+    return f"Refunded ${amount:.2f} to {customer_id}"
+
+@engine.protect("billing.issue_large_refund")
+def issue_large_refund(customer_id: str, amount: float, reason: str) -> str:
+    return f"Refunded ${amount:.2f} to {customer_id}"
+
+def issue_refund(customer_id: str, amount: float, reason: str) -> str:
+    """Trusted host routing. The agent supplies data, not the route."""
+    if amount < 100:
+        return issue_small_refund(customer_id, amount, reason)
+    if amount <= 500:
+        return issue_large_refund(customer_id, amount, reason)
+    raise ValueError("Refunds over $500 require manual finance review")
+
+if __name__ == "__main__":
+    if len(sys.argv) == 2:
+        credential = Path(sys.argv[1]).read_bytes()
+        print(
+            engine.retry(
+                issue_large_refund,
+                "cust_42",
+                250.0,
+                "ticket-1204",
+                approval_credential=credential,
+            )
+        )
+    else:
+        print(issue_refund("cust_42", 45.0, "duplicate charge"))
+        try:
+            print(issue_refund("cust_42", 250.0, "ticket-1204"))
+        except ApprovalRequiredError as exc:
+            print(f"Approval required: {exc.approval_id}")
+```
+
+The `issue_refund` routing function is deliberately trusted host code. An agent cannot select `issue_large_refund` directly to bypass the policy, and the policy’s constraint on `issue_large_refund` denies any out-of-range amount even if a caller uses the capability directly.
+
+---
+
+## 4. Run the First Call
+
+```bash
+python app.py
+```
+
+The small refund executes. The large refund persists a pending record and does not execute:
+
+```text
+Refunded $45.00 to cust_42
+Approval required: apr_...
+```
+
+The pending record is bound to the full request envelope, including the tool, action, principal, arguments, trusted context, policy version, and policy digest.
+
+---
+
+## 5. Review and Approve
+
+List pending requests:
+
+```bash
+dmint pending --db-path approvals.sqlite3
+```
+
+```text
+APPROVAL ID                                      TOOL/ACTION            RESOURCE/TARGET  PRINCIPAL         REQUESTED
+-----------------------------------------------  ---------------------  ---------------  ----------------  ---------
+apr_...                                          billing.issue_large_refund  (none)       support-agent-01  0s ago
+```
+
+Approve the exact request and write the retry credential:
+
+```bash
+dmint approve apr_... \
+  --db-path approvals.sqlite3 \
+  --policy policy.json \
+  --approver-id alice@example.com \
+  --authority-issuer dmint-authority \
+  --reason "Verified outage ticket #1204" \
+  --output-assertion approval.json
+```
+
+```text
+✓ Approved 'apr_...' (billing.issue_large_refund) successfully.
+  Reason: Verified outage ticket #1204
+```
+
+The command does **not** execute the refund. It transitions the record to `APPROVED` and writes the signed assertion to `approval.json`. The private key never goes to the agent process.
+
+> The issuer passed to `--authority-issuer` must match the issuer ID in the verifier’s `trusted_issuers` mapping. This example uses `dmint-authority`, the ID printed by `init-keys`.
+
+---
+
+## 6. Retry the Exact Request
+
+Run the host again with the assertion bytes:
+
+```bash
+python app.py approval.json
+```
+
+```text
+Refunded $250.00 to cust_42
+```
+
+Dmint verifies the Ed25519 signature, re-evaluates the current policy, binds the assertion to the exact request, and atomically marks the approval `CONSUMED` before executing the function.
+
+Replay the same assertion:
+
+```bash
+python app.py approval.json
+```
+
+It fails closed with `ApprovalConsumedError` (`DMT_APPROVAL_CONSUMED`). Requesting a different amount or argument also fails with `DMT_APPROVAL_REQUEST_MISMATCH`; an approval for `$250` cannot authorize `$251`.
+
+---
+
+## 7. Use the Dashboard Instead of the CLI
+
+Start the dashboard against the same database:
+
+```bash
+dmint dashboard \
+  --db-path approvals.sqlite3 \
+  --approver-id alice@example.com \
+  --authority-issuer dmint-authority \
+  --port 8080
+```
+
+After login, review the pending request and click **Approve**. The detail page now exposes a **Download assertion artifact** button for approved records. Provide that file to the host:
+
+```bash
+python app.py ./apr_....assertion.json
+```
+
+The dashboard identity is clearly marked as **self-asserted** unless you configure a trusted reverse-proxy identity header (`DMINT_DASHBOARD_IDENTITY_HEADER` plus `--trusted-proxy`). See [Human Approvals](/guides/human-approvals) for the attribution rules.
+
+---
+
+## 8. What Just Happened
+
+| Event | Result |
+|---|---|
+| `billing.issue_small_refund` with `$45` | `ALLOW`; function ran |
+| `billing.issue_large_refund` with `$250` | `APPROVAL_REQUIRED`; no function execution |
+| Approval for `$250` | `APPROVED` record plus signed assertion |
+| Retry with the same arguments | Signature/fingerprint verified, record consumed once, function ran |
+| Retry with different arguments | `DMT_APPROVAL_REQUEST_MISMATCH`; no execution |
+| Replay after success | `DMT_APPROVAL_CONSUMED`; no execution |
+| Policy changed after approval | `DMT_APPROVAL_POLICY_INVALID`; approval invalidated |
+
+The request fingerprint is a SHA-256 digest of the **full request envelope**, not “arguments only.” It covers tool, action, principal, integration/capability, resource, trusted context, protocol versions, and arguments.
+
+---
+
+## Next Steps
+
+- Read [Policies and Rules](/concepts/policies) for precedence, wildcard selectors, and resource semantics.
+- Read [Approval Lifecycle](/concepts/approvals) for state transitions and replay protection.
+- Read [Human Approvals](/guides/human-approvals) for dashboard identity attribution and CI automation.

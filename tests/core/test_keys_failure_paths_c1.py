@@ -319,7 +319,8 @@ class KeysFailurePathsC1Tests(unittest.TestCase):
             os.environ, {"DMINT_KEY_FILE": "", "DMINT_PRIVATE_KEY": hex_str, "DMINT_ALLOW_INLINE_KEY": "1"}
         ):
             with patch("dmint.core.keys.DEFAULT_KEY_FILE", self.tmp_path / "absent.key"):
-                loaded_inline = load_private_key(None)
+                with self.assertWarns(UserWarning):
+                    loaded_inline = load_private_key(None)
                 self.assertEqual(loaded_inline.public_key().public_bytes_raw(), priv.public_key().public_bytes_raw())
 
         # 6. Missing all sources -> KeyLoadError

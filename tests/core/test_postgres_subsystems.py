@@ -54,11 +54,7 @@ from dmint.mcp.gateway import (
 )
 from dmint.policy import policy_digest
 from dmint.models import AnyResource
-
-POSTGRES_TEST_URL = os.environ.get(
-    "DMINT_TEST_DATABASE_URL",
-    "postgresql://postgres:postgres@localhost:5432/dmint_test",
-)
+from tests.postgres_support import POSTGRES_TEST_URL, normalize_pg_url, require_postgres
 
 
 class MockDownstreamClient(DownstreamMCPClient):
@@ -83,25 +79,9 @@ class MockDownstreamClient(DownstreamMCPClient):
         return types.CallToolResult(content=[types.TextContent(type="text", text=f"executed {name}")])
 
 
-def _normalize_pg_url(url: str) -> str:
-    if url.startswith("postgres://"):
-        url = "postgresql://" + url[len("postgres://") :]
-    if url.startswith("postgresql://"):
-        try:
-            import psycopg  # noqa: F401
-        except ImportError:
-            try:
-                import psycopg2  # noqa: F401
-
-                url = "postgresql+psycopg2://" + url[len("postgresql://") :]
-            except ImportError:
-                pass
-    return url
-
-
 def _clean_postgres(url: str) -> None:
     """Wipe test tables for test isolation."""
-    engine = create_engine(_normalize_pg_url(url))
+    engine = create_engine(normalize_pg_url(url))
     with engine.begin() as conn:
         for tbl in ("dmint_approval_records", "dmint_policy_state", "dmint_recovery_epochs"):
             try:
@@ -155,6 +135,7 @@ class TestMCPGatewayPostgresSupport(unittest.TestCase):
         self._restore_env()
 
     def test_mcp_gateway_uses_postgres_when_env_var_set(self) -> None:
+        require_postgres(POSTGRES_TEST_URL)
         os.environ["DMINT_DATABASE_URL"] = POSTGRES_TEST_URL
 
         gateway = MCPGateway(self.config)
@@ -202,6 +183,7 @@ class TestDashboardCoreClientPostgresSupport(unittest.TestCase):
         self._restore_env()
 
     def test_dashboard_uses_postgres_when_env_var_set(self) -> None:
+        require_postgres(POSTGRES_TEST_URL)
         os.environ["DMINT_DATABASE_URL"] = POSTGRES_TEST_URL
 
         client = CoreClient()
@@ -212,6 +194,7 @@ class TestDashboardCoreClientPostgresSupport(unittest.TestCase):
         self.assertNotIsInstance(underlying, SQLiteApprovalStore)
 
     def test_dashboard_uses_postgres_when_passed_as_argument(self) -> None:
+        require_postgres(POSTGRES_TEST_URL)
         os.environ.pop("DMINT_DATABASE_URL", None)
 
         client = CoreClient(database_url=POSTGRES_TEST_URL)
@@ -233,6 +216,7 @@ class TestSubsystemsCrossIntegration(unittest.IsolatedAsyncioTestCase):
         self.orig_env = os.environ.get("DMINT_DATABASE_URL")
         self.addCleanup(self._restore_env)
         os.environ["DMINT_DATABASE_URL"] = POSTGRES_TEST_URL
+        require_postgres(POSTGRES_TEST_URL)
         _clean_postgres(POSTGRES_TEST_URL)
 
         self.authority = LocalApprovalAuthority(

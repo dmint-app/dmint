@@ -30,7 +30,7 @@ Dmint provides a tamper-evident, deterministic boundary between an AI agent and 
    - Link-local addresses (`169.254.0.0/16`, `fe80::/10`)
    - Cloud instance metadata endpoints (`http://169.254.169.254`)
    - Non-standard IP encodings (octal, hex, dword representations)
-   - DNS rebinding attacks via host and IP inspection *(Note: Socket-level IP pinning to eliminate the DNS-rebinding TOCTOU window is scheduled for Tier 2)*
+   - DNS rebinding attacks via host and IP inspection, with connection-level socket IP pinning (the resolved address is pinned for the HTTP transport, closing the DNS-rebinding TOCTOU window)
 5. **Approval Re-use & Concurrency Races**: Approval records in SQLite transition atomically (`PENDING` $\to$ `APPROVED` $\to$ `CONSUMED`). An approval token can only be consumed once.
 
 ### Out of Scope & Threat Boundaries
@@ -48,15 +48,15 @@ Dmint adheres to rigorous cryptographic specifications:
 | Component | Standard / Algorithm | Specification |
 | :--- | :--- | :--- |
 | **Canonicalization** | RFC 8785 (JSON Canonicalization Scheme - JCS) | Guarantees identical byte sequences regardless of whitespace or dictionary key ordering. |
-| **Request Hashing** | SHA-256 with Domain Separation | Domain: `b"dmint/request-binding/v1\x00"` |
+| **Request Hashing** | SHA-256 with Domain Separation | Domain: `b"dmint/request-fingerprint/v2\x00"` |
 | **Policy Digest** | SHA-256 with Domain Separation | Domain: `b"dmint/policy-digest/v1\x00"` |
 | **Approval Signatures** | Ed25519 (EdDSA over Curve25519) | Fast, deterministic public-key signatures resistant to side-channel and timing attacks. |
 | **Row Integrity** | HMAC-SHA256 with Domain Separation | Domain: `b"dmint/approval-record-integrity/v2\x00"` over canonical row bytes, state, version, and epoch. |
-| **Storage State Machine** | SQLite Immediate Transactions (WAL mode) / PostgreSQL Row Locks | Enforces atomic, serialized state transitions without approval token replay. |
+| **Storage State Machine** | SQLite WAL mode + `PRAGMA busy_timeout` / PostgreSQL Row Locks | Enforces atomic, serialized state transitions without approval token replay. |
 
 ### Database Rollback Limitations
 Restoring an older copy of the entire database file (a database rollback) is **not detected by row-level HMACs alone**, because the row MACs in the older snapshot were valid when created. Mitigations include:
-1. **Short assertion TTL** (default 5 minutes) ensuring restored older approvals have already expired.
+1. **Short assertion TTL** (configured explicitly per deployment via `approval_ttl`; no default) ensuring restored older approvals have already expired.
 2. **Filesystem permissions** (mode 0600) restricting database file write access to the owner UID.
 3. **External append-only audit logging** for secondary verification of consumption events.
 

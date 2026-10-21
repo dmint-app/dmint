@@ -1,122 +1,249 @@
 ---
-title: "Human Approvals & Dashboard"
-description: "How to launch and use dmint dashboard to review, inspect diffs, and approve sensitive AI actions."
-icon: "window-maximize"
+title: "Human Approvals"
+description: "Review pending requests and transfer a signed, single-use Ed25519 assertion from the dashboard or CLI to the protected host."
 ---
 
-# Human Approvals with `dmint dashboard`
+# Human Approvals via Dashboard and CLI
 
-The Dmint Dashboard is a lightweight, local web interface that gives human operators real-time oversight over AI agent actions.
+When a policy evaluates to `APPROVAL_REQUIRED`, Dmint persists one `PENDING` record and halts. A human reviews the exact request, approves or rejects it, and — if approved — gives the protected host a signed assertion for the retry.
 
-When an AI agent attempts an action that requires approval, the request is intercepted and displayed in the dashboard for human inspection.
+The approval itself does **not** execute the tool. Execution happens only when the host calls `engine.retry(...)` (or MCP retries with an assertion argument) and Core verifies and consumes that assertion.
+
+---
+
+## Approval Lifecycle
 
 ```text
-┌─────────────────┐
-│    AI Agent     │  (Paused awaiting approval)
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐     5-second short polling     ┌─────────────────┐
-│ Core-Owned DB   │ ◄──────────────────────────── │ dmint dashboard │
-│ (approvals.db)  │                                │ (Web Browser)   │
-└─────────────────┘                                └────────┬────────┘
-                                                            │
-                                                   Human clicks [Approve]
-                                                            │
-                                                            ▼
-                                                   Signed Ed25519 Assertion
+APPROVAL_REQUIRED
+       │
+       ▼
+    PENDING ── reject ──► REJECTED
+       │
+     approve
+       │
+       ▼
+   APPROVED ── download/issue assertion ──► host retry
+       │                                      │
+       │                                verify + consume
+       │                                      │
+       │                                      ▼
+       │                                   CONSUMED
+       └── policy changed / expired ──► POLICY_INVALIDATED / EXPIRED
 ```
+
+The record is bound to the full request envelope. An approval for arguments `A` cannot be used for arguments `B`; a consumed assertion cannot be replayed.
 
 ---
 
-## Launching the Dashboard
+## Method 1: Web Dashboard
 
-You can start the dashboard directly using the `dmint` CLI:
+The dashboard is a local FastAPI application. It accesses approvals exclusively through `dmint.dashboard.CoreClient` and Core public APIs; it never issues SQL directly.
+
+### Start the dashboard
 
 ```bash
-# Basic startup with SQLite:
+dmint dashboard \
+  --db-path ./approvals.sqlite3 \
+  --approver-id alice@example.com \
+  --authority-issuer dmint-authority \
+  --port 8080
+```
+
+For PostgreSQL:
+
+```bash
+dmint dashboard \
+  --database-url "postgresql://user:pass@localhost:5432/dmint" \
+  --deployment-epoch production \
+  --approver-id alice@example.com \
+  --authority-issuer dmint-authority
+```
+
+Defaults:
+
+- bind: `127.0.0.1:8080`;
+- signing key: `~/.config/dmint/signing.key` (override with `--key-file` or `DMINT_KEY_FILE`);
+- authority issuer: `dmint-dashboard` (this example sets `dmint-authority` so the host verifier can use the issuer printed by `dmint init-keys`);
+- approval audience: `dmint/dashboard/v1`.
+
+A non-loopback bind is refused unless `--allow-public-bind` is explicit, and it still requires authentication. Prefer loopback behind a reverse proxy.
+
+### Authentication
+
+Set a token inline or from a permission-restricted file:
+
+```bash
+export DMINT_DASHBOARD_TOKEN="$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')"
 dmint dashboard --db-path ./approvals.sqlite3
 
-# Or with PostgreSQL (via flag or DMINT_DATABASE_URL):
-dmint dashboard --database-url postgresql://user:pass@localhost:5432/dmint
-
-# Or with matching deployment epoch:
-dmint dashboard --db-path ./approvals.sqlite3 --deployment-epoch prod-v1 --port 8080
+# Or:
+dmint dashboard --db-path ./approvals.sqlite3 --token-file /etc/dmint/dashboard.token
 ```
 
-By default, the server binds to **`http://127.0.0.1:8080`**.
+Token files must be mode `0600`. If no token is configured, the dashboard generates a one-time token and prints it in the startup banner. The dashboard also enforces host/origin checks, CSRF tokens, session timeouts, and login rate limiting.
 
-<Warning>
-**Deployment Epoch Isolation**:
-Dmint enforces strict cryptographic deployment epoch boundaries to isolate environments and prevent replay attacks.
-If your agent initialized `SQLiteApprovalStore("./approvals.sqlite3", deployment_epoch="prod-v1")`, you **must** supply `--deployment-epoch prod-v1` when starting the dashboard. If the epochs do not match, pending records will be hidden to prevent unauthorized cross-epoch approvals.
-</Warning>
+### Approver identity attribution
 
-### Configuration Options
+The dashboard distinguishes three identity sources:
 
-| Option | Environment Variable | Default | Description |
-|---|---|---|---|
-| `--db-path` | `DMINT_DB_PATH` | None | Path to Core-owned SQLite database (required if `--database-url` is not provided) |
-| `--database-url` | `DMINT_DATABASE_URL` | None | Database connection URL (`postgresql://...` or `sqlite:///...`). Takes precedence over `--db-path` |
-| `--host` | `DMINT_DASHBOARD_HOST` | `127.0.0.1` | Local bind host |
-| `--port` | `DMINT_DASHBOARD_PORT` | `8080` | Local bind port |
-| `--deployment-epoch` | `DMINT_DEPLOYMENT_EPOCH` | `default` | Deployment epoch matching running Core (`prod-v1`, `staging`, etc.) |
-| `--authority-issuer` | `DMINT_AUTHORITY_ISSUER` | `dmint-dashboard` | Issuer ID for the local authority |
-| `--approver-id` | `DMINT_APPROVER_ID` | `dashboard-human` | Approver ID stamped on records |
+| Source | Meaning |
+|---|---|
+| **self-asserted** | The label was typed into the login form. It is an audit label, not proof of identity. |
+| **trusted_proxy** | The label came from a configured trusted reverse-proxy header. |
+| **shared-token** | API access with the shared bearer token; no individual human was authenticated. |
 
----
-
-## Dashboard Features
-
-### 1. 5-Second Real-Time Polling
-The dashboard automatically queries `/api/dashboard` every 5 seconds. When your agent pauses on a sensitive tool call, the card appears on your screen without requiring a browser reload.
-
-### 2. Deep Argument Inspection
-Click any pending request to view:
-- The target capability: `tool.action`
-- The target resource
-- The exact JSON arguments payload
-- The cryptographic SHA-256 request fingerprint
-- The requesting agent identifier
-
-### 3. One-Click Approval & Rejection
-- **Approve**: Dmint's `LocalApprovalAuthority` generates an Ed25519 cryptographic signature over the request fingerprint and updates the record state to `APPROVED`.
-- **Reject**: Marks the request as `REJECTED`. The agent's retry attempt will fail closed immediately.
-
-### 4. Audit Log
-The **Audit** tab maintains an immutable chronological record of all previously approved, rejected, and consumed actions.
-
----
-
-## Architecture & Security Rules
-
-<Warning>
-**No Authentication (Local / Demo Use Only)**: The dashboard has no user login or authentication layer. It is designed to run locally on `127.0.0.1`. Do not expose port 8080 to the public internet without an authenticating reverse proxy (such as Cloudflare Access or Tailscale).
-</Warning>
-
-### Core Invariants Enforced by Dashboard:
-- **Zero Direct SQL**: The dashboard package contains zero SQL queries and never connects directly to database drivers. It accesses approval data exclusively through Core's public methods (`list_pending()`, `approve_pending()`, `reject_pending()`).
-- **Single Database Ownership**: Core is the sole owner of the database schema (SQLite or PostgreSQL). The dashboard never creates its own database tables.
-- **Thread-Safe Storage**: Uses `ThreadSafeApprovalStore` with isolated thread-local SQLite connections or pooled PostgreSQL connections to guarantee safe concurrent access under Uvicorn worker threads.
-
----
-
-## Terminal Approval Management (CLI)
-
-If you prefer managing approvals entirely from the terminal or in headless CI/CD environments without running the dashboard web UI:
+To use a trusted reverse proxy, configure **both** the proxy mode and the header name. Configuring `DMINT_DASHBOARD_IDENTITY_HEADER` without enabling trusted-proxy mode is rejected at startup rather than silently ignored. For example:
 
 ```bash
-# 1. View all pending requests:
-dmint pending
+export DMINT_DASHBOARD_TRUSTED_PROXY=1
+export DMINT_DASHBOARD_IDENTITY_HEADER=X-Auth-User
 
-# 2. Approve a request with an audit note:
-dmint approve apr_abc123... --reason "Authorized by security team"
-
-# 3. Reject a request:
-dmint reject apr_abc123... --reason "Disallowed per policy"
+dmint dashboard \
+  --db-path ./approvals.sqlite3 \
+  --trusted-proxy
 ```
 
-All terminal approval commands enforce the identical security guarantees:
-- **Exact-Request Binding**: Approvals are bound byte-for-byte to the RFC 8785 canonical hash.
-- **Policy Re-Verification**: `dmint approve` verifies the request against the current policy before signing. If the policy changed and now denies the request, approval is refused. Policy resolution follows strict precedence: `--policy <path>` $\to$ database authoritative policy (`store_policy` table) $\to$ local `./policy.json`. When using PostgreSQL, pass `--policy ./policy.json` explicitly if you want to override a cached database policy with local edits.
-- **Single-Use Consumption**: Once consumed by the agent, replaying the assertion fails closed immediately.
+The reverse proxy must strip any client-supplied `X-Auth-User` header and set it from the authenticated session. If the header is configured and missing at login, the dashboard fails the login with `401` and does not create a session. It never falls back to the form value in trusted-proxy mode. If the header disappears from an existing session, approval, rejection, and assertion-download requests fail with `401` instead of being attributed to an unauthenticated label.
+
+The form label is displayed with a **self-asserted** badge. Do not describe it as independently verified identity.
+
+### Review and decide
+
+1. Open `http://127.0.0.1:8080` and sign in.
+2. Open the pending approval. The detail page shows tool/action, agent, resource, canonical arguments, timestamps, expiry, and policy provenance.
+3. Click **Approve** or **Reject**. Approval records the session identity and transitions `PENDING → APPROVED`.
+
+### Download the retry assertion
+
+After approval, the detail page shows **Download assertion artifact**. The button calls:
+
+```text
+GET /approvals/{approval_id}/assertion
+```
+
+The endpoint requires an authenticated session, issues a fresh signed assertion for the `APPROVED` record, and returns it as:
+
+```text
+Content-Type: application/octet-stream
+Content-Disposition: attachment; filename="{approval_id}.assertion.json"
+Cache-Control: no-store
+```
+
+The artifact is a **single-use credential**. Treat it like a secret: do not place it in prompts, chat logs, agent memory, or dashboards. Download only after approval; a `PENDING` record returns `409` (`assertion_not_available`).
+
+The first assertion created internally during `approve_pending()` is discarded. The download endpoint re-issues a fresh assertion for the same approved record, which avoids exposing a credential in the redirect response.
+
+---
+
+## Method 2: Terminal CLI
+
+### List pending requests
+
+```bash
+dmint pending --db-path ./approvals.sqlite3
+```
+
+```text
+APPROVAL ID       TOOL/ACTION            RESOURCE/TARGET  PRINCIPAL         REQUESTED
+----------------  ---------------------  ---------------  ----------------  ---------
+apr_...           ledger.transfer_funds  (none)           finance-agent-01  2m ago
+```
+
+Use `--database-url` / `DMINT_DATABASE_URL` for PostgreSQL, and `--deployment-epoch` when the store uses a non-default epoch.
+
+### Approve and write the assertion
+
+```bash
+dmint approve apr_... \
+  --db-path ./approvals.sqlite3 \
+  --policy ./policy.json \
+  --approver-id alice@example.com \
+  --authority-issuer dmint-authority \
+  --reason "Verified ticket #1204" \
+  --output-assertion ./approval.json
+```
+
+```text
+✓ Approved 'apr_...' (ledger.transfer_funds) successfully.
+  Reason: Verified ticket #1204
+```
+
+`--policy` makes the CLI re-verify the current policy file and fail closed if it no longer allows the request. If omitted, the CLI first uses the store’s authoritative policy, then a local `policy.json` if present. `--output-assertion` writes the signed bytes; without it the approval still succeeds but no host credential is produced.
+
+The CLI never executes the protected tool. It only transitions the record and optionally writes the assertion.
+
+### Reject
+
+```bash
+dmint reject apr_... \
+  --db-path ./approvals.sqlite3 \
+  --reason "SQL targets an unapproved table"
+```
+
+Any retry after rejection fails closed. A rejected approval cannot be “un-rejected”; create and review a new request.
+
+---
+
+## Executing the Approved Retry
+
+### Python host
+
+```python
+from pathlib import Path
+
+result = engine.retry(
+    transfer_funds,
+    "acc_100",
+    500.0,
+    approval_credential=Path("./approval.json").read_bytes(),
+)
+```
+
+The callable and keyword/positional arguments must be the same as the original invocation. `engine.retry` verifies the signature and binding, re-evaluates the current policy, atomically consumes the approval, and then executes the function once.
+
+### MCP gateway
+
+Add the assertion under one reserved argument key:
+
+```json
+{
+  "method": "tools/call",
+  "params": {
+    "name": "update_database",
+    "arguments": {
+      "record_id": 42,
+      "action": "archive",
+      "_dmint_approval": "<assertion-json-string-or-object>"
+    }
+  }
+}
+```
+
+Aliases `dmint_approval` and `approval_credential` are also accepted. The gateway removes the reserved key before forwarding clean arguments downstream.
+
+### Deployment epochs
+
+The runtime and approver must use the same deployment epoch. An assertion issued under one epoch cannot be consumed under another (`DMT_APPROVAL_DEPLOYMENT_INVALID`). Configure this on the engine/store, CLI, dashboard, and MCP gateway consistently.
+
+---
+
+## Failure Semantics
+
+| Situation | Result |
+|---|---|
+| Approval for `$250`, retry for `$251` | `DMT_APPROVAL_REQUEST_MISMATCH`; no execution |
+| Assertion replayed after consumption | `DMT_APPROVAL_CONSUMED`; no execution |
+| Policy digest/version changed after approval | `DMT_APPROVAL_POLICY_INVALID`; no execution |
+| Record expired | `DMT_APPROVAL_EXPIRED`; create a new request |
+| Wrong issuer/public key | `DMT_APPROVAL_ISSUER_INVALID` or `DMT_APPROVAL_SIGNATURE_INVALID` |
+| Trusted proxy identity header missing | Login fails closed; no session |
+| Download requested for a non-approved record | `409`; no assertion |
+
+---
+
+## Next Steps
+
+- [Approval Lifecycle](/concepts/approvals) — state machine, expiry, provenance, replay protection.
+- [Protect a Tool End-to-End](/tutorials/protect-a-tool) — complete CLI and dashboard handoff.
+- [Notifications](/guides/notifications) — Slack/Discord/Teams alerts.
+- [CLI Reference](/reference/cli) — full command options.

@@ -334,6 +334,33 @@ class TestCLIApprovals(unittest.TestCase):
         self.assertIsNotNone(unapproved)
         self.assertEqual(unapproved.state, ApprovalState.PENDING)
 
+    def test_approve_refuses_when_fallback_policy_json_is_unparsable(self) -> None:
+        """An unparsable fallback ./policy.json must refuse approval, never skip re-verification (SRC-07)."""
+        record = self._make_record(tool="cloud", action="delete_bucket", resource="backup-bucket")
+        self.store.save_pending(record)
+
+        # Working directory with a broken fallback policy.json (no store policy, no --policy).
+        workdir = Path(self.tempdir.name) / "workdir"
+        workdir.mkdir()
+        (workdir / "policy.json").write_text("{ this is not valid policy json", encoding="utf-8")
+
+        err_buf = io.StringIO()
+        old_cwd = os.getcwd()
+        try:
+            os.chdir(workdir)
+            with contextlib.redirect_stderr(err_buf):
+                code = main(["approve", record.approval_id, "--db-path", str(self.db_path)])
+        finally:
+            os.chdir(old_cwd)
+
+        self.assertNotEqual(code, 0)
+        self.assertIn("re-verification", err_buf.getvalue().lower())
+
+        # Fail closed: the record must remain PENDING, never approved.
+        unapproved = self.store.get(record.approval_id)
+        self.assertIsNotNone(unapproved)
+        self.assertEqual(unapproved.state, ApprovalState.PENDING)
+
     def test_reject_happy_path(self) -> None:
         """'dmint reject <id> --reason' marks request REJECTED and exits 0."""
         record = self._make_record(tool="file", action="rmdir", resource="/etc")

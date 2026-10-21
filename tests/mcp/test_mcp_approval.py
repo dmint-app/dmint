@@ -1,10 +1,13 @@
 """Tests for MCP APPROVAL_REQUIRED persistence, disclosure, and security (MCP-7)."""
 
 from datetime import datetime, timedelta, timezone
+import asyncio
 import json
 import os
 from pathlib import Path
 import tempfile
+import threading
+import time
 import unittest
 from unittest.mock import MagicMock
 
@@ -338,6 +341,56 @@ class MCPApprovalSecurityTests(unittest.IsolatedAsyncioTestCase):
         record = self.store.get(ctx.exception.approval_id)
         self.assertIsNotNone(record)
         self.assertEqual(record.state, ApprovalState.PENDING)
+
+    async def test_12b_webhook_dispatch_is_off_loop_and_serialized(self):
+        """Slow webhook I/O must not block the event loop and must not run concurrently."""
+        mock_notifier = MagicMock(spec=WebhookNotifier)
+        main_thread = threading.get_ident()
+        dispatch_threads: list[int] = []
+        active = 0
+        max_active = 0
+        lock = threading.Lock()
+
+        def dispatch(record):
+            nonlocal active, max_active
+            with lock:
+                active += 1
+                max_active = max(max_active, active)
+            dispatch_threads.append(threading.get_ident())
+            time.sleep(0.08)
+            with lock:
+                active -= 1
+
+        mock_notifier.send_approval_required.side_effect = dispatch
+        gate = self.create_gate(webhook_notifier=mock_notifier)
+        loop = asyncio.get_running_loop()
+        ticks = 0
+        stop = asyncio.Event()
+
+        async def ticker() -> None:
+            nonlocal ticks
+            while not stop.is_set():
+                ticks += 1
+                await asyncio.sleep(0.005)
+
+        async def request(pr_id: str) -> None:
+            with self.assertRaises(ApprovalRequiredError):
+                await gate.route_call(
+                    integration_id="github-prod",
+                    tool_name="merge_pr",
+                    arguments={"pr_id": pr_id},
+                )
+
+        ticker_task = asyncio.create_task(ticker())
+        await asyncio.gather(request("PR-200"), request("PR-201"))
+        stop.set()
+        await ticker_task
+
+        self.assertEqual(len(dispatch_threads), 2)
+        self.assertTrue(all(tid != main_thread for tid in dispatch_threads))
+        self.assertEqual(max_active, 1)
+        self.assertGreater(ticks, 0)
+        self.assertIs(loop, asyncio.get_running_loop())
 
     async def test_13_enforcement_gate_dispatches_webhook_on_policy_denied(self):
         config = MCPIntegrationConfig(

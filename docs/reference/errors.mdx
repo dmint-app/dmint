@@ -1,0 +1,114 @@
+---
+title: "Error Code Reference"
+description: "Machine-readable DMT_* error codes emitted by the Core, dashboard, and MCP gateway, with causes and remediation."
+---
+
+# Error Code Reference
+
+Dmint exceptions expose a machine-readable `code` attribute prefixed with `DMT_`. Codes are stable identifiers; human-readable messages are not.
+
+The table below covers the codes emitted by the current package. A normal fail-closed authorization outcome is **not** a generic `DMT_AUTHORIZATION_ERROR`: it is `DMT_POLICY_DENIED`, `DMT_DEFAULT_DENIED`, or `DMT_CONSTRAINT_VIOLATION`.
+
+---
+
+## 1. Request and Policy Errors
+
+| Code | Exception | Meaning / remediation |
+|---|---|---|
+| `DMT_ERROR` | `DmintError` | Base class code; concrete failures use a more specific subclass. |
+| `DMT_INVALID_REQUEST` | `RequestValidationError` | Malformed request envelope, unsupported argument type, or invalid resource. Fix the caller before retrying. |
+| `DMT_CANONICALIZATION_ERROR` | `CanonicalizationError` | Arguments/context cannot be represented as canonical RFC 8785 JSON (for example `NaN`, `Infinity`, a lone surrogate, or excessive depth). |
+| `DMT_INVALID_POLICY` | `PolicyError` | Policy is malformed, uses an unknown operator, uppercase effect, invalid wildcard/selector, or constraints on a `deny`. Run `dmint verify-policy`. |
+| `DMT_POLICY_DENIED` | `AuthorizationError` | A matching `deny` rule won. The protected callable did not run. |
+| `DMT_DEFAULT_DENIED` | `AuthorizationError` | No rule matched. This is the fail-closed default. Add an explicit `allow` only if the action is intended. |
+| `DMT_CONSTRAINT_VIOLATION` | `AuthorizationError` | A matching rule’s argument constraints failed. This is a deny, not a fallthrough to another rule. |
+| `DMT_AUTHORIZATION_ERROR` | `AuthorizationError` | Evaluator/configuration failure (for example no approval store where one is required), not an ordinary policy deny. |
+| `DMT_AUTHORIZATION_FAILED` | `AuthorizationError` | Runtime authorization could not be completed (for example retry without a verifier or a callable no longer bound to this engine). |
+| `DMT_INVALID_AUTHORIZATION` | `AuthorizationError` | An `AuthorizedRequest` artifact was forged, stale, or belongs to a different engine. |
+| `DMT_RESOURCE_INVALID` | `ResourceMatchingError` | Resource path traversal, NUL byte, unsupported URL scheme, or other invalid resource syntax. |
+| `DMT_EXECUTION_FAILED` | `ExecutionError` | The protected function raised after authorization/consumption. The approval is already consumed; fix and request a new approval if a retry is needed. |
+
+---
+
+## 2. Approval Lifecycle Errors
+
+| Code | Exception | Meaning / remediation |
+|---|---|---|
+| `DMT_APPROVAL_REQUIRED` | `ApprovalRequiredError` | A matching approval rule persisted a PENDING record and halted execution. Review it with `dmint pending` or the dashboard. |
+| `DMT_APPROVAL_ERROR` | `ApprovalError` | Base approval failure; prefer the specific subclass. |
+| `DMT_APPROVAL_NOT_FOUND` | `ApprovalNotFoundError` | The approval ID does not exist in this store/deployment epoch. |
+| `DMT_APPROVAL_MALFORMED` | `MalformedApprovalError` / `ApprovalMalformedError` | Stored or serialized approval data is malformed. |
+| `DMT_APPROVAL_UNKNOWN_STATE` | `UnknownApprovalStateError` | Stored state is not one of the supported states. Investigate store corruption. |
+| `DMT_APPROVAL_UNKNOWN_VERSION` | `UnknownApprovalVersionError` | Stored record uses an unknown version. Upgrade the reader or restore compatible data. |
+| `DMT_APPROVAL_VERSION_UNSUPPORTED` | `ApprovalVersionUnsupportedError` | Assertion credential version is not supported by this runtime. |
+| `DMT_APPROVAL_ILLEGAL_TRANSITION` | `IllegalApprovalTransitionError` | Requested transition is not allowed (for example downloading an assertion for a PENDING record). |
+| `DMT_APPROVAL_EXPIRED` | `ApprovalExpiredError` | The record or assertion TTL elapsed. Create a fresh request. |
+| `DMT_APPROVAL_CONSUMED` | `ApprovalConsumedError` | Replay after successful consumption. Approvals are single-use. |
+| `DMT_APPROVAL_CONCURRENT_CONSUME` | `ApprovalConcurrentConsumeError` | Two workers raced to consume the same approval. Exactly one wins; the others fail closed. |
+| `DMT_APPROVAL_NOT_APPROVED` | `ApprovalNotApprovedError` | Retry attempted before approval (or after rejection). |
+| `DMT_APPROVAL_REQUEST_MISMATCH` | `ApprovalRequestMismatchError` | Retried arguments/envelope differ from the approved request. Retry with the identical request. |
+| `DMT_APPROVAL_POLICY_INVALID` | `ApprovalPolicyInvalidError` | Policy provenance changed or now denies the request. Request a new approval under the current policy. |
+| `DMT_APPROVAL_DEPLOYMENT_INVALID` | `ApprovalDeploymentInvalidError` | The approval belongs to a different deployment epoch. Use a matching epoch. |
+| `DMT_APPROVAL_PRINCIPAL_MISMATCH` | `ApprovalPrincipalMismatchError` | The assertion principal differs from the stored request principal. |
+| `DMT_APPROVAL_INTEGRATION_MISMATCH` | `ApprovalIntegrationMismatchError` | The assertion integration/capability differs from the stored request. |
+| `DMT_APPROVAL_SIGNATURE_INVALID` | `ApprovalSignatureInvalidError` | Ed25519 verification failed. Check the trusted public key and that the assertion was not modified. |
+| `DMT_APPROVAL_ISSUER_INVALID` | `ApprovalIssuerInvalidError` | The assertion issuer is not present in `trusted_issuers`. |
+| `DMT_APPROVAL_AUDIENCE_INVALID` | `ApprovalAudienceInvalidError` | The assertion audience does not match the verifier’s configured audience. |
+| `DMT_APPROVAL_INVALID` | `ApprovalInvalidError` | A generic assertion/record invariant failed (for example record not consumable or expiration mismatch). |
+| `DMT_APPROVAL_CREDENTIAL_INVALID` | `ApprovalCredentialInvalidError` | The supplied retry credential is not a valid `ApprovalAssertion` or bytes payload. |
+| `DMT_APPROVAL_ALGORITHM_UNSUPPORTED` | `ApprovalAlgorithmUnsupportedError` | The assertion signature algorithm is not explicitly allowed. |
+| `DMT_APPROVAL_CORRUPT` | `CorruptApprovalRecordError` | HMAC integrity verification failed for a stored row. Treat as tampering/corruption and investigate. |
+| `DMT_APPROVAL_DEPRECATED_FORMAT` | `DeprecatedStorageFormatError` | An unkeyed/deprecated storage format was encountered and rejected. Migrate through a supported path. |
+| `DMT_APPROVAL_STORE_ERROR` | `ApprovalStoreError` | Generic storage failure (I/O, recovery counter, quota, conflict). See the message and logs. |
+| `DMT_APPROVAL_STORE_CONFIG_ERROR` | `ApprovalStoreConfigurationError` | Invalid or unreachable configured database. Dmint does not silently fall back to SQLite. |
+
+---
+
+## 3. Key Errors
+
+| Code | Exception | Meaning / remediation |
+|---|---|---|
+| `DMT_KEY_LOAD_ERROR` | `KeyLoadError` | Signing/key file is missing, unreadable, malformed, wrong length, or otherwise invalid. Generate/restore the correct key. |
+| `DMT_KEY_PERMISSION_ERROR` | `KeyPermissionError` | Key or token file permissions are looser than allowed. Restrict to `0600`/`0400` and retry. |
+| `DMT_KEY_EXISTS` | `KeyExistsError` | `dmint init-keys` found an existing key. Preserve it or use `--force` deliberately. |
+
+---
+
+## 4. MCP Gateway Errors
+
+| Code | Exception | Meaning / remediation |
+|---|---|---|
+| `DMT_MCP_ERROR` | `MCPError` | Base MCP gateway error. |
+| `DMT_MCP_CONFIG_ERROR` | `MCPConfigurationError` | Invalid `mcp_protection.json`, unsupported transport, invalid URL, or unsafe configuration. |
+| `DMT_MCP_PROTOCOL_ERROR` | `MCPProtocolError` | Malformed JSON-RPC, duplicate JSON keys, invalid UTF-8, or protocol violation. |
+| `DMT_MCP_REQUEST_INVALID` | `MCPMappingError` | Unknown/invalid tool mapping or request shape. |
+| `DMT_MCP_TOOL_NOT_FOUND` | `MCPMappingError` | Requested tool is not registered in any integration. |
+| `DMT_MCP_TOOL_UNKNOWN` | `MCPMappingError` | Downstream tool has no trusted binding. |
+| `DMT_MCP_TOOL_AMBIGUOUS` | `MCPMappingError` | Multiple integrations expose the same unqualified tool name. |
+| `DMT_MCP_SCHEMA_MISMATCH` | `MCPMappingError` | Downstream schema differs from the pinned `tool_schema_hash`; re-pin deliberately after review. |
+| `DMT_MCP_ARGUMENT_INVALID` | `MCPMappingError` | Arguments fail the mapped tool schema or canonicalization checks. |
+| `DMT_MCP_RESOURCE_INVALID` | `MCPMappingError` | The mapped resource is invalid under the configured `resource_key`. |
+| `DMT_MCP_CONNECTION_ERROR` | `MCPConnectionError` | Downstream connection failed, hostname pin failed, or SSRF protection rejected the destination. |
+| `DMT_MCP_TIMEOUT` | `MCPTimeoutError` | Downstream call, discovery, or handshake exceeded its timeout. |
+| `DMT_INTERNAL_ERROR` | `MCPError` / generic runtime error | Unexpected internal failure while handling an MCP request; treated as fail-closed and logged. |
+| `DMT_AGENT_IDENTITY_MISMATCH` | `MCPError`/`MCPMappingError` | Authenticated agent identity does not match the request principal. |
+
+---
+
+## 5. Reading a Denial Correctly
+
+Example:
+
+```text
+AuthorizationError: policy denied the request (DMT_POLICY_DENIED)
+```
+
+means an explicit `deny` rule matched. An unmatched operation is:
+
+```text
+AuthorizationError: policy denied the request (DMT_DEFAULT_DENIED)
+```
+
+Both are valid fail-closed outcomes. Neither means the evaluator crashed. `DMT_AUTHORIZATION_ERROR` indicates an evaluator or configuration failure, and should be treated as a bug or deployment problem rather than a policy decision.
+
+For approval failures, use the specific code to decide whether to request a new approval (`DMT_APPROVAL_EXPIRED`, `DMT_APPROVAL_POLICY_INVALID`), correct the retry (`DMT_APPROVAL_REQUEST_MISMATCH`), or stop entirely (`DMT_APPROVAL_CONSUMED`, `DMT_APPROVAL_SIGNATURE_INVALID`).

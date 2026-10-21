@@ -1,43 +1,44 @@
 ---
 title: "Exact Request Binding"
-description: "How RFC 8785 JSON Canonicalization Scheme (JCS) and SHA-256 create immutable, tamper-proof approval fingerprints."
-icon: "fingerprint"
+description: "How RFC 8785 JSON Canonicalization Scheme (JCS) and SHA-256 domain-separated hashing create immutable request fingerprints."
 ---
 
 # Exact Request Binding
 
-A critical vulnerability in naive approval systems is **parameter tampering** or **scope drift**:
-- A human approves: `delete_user(id=99)`
-- The agent executes: `delete_user(id=1)` (the admin account!)
+A critical vulnerability in traditional approval systems is **parameter tampering** or **scope drift**:
+- A human operator reviews and approves: `update_account(account_id="acc_99", role="viewer")`
+- An adversarial agent modifies the payload before retry: `update_account(account_id="acc_01", role="admin")`
 
-Dmint completely eliminates this vulnerability through **Exact Request Binding**.
+Dmint eliminates this attack vector through **Exact Request Binding**.
 
-An approval in Dmint is not a general permission; it is a cryptographic assertion authorizing **one exact byte sequence** of parameters.
+An approval in Dmint is never a blanket permission. It is a cryptographic assertion bound strictly to the byte-for-byte canonical hash of one exact request.
 
 ---
 
 ## The Request Binding Envelope
 
-Before any approval check or persistence occurs, Dmint constructs an immutable request binding envelope:
+Before any approval record is created or evaluated, Dmint constructs an immutable request binding envelope:
 
 ```json
 {
-    "action": "update",
-    "arguments": {
-        "id": 42,
-        "role": "editor"
-    },
-    "binding_version": "dmint/request-binding/v1",
-    "canonicalization_profile": "dmint/jcs-v1",
-    "capability_id": "database.update",
-    "integration_id": "local-runtime",
-    "principal_id": "agent-cursor-prod",
-    "resource": {
-        "kind": "value",
-        "value": "users"
-    },
-    "tool": "database",
-    "trusted_context": {}
+  "action": "transfer_funds",
+  "arguments": {
+    "account_id": "acc_100",
+    "amount": 500.0
+  },
+  "binding_version": "dmint/request-binding/v2",
+  "canonicalization_profile": "dmint/jcs-v2",
+  "capability_id": "ledger.transfer_funds",
+  "integration_id": "local-runtime",
+  "principal_id": "finance-agent-01",
+  "resource": {
+    "kind": "identifier",
+    "value": "accounts"
+  },
+  "tool": "ledger",
+  "trusted_context": {
+    "tenant": "prod-us"
+  }
 }
 ```
 
@@ -45,73 +46,61 @@ Before any approval check or persistence occurs, Dmint constructs an immutable r
 
 ## Why RFC 8785 Canonicalization (JCS)?
 
-In standard JSON, the following payloads are semantically identical in Python dictionaries, but have different raw string representations:
+In standard JSON implementations, semantically identical payloads produce distinct raw string representations:
 
 ```json
 // Representation A:
-{"id": 42, "role": "editor"}
+{"account_id": "acc_100", "amount": 500.0}
 
-// Representation B (reversed keys, different whitespace):
-{
-  "role":  "editor",
-  "id":    42
-}
+// Representation B (different key order, added spaces, different float formatting):
+{  "amount":  500,  "account_id":  "acc_100"  }
 ```
 
-If we hashed raw JSON strings, benign differences in key order or spacing would produce different SHA-256 digests, breaking approvals or allowing subtle malleability attacks.
+If hashed naively as raw text, Representation A and Representation B produce completely different SHA-256 hashes, causing false-positive approval mismatches or allowing hash-malleability exploits.
 
-Dmint uses **RFC 8785 JSON Canonicalization Scheme (JCS)**:
-1. **Sorted Keys**: Dictionary keys are sorted lexicographically by UTF-16 code units.
-2. **Whitespace Stripped**: No whitespace outside of string literals.
-3. **Deterministic Numbers**: Floats and integers follow strict IEEE 754 canonical formatting (ECMAScript 7.1.12.1).
-4. **UTF-8 Output**: Enforces strict UTF-8 character encoding without escaping unnecessary characters.
+Dmint implements **RFC 8785 JSON Canonicalization Scheme (JCS)**:
+1. **UTF-16 Code Unit Key Sorting**: Dictionary keys are sorted lexicographically by their UTF-16 code units (RFC 8785 Section 3.2.3).
+2. **Whitespace Stripping**: All whitespace between tokens is removed.
+3. **Deterministic Floating-Point Numbers**: Floating-point numbers are formatted using ECMAScript/V8 IEEE 754 string conversion rules without trailing decimal zeros or uppercase exponents.
+4. **Surrogate Validation**: Strings containing lone Unicode surrogates are rejected with `CanonicalizationError`.
+5. **Depth & Size Limits**: Maximum nesting depth is capped at 100 levels; maximum canonical size is capped at 10 MB.
 
-### Safe Integer Domain & Identifier Serialization
-
-Per RFC 8785 Section 3.2.2.3 and IEEE 754, numbers are treated as double-precision floating point. To prevent integer overflow, truncation, and rounding differences between runtimes:
-- Integers outside the safe integer range $[-(2^{53} - 1), 2^{53} - 1]$ (i.e. $|n| > 9{,}007{,}199{,}254{,}740{,}991$) are **strictly rejected** by the canonicalizer with `CanonicalizationError`.
-- Large identifiers (such as 64-bit database IDs, Twitter/Discord snowflake IDs, or cryptographic integers) **must be passed as strings** (e.g. `{"user_id": "184920491820491820"}`).
+Under RFC 8785, both Representation A and Representation B serialize to the exact same bytes:
+`{"account_id":"acc_100","amount":500}`
 
 ---
 
-## Cryptographic Fingerprint Computation
+## SHA-256 Domain Separation
 
-```text
-Request Envelope
-      ↓
-RFC 8785 JCS Canonicalization
-      ↓
-Canonical UTF-8 Bytes
-      ↓
-SHA-256 Hash
-      ↓
-64-Character Hex Digest (The Request Fingerprint)
+Once the request envelope is serialized to canonical bytes, Dmint computes the SHA-256 request fingerprint:
+
+```python
+import hashlib
+from dmint.core.canonicalize import canonicalize_bytes
+
+_FINGERPRINT_DOMAIN = b"dmint/request-fingerprint/v2\x00"
+
+canonical_bytes = canonicalize_bytes(request_envelope)
+request_fingerprint = hashlib.sha256(_FINGERPRINT_DOMAIN + canonical_bytes).hexdigest()
 ```
 
-For example:
-```text
-b'{"action":"update","arguments":{"id":42,"role":"editor"},"binding_version":"dmint/request-binding/v1","canonicalization_profile":"dmint/jcs-v1","capability_id":"database.update","integration_id":"local-runtime","principal_id":"agent-cursor-prod","resource":{"kind":"value","value":"users"},"tool":"database","trusted_context":{}}'
-```
-Produces the SHA-256 fingerprint:
-```text
-e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
-```
+### Why Domain Separation Matters
+The prefix `b"dmint/request-fingerprint/v2\x00"` prevents cross-protocol signature forgery. A hash computed for a policy digest (`b"dmint/policy-digest/v1\x00"`) or row integrity check (`b"dmint/approval-record-integrity/v2\x00"`) can never collide with or be substituted for a request fingerprint.
 
 ---
 
-## What Request Binding Protects Against
+## Tampering Scenarios and Fail-Closed Responses
 
-<CardGroup cols={2}>
-  <Card title="Argument Malleability" icon="ban">
-    Changing `{"id": 42}` to `{"id": 43}` produces a different SHA-256 hash. The pre-existing approval will be rejected immediately with `DMT_APPROVAL_REQUEST_MISMATCH`.
-  </Card>
-  <Card title="Cross-Tool Spoofing" icon="shield-virus">
-    An approval granted for `postgres.query` cannot be submitted to `mysql.query` even if the query string is identical.
-  </Card>
-  <Card title="Agent Hijacking" icon="user-lock">
-    An approval requested by `agent-analytics` cannot be intercepted and executed by `agent-scraper`.
-  </Card>
-  <Card title="Epoch Replay" icon="clock-rotate-left">
-    When deploying a new version of your application, changing the `deployment_epoch` automatically invalidates all previous pending or approved records.
-  </Card>
-</CardGroup>
+| Attempted Tampering | Attacker Action | Dmint Detection | Decision |
+|---|---|---|---|
+| **Argument Modification** | Changes `amount` from `500` to `5000` | Canonical JCS bytes change; SHA-256 hash mismatch. | Fails closed: `DMT_APPROVAL_REQUEST_MISMATCH` |
+| **Agent Spoofing** | Another agent attempts to reuse approved token | `principal_id` mismatch in request envelope. | Fails closed: `DMT_APPROVAL_PRINCIPAL_MISMATCH` |
+| **Context Switching** | Replaying approval in `production` that was approved in `staging` | `trusted_context.environment` differs in hash. | Fails closed: `DMT_APPROVAL_REQUEST_MISMATCH` |
+| **Policy Modification** | Operator changes policy rules after approval granted | Policy SHA-256 digest changed; epoch invalidated. | Fails closed: `DMT_APPROVAL_POLICY_INVALID` |
+
+---
+
+## Next Steps
+
+- **[Approval Lifecycle & State Machine](/concepts/approvals)**: See how approved assertions transition to single-use `CONSUMED`.
+- **[Resource Matching](/concepts/resources)**: How paths, hostnames, and URLs are validated and normalized.

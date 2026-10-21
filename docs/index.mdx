@@ -1,114 +1,135 @@
 ---
 title: "Overview"
-description: "Deterministic authorization and security enforcement for AI-agent tool execution."
+description: "Dmint is a deterministic authorization layer for AI agent tool calls with cryptographic request binding and single-use approvals."
 ---
 
-# Deterministic Security for AI Agents
+# Deterministic Security for AI Agent Tool Calls
 
-> **AI can request actions. Dmint deterministically decides whether those actions may execute.**
+Dmint places an unbypassable, code-governed authorization boundary between AI agents and privileged execution environments.
 
-`dmint` is an in-process and gateway-level security boundary between AI models and privileged execution environments. It intercepts AI tool calls and deterministically evaluates them against declarative policies: `ALLOW`, `DENY`, or `APPROVAL_REQUIRED`.
+---
+
+## The Problem
+
+Autonomous agents (Cursor, Claude Code, Antigravity, LangChain pipelines) frequently possess high-privilege access to execute commands, query databases, read files, and call external APIs.
+
+Prompt-based guardrails ("Please do not run `DELETE` without asking") fail when an agent encounters prompt injection, jailbreaks, or hallucinations:
 
 ```text
-┌─────────────────┐
-│    AI Agent     │  (Cursor, Claude Code, Antigravity, Custom)
-└────────┬────────┘
-         │ tool request
+Without Dmint (Probabilistic & Vulnerable):
+AI Model ────[ System Prompt / Model Guardrail ]────► Executes DROP TABLE / RM -RF
+
+With Dmint (Deterministic & Fail-Closed):
+AI Model ────► Tool Call ────► [ Dmint Policy Engine ] ────► ALLOW: Executes tool
+                                      │
+                                      ├─► DENY: Fails closed immediately
+                                      └─► APPROVAL_REQUIRED: Halts until signed human approval
+```
+
+Dmint evaluates every tool request against deterministic, declarative policies before the protected capability runs. There is **zero LLM evaluation** in the runtime authorization decision path.
+
+---
+
+## 10-Line Example
+
+Protect a sensitive tool with policy evaluation and human approval:
+
+```python
+from dmint import Dmint, Policy, Rule, TrustedContext
+
+# 1. Define deterministic rules
+policy = Policy([
+    Rule.allow("database", "query"),
+    Rule.approval_required("database", "delete"),
+])
+
+# 2. Initialize the engine
+engine = Dmint(
+    policy=policy,
+    agent_id="agent-prod-01",
+    context=TrustedContext({"environment": "production"}),
+)
+
+# 3. Guard the callable
+@engine.protect("database.delete")
+def delete_records(table: str, condition: str) -> int:
+    return 42
+
+# 4. Tool execution halts and persists a pending approval record
+try:
+    delete_records("users", "inactive = true")
+except Exception as exc:
+    print(f"Intercepted: {exc.code} (Request ID: {exc.request_id})")
+```
+
+Output:
+```text
+Intercepted: DMT_APPROVAL_REQUIRED (Request ID: req_9k2L...m4P1)
+```
+
+The tool was never called. To proceed, an authorized human signs an Ed25519 assertion via the local dashboard or CLI (`dmint approve`), and the host application retries.
+
+---
+
+## How It Works
+
+```text
+   AI Agent Call
+         │
          ▼
-┌─────────────────┐
-│  Dmint Security │
-│                 │
-│   ├─ ALLOW ───────────────────┐
-│   ├─ DENY ──► Fail Closed     │
-│   └─ APPROVAL_REQUIRED ──┐    │
-└──────────────────────────┼────┼─┘
-                           │    │
-                   Persist │    │ Execute
-                   Request │    │ Tool
-                           ▼    ▼
-┌─────────────────────────────────┐
-│         Protected Tool          │  (Postgres, Filesystem, Bash, APIs)
-└─────────────────────────────────┘
+ 1. Parameter Canonicalization (RFC 8785 JSON Canonicalization Scheme)
+         │
+         ▼
+ 2. SHA-256 Request Fingerprinting (b"dmint/request-fingerprint/v2\x00")
+         │
+         ▼
+ 3. Deterministic Policy Evaluation (Deny-overrides, default-deny)
+         │
+ ┌───────┴────────────────────────┐
+ │                                │
+ ▼                                ▼
+ALLOW                     APPROVAL_REQUIRED
+ │                                │
+Executes Callable          Halts execution; persists record in SQLite/Postgres;
+                           emits webhook notification (Slack/Discord/Teams)
+                                  │
+                                  ▼
+                           Human Review (Dashboard or CLI)
+                                  │
+                                  ▼
+                           Host Retries with Ed25519 Signed Token
+                                  │
+                                  ▼
+                           Atomic Single-Use Consumption & Execution
 ```
 
 ---
 
-## Key Pillars
+## Who It Is For
 
-<CardGroup cols={2}>
-  <Card title="Deterministic Enforcement" icon="shield" href="/architecture/deterministic-enforcement">
-    Runtime authorization is governed strictly by declarative code and policy. An LLM never makes runtime authorization decisions.
-  </Card>
-  <Card title="Exact Request Binding" icon="fingerprint" href="/concepts/request-binding">
-    Approvals are bound to the cryptographic SHA-256 fingerprint of the canonicalized RFC 8785 payload. Approving `update(id=1)` cannot authorize `update(id=2)`.
-  </Card>
-  <Card title="Transparent MCP Gateway" icon="network-wired" href="/guides/protecting-mcp">
-    Intercept Model Context Protocol (stdio & streamable HTTP) tools in Cursor, Claude Code, and Antigravity with zero agent code changes.
-  </Card>
-  <Card title="Human Approval UI & CLI" icon="desktop" href="/guides/human-approvals">
-    Review, inspect argument diffs, and approve sensitive tool calls using the local web dashboard or directly from the terminal with `dmint approve`.
-  </Card>
-</CardGroup>
+- **AI application engineers** deploying agents with access to production databases, cloud APIs, or file systems.
+- **Enterprise teams** using Model Context Protocol (MCP) in Cursor, Claude Code, or Antigravity who require an audit trail and human-in-the-loop review for destructive actions.
+- **Security auditors** needing deterministic proof that an agent cannot exceed policy rules regardless of prompt manipulation.
+
+### Who Should Not Use It
+
+- If you want an LLM to judge whether text "looks suspicious" or perform content moderation, use an LLM input guardrail. Dmint evaluates strict mathematical rules against exact arguments and context.
+- If your agent runs as the same unisolated OS user as your application and has direct shell access, an in-process library cannot protect local files or signing keys. You need container or OS-level user isolation.
 
 ---
 
-## Quick Start
+## Project Status
 
-You can evaluate Dmint on any tool in under 5 minutes:
-
-<Steps>
-  <Step title="Install Dmint Suite">
-    ```bash
-    pip install "dmint[all]"
-    ```
-  </Step>
-  <Step title="Author Policy">
-    Describe rules in `access.md` and compile to verified `policy.json`:
-    ```bash
-    dmint create-policy -f access.md -o policy.json -y
-    ```
-  </Step>
-  <Step title="Enforce Tool Calls">
-    Wrap an MCP server with `dmint-mcp` or decorate Python functions with `@dmint.protected`.
-  </Step>
-  <Step title="Review Approvals">
-    Review and approve sensitive actions via the terminal or local web dashboard:
-    ```bash
-    # Terminal approval:
-    dmint pending
-    dmint approve <approval_id>
-
-    # Or launch the local web dashboard:
-    dmint dashboard --db-path ./approvals.sqlite3
-    ```
-  </Step>
-</Steps>
-
-<Tip>
-Ready to run a live test? Jump directly to the complete [5-Minute Quickstart](/quickstart).
-</Tip>
+- **Version**: `2.0.1`
+- **Supported Python**: `3.10`, `3.11`, `3.12`, `3.13`
+- **Supported Transports**: Python decorator (`@engine.protect`), MCP Stdio proxy, MCP Streamable HTTP proxy.
+- **Backends**: SQLite (default, with WAL mode and row HMAC integrity) or PostgreSQL via SQLAlchemy (`DMINT_DATABASE_URL`).
+- **Cryptographic Standard**: RFC 8785 (JCS) canonicalization, SHA-256 domain-separated hashing, Ed25519 public-key approval signatures.
 
 ---
 
-## The Dmint Ecosystem
+## Where to Go Next
 
-<CardGroup cols={3}>
-  <Card title="Core Engine" icon="cube" href="/reference/core-api">
-    Deterministic authorization engine, frozen SQLite & PostgreSQL state machines, and Ed25519 signing authority (`dmint.core`).
-  </Card>
-  <Card title="CLI Tooling" icon="terminal" href="/reference/cli">
-    Interactive policy authoring wizards, offline schema validation, skill installer, and dashboard launcher (`dmint`).
-  </Card>
-  <Card title="MCP Gateway" icon="server" href="/guides/protecting-mcp">
-    Multi-integration gateway, SSRF defenses, downstream stdio/HTTP proxies, and protocol enforcement (`dmint-mcp`).
-  </Card>
-  <Card title="Approval Dashboard" icon="window-maximize" href="/guides/human-approvals">
-    Local human approval console with real-time polling and zero direct SQL access (`dmint-dashboard`).
-  </Card>
-  <Card title="Agent Skills" icon="brain" href="/guides/agent-skills">
-    Coding agent skills that guide LLMs to draft least-privilege security policies (`dmint install-skill`).
-  </Card>
-  <Card title="Examples & Recipes" icon="code" href="https://github.com/dmint-app/dmint-examples">
-    Ready-to-run scenarios covering database mutations, shell operations, and multi-agent governance.
-  </Card>
-</CardGroup>
+- **[5-Minute Quickstart](/quickstart)**: Install Dmint, define a 3-rule policy, and observe `ALLOW`, `DENY`, and `APPROVAL_REQUIRED` in action.
+- **[End-to-End Tutorial](/tutorials/protect-a-tool)**: Build a realistic refunds tool requiring approval for amounts over $100.
+- **[Core Architecture & Mental Model](/concepts/how-dmint-works)**: Understand the complete request lifecycle and execution gate.

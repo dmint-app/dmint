@@ -335,9 +335,9 @@ When implementing a feature, first identify which subsystem owns the responsibil
 
 ---
 
-## 4. MONOREPO ARCHITECTURE (v2.0.0)
+## 4. MONOREPO ARCHITECTURE (v2.0.1)
 
-The monorepo lives at `~/dmint` and ships as a **single distribution package** (`dmint v2.0.0`) containing five unified subsystems:
+The monorepo lives at `~/dmint` and ships as a **single distribution package** (`dmint v2.0.1`) containing five unified subsystems:
 
 ```text
 ~/dmint
@@ -555,7 +555,7 @@ mypy src/
 
 - **Always run from `~/dmint`** (the monorepo root).
 - **Always set `PYTHONPATH=src`** when running pytest/mypy commands that need explicit source resolution.
-- Current baseline: **971 tests — 971 passed, 0 failed, 0 skipped**.
+- Current baseline: **1515 tests — 1515 passed, 0 failed, 0 skipped**.
 - Any new code must maintain 0 skipped tests.
 - The `skipTest()` pattern is banned.
 - If a test depends on a file, that file must exist at the exact expected path (no fallback logic).
@@ -594,7 +594,7 @@ Hooks configured in `.pre-commit-config.yaml`:
 - Point test subprocess helpers directly to `tests/mcp/mock_server.py`.
 - Keep `proxy_entrypoint.py` self-contained with `sys.path` setup so it works as a spawned subprocess.
 - Match the `PYTHONPATH=src` prefix when running pytest/mypy invocations that require it.
-- Treat `pyproject.toml` as the single source of truth for version (`version = "2.0.0"`).
+- Treat `pyproject.toml` as the single source of truth for version (`version = "2.0.1"`).
 - Use Core public APIs from Dashboard.
 - Preserve exact request binding and fail-closed behavior.
 - Run the complete relevant test suite after security-sensitive changes.
@@ -867,20 +867,20 @@ twine check dist/*
 Build artifacts:
 
 ```text
-dist/dmint-2.0.0-py3-none-any.whl
-dist/dmint-2.0.0.tar.gz
+dist/dmint-2.0.1-py3-none-any.whl
+dist/dmint-2.0.1.tar.gz
 ```
 
 ---
 
 ## 19. VERSION
 
-**Current Version: `2.0.0`**
+**Current Version: `2.0.1`**
 
 Version is the single source of truth in `pyproject.toml`:
 
 ```toml
-version = "2.0.0"
+version = "2.0.1"
 ```
 
 and is propagated to:
@@ -898,7 +898,7 @@ Do not update one copied version string while leaving `pyproject.toml` inconsist
 The current unified monorepo baseline is:
 
 ```text
-Dmint v2.0.0
+Dmint v2.0.1
 
 Core
  └── deterministic authorization + approval security

@@ -61,6 +61,13 @@
             <span style="font-size:0.8125rem;color:var(--text-secondary);display:inline-flex;align-items:center;gap:0.35rem;">
               <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#10b981;"></span>
               <code>{{ current_user }}</code>
+              {% if current_user_source == 'self-asserted' %}
+              <span class="d-badge secondary" title="This label came from the login form, not an authenticated identity provider.">self-asserted</span>
+              {% elif current_user_source == 'trusted_proxy' %}
+              <span class="d-badge success" title="Supplied by the configured trusted reverse proxy.">proxy-authenticated</span>
+              {% elif current_user_source == 'shared_bearer_token' %}
+              <span class="d-badge secondary" title="Shared bearer token; no individual human identity was authenticated.">shared-token</span>
+              {% endif %}
             </span>
             <form method="post" action="/logout" style="display:inline;margin:0;">
               <input type="hidden" name="csrf_token" value="{{ csrf_token }}">

@@ -17,6 +17,7 @@ from dmint.approvals import (
     ApprovalState,
 )
 from dmint.authority import LocalApprovalAuthority
+from dmint.cli.errors import PolicyValidationError
 from dmint.core.verification import DEFAULT_APPROVAL_AUDIENCE
 from dmint.errors import (
     ApprovalConcurrentConsumeError,
@@ -121,7 +122,12 @@ def _resolve_current_policy(
     store: ApprovalStore,
     policy_path: str | None = None,
 ) -> Policy | None:
-    """Resolve the current active policy for re-verification."""
+    """Resolve the current active policy for re-verification.
+
+    An explicit ``policy_path`` must exist and parse. A fallback ``./policy.json`` that
+    exists but cannot be parsed fails closed with ``PolicyValidationError`` instead of
+    silently downgrading re-verification to no verification.
+    """
     if policy_path:
         p = Path(policy_path)
         if not p.is_file():
@@ -136,8 +142,10 @@ def _resolve_current_policy(
     if default_p.is_file():
         try:
             return Policy.from_json(default_p.read_text(encoding="utf-8"))
-        except Exception:
-            pass
+        except Exception as exc:
+            raise PolicyValidationError(
+                f"Fallback policy file '{default_p}' exists but cannot be parsed for re-verification: {exc}"
+            ) from exc
 
     return None
 

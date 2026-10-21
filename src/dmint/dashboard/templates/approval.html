@@ -158,6 +158,27 @@
 </div>
 {% endif %}
 
+{# ── Retry assertion handoff (APPROVED only) ─────────────────────── #}
+{% if record.assertion_available %}
+<div class="d-panel">
+  <div class="d-panel-header">
+    <h2 class="d-panel-title">Host retry credential</h2>
+  </div>
+  <div class="d-panel-body">
+    <p style="color:var(--text-secondary);font-size:0.875rem;margin:0 0 1rem;">
+      Download the signed Ed25519 assertion bound to this exact request and provide it to the protected host
+      for <code>engine.retry(...)</code>. Core consumes it atomically on first use; replay fails closed.
+    </p>
+    <a class="d-btn d-btn-primary" href="/approvals/{{ record.approval_id }}/assertion" download>
+      Download assertion artifact
+    </a>
+    <p style="color:var(--text-dim);font-size:0.75rem;margin:0.75rem 0 0;">
+      This artifact is a single-use credential. Treat it like a secret and do not place it in agent-visible storage.
+    </p>
+  </div>
+</div>
+{% endif %}
+
 {# ── Approve / Reject (PENDING only) ──────────────────────────────── #}
 {% if record.is_pending %}
 <div class="d-panel">

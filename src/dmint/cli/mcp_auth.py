@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import http.client
 import ipaddress
 import json
 import logging
 import re
-from typing import Any
+import socket
+import ssl
+from typing import Any, Protocol, cast
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -76,7 +79,12 @@ class MCPAuthRequirements:
         )
 
 
-from dmint.mcp.ssrf import is_loopback_host
+from dmint.mcp.ssrf import (
+    canonicalize_hostname,
+    is_loopback_host,
+    is_private_or_metadata_ip as _canonical_private_or_metadata_ip,
+    parse_ip_literal,
+)
 
 # Unified loopback host validation delegating to canonical implementation in dmint.mcp.ssrf
 _is_loopback_hostname = is_loopback_host
@@ -85,6 +93,9 @@ _is_loopback_hostname = is_loopback_host
 def _is_private_or_metadata_ip(hostname: str) -> bool:
     """Check if hostname is a private IP, link-local (e.g. 169.254.x.x), reserved, or cloud metadata endpoint.
 
+    Numeric IPv4 literals in decimal, octal, hex, dotted-mixed, or short form
+    (e.g. ``0251.0376.0251.0376``, ``0xA9FEA9FE``, ``127.1``) are canonically
+    decoded before classification so obfuscated forms cannot bypass the check.
     Loopback IPs (127.0.0.1) are excluded as they are handled by localhost rules.
     """
     if not hostname:
@@ -99,23 +110,11 @@ def _is_private_or_metadata_ip(hostname: str) -> bool:
     ):
         return True
 
-    # Check integer/octal IPv4 format (e.g. 0, 2130706433, 017700000001)
-    if clean.isdigit():
-        try:
-            ip_val = int(clean)
-            if 0 <= ip_val <= 0xFFFFFFFF:
-                ip4 = ipaddress.IPv4Address(ip_val)
-                return (
-                    ip4.is_private or ip4.is_link_local or ip4.is_reserved or ip4.is_unspecified
-                ) and not ip4.is_loopback
-        except ValueError:
-            pass
-
-    try:
-        ip = ipaddress.ip_address(clean)
-        return (ip.is_private or ip.is_link_local or ip.is_reserved or ip.is_unspecified) and not ip.is_loopback
-    except ValueError:
+    # Canonicalize decimal/octal/hex/dotted-mixed/short-form numeric IPv4 literals
+    ip = parse_ip_literal(clean)
+    if ip is None:
         return False
+    return _canonical_private_or_metadata_ip(ip, allow_loopback=True)
 
 
 def _is_localhost(url_str: str) -> bool:
@@ -148,8 +147,14 @@ def _is_same_origin(url1: str, url2: str) -> bool:
     return scheme1 == scheme2 and host1 == host2 and port1 == port2
 
 
-def _validate_https_endpoint(url_str: str, label: str) -> None:
-    """Validate that remote endpoint is well-formed, safe against SSRF, and strictly uses HTTPS (unless loopback/localhost)."""
+def _validate_https_endpoint(url_str: str, label: str, *, allow_loopback: bool = True) -> None:
+    """Validate that an endpoint is well-formed and safe against SSRF.
+
+    ``allow_loopback`` is true for the user's local MCP server and its locally
+    supplied OAuth metadata.  It must be false for metadata supplied by a
+    remote MCP server, so a remote server cannot redirect the CLI to a
+    loopback, private-network, or cloud-metadata destination.
+    """
     if not url_str or not isinstance(url_str, str) or not url_str.strip():
         raise CLIError(f"Invalid URL for {label}: URL must be a non-empty string.")
 
@@ -184,12 +189,25 @@ def _validate_https_endpoint(url_str: str, label: str) -> None:
     except ValueError as exc:
         raise CLIError(f"Malformed port for {label}: {exc}") from exc
 
+    try:
+        normalized_host = canonicalize_hostname(hostname)
+    except Exception as exc:
+        raise CLIError(f"Invalid hostname for {label}: '{hostname}'.") from exc
+
+    # A remote server must never be able to steer a CLI HTTP request or browser
+    # flow to a loopback/private destination.
+    if not allow_loopback and _is_loopback_hostname(normalized_host):
+        raise CLIError(
+            f"Security violation: {label} points to a loopback endpoint '{hostname}'. "
+            "Loopback OAuth/discovery endpoints are only allowed for a local MCP server."
+        )
+
     # Enforce HTTPS requirement first (unless loopback)
-    if scheme != "https" and not _is_loopback_hostname(hostname):
+    if scheme != "https" and not _is_loopback_hostname(normalized_host):
         raise CLIError(f"Remote {label} must use HTTPS: '{clean_url}'.")
 
     # Reject private and cloud-metadata IP endpoints to prevent SSRF
-    if _is_private_or_metadata_ip(hostname):
+    if _is_private_or_metadata_ip(normalized_host):
         raise CLIError(
             f"Security violation: {label} points to a private or link-local IP endpoint '{hostname}'. "
             "Private IP endpoints are blocked to prevent Server-Side Request Forgery (SSRF)."
@@ -245,11 +263,145 @@ def parse_www_authenticate_header(header_val: str) -> dict[str, str]:
     return params
 
 
-def _open_url(req: urllib.request.Request, timeout: float = 15.0) -> Any:
-    """Open request with StrictSameOriginRedirectHandler, delegating to urlopen if mocked."""
+def _resolve_pinned_ip(url: str, *, allow_loopback: bool) -> tuple[str, str | None]:
+    """Resolve ``url`` once and return ``(hostname, pinned_ip_or_none)``.
+
+    Every answer is checked before any connection is attempted.  The returned
+    address is the only destination the pinned transport may use, so a second
+    attacker-controlled DNS answer cannot redirect the request.
+    """
+    parsed = urllib.parse.urlparse(url)
+    hostname = (parsed.hostname or "").lower()
+    if not hostname:
+        raise CLIError(f"Invalid URL: missing hostname in '{url}'.")
+    try:
+        normalized_host = canonicalize_hostname(hostname)
+    except Exception as exc:
+        raise CLIError(f"Invalid hostname '{hostname}'.") from exc
+
+    if _is_loopback_hostname(normalized_host):
+        if not allow_loopback:
+            raise CLIError(
+                f"Security violation: outbound endpoint '{url}' points to loopback; "
+                "only a local MCP server may use loopback OAuth endpoints."
+            )
+        return normalized_host, None
+
+    literal = parse_ip_literal(normalized_host)
+    if literal is not None:
+        if _canonical_private_or_metadata_ip(literal, allow_loopback=False):
+            raise CLIError(f"Security violation: outbound endpoint '{url}' points to prohibited IP '{literal}'.")
+        return normalized_host, str(literal)
+
+    port = parsed.port or (443 if (parsed.scheme or "").lower() == "https" else 80)
+    try:
+        addr_info = socket.getaddrinfo(normalized_host, port, proto=socket.IPPROTO_TCP)
+    except (socket.gaierror, socket.herror, OSError) as exc:
+        raise CLIError(f"DNS resolution failed for outbound endpoint '{normalized_host}': {exc}") from exc
+    if not addr_info:
+        raise CLIError(f"DNS resolution returned no addresses for outbound endpoint '{normalized_host}'.")
+
+    resolved: list[str] = []
+    for entry in addr_info:
+        address = str(entry[4][0])
+        try:
+            parsed_ip = ipaddress.ip_address(address)
+        except ValueError as exc:
+            raise CLIError(f"DNS returned invalid address '{address}' for '{normalized_host}'.") from exc
+        if _canonical_private_or_metadata_ip(parsed_ip, allow_loopback=False):
+            raise CLIError(
+                f"Security violation: outbound endpoint '{normalized_host}' resolved to prohibited IP '{address}'."
+            )
+        resolved.append(address)
+    return normalized_host, resolved[0]
+
+
+class _HTTPConnectionInternals(Protocol):
+    """Private http.client attributes used by the pinned connection subclasses."""
+
+    source_address: tuple[str, int] | None
+    _tunnel_host: str | None
+    _context: ssl.SSLContext
+
+    def _tunnel(self) -> None: ...
+
+
+class _PinnedHTTPConnection(http.client.HTTPConnection):
+    """HTTP connection that dials a fixed IP while preserving the original Host header."""
+
+    def __init__(self, host: str, *, pinned_ip: str, **kwargs: Any) -> None:
+        super().__init__(host, **kwargs)
+        self._pinned_ip = pinned_ip
+
+    def connect(self) -> None:
+        internals = cast(_HTTPConnectionInternals, self)
+        self.sock = socket.create_connection(
+            (self._pinned_ip, self.port),
+            self.timeout,
+            internals.source_address,
+        )
+        if internals._tunnel_host:
+            internals._tunnel()
+
+
+class _PinnedHTTPSConnection(http.client.HTTPSConnection):
+    """HTTPS connection pinned to one validated IP with original SNI/certificate host."""
+
+    def __init__(self, host: str, *, pinned_ip: str, context: ssl.SSLContext | None = None, **kwargs: Any) -> None:
+        super().__init__(host, context=context or ssl.create_default_context(), **kwargs)
+        self._pinned_ip = pinned_ip
+
+    def connect(self) -> None:
+        internals = cast(_HTTPConnectionInternals, self)
+        self.sock = socket.create_connection(
+            (self._pinned_ip, self.port),
+            self.timeout,
+            internals.source_address,
+        )
+        if internals._tunnel_host:
+            internals._tunnel()
+        server_hostname = internals._tunnel_host or self.host
+        self.sock = internals._context.wrap_socket(self.sock, server_hostname=server_hostname)
+
+
+class _PinnedHTTPHandler(urllib.request.HTTPHandler):
+    def __init__(self, pinned_ip: str) -> None:
+        super().__init__()
+        self._pinned_ip = pinned_ip
+
+    def http_open(self, req: urllib.request.Request) -> Any:
+        return self.do_open(
+            lambda host, **kwargs: _PinnedHTTPConnection(host, pinned_ip=self._pinned_ip, **kwargs),
+            req,
+        )
+
+
+class _PinnedHTTPSHandler(urllib.request.HTTPSHandler):
+    def __init__(self, pinned_ip: str) -> None:
+        super().__init__(context=ssl.create_default_context())
+        self._pinned_ip = pinned_ip
+
+    def https_open(self, req: urllib.request.Request) -> Any:
+        return self.do_open(
+            lambda host, **kwargs: _PinnedHTTPSConnection(host, pinned_ip=self._pinned_ip, **kwargs),
+            req,
+        )
+
+
+def _open_url(req: urllib.request.Request, timeout: float = 15.0, *, allow_loopback: bool = True) -> Any:
+    """Open an OAuth/discovery request with no proxy and a pinned DNS destination."""
+    _validate_https_endpoint(req.full_url, "outbound request", allow_loopback=allow_loopback)
+
+    # Existing tests mock urllib.request.urlopen directly.  Preserve that
+    # injection point while the real transport below always pins.
     if hasattr(urllib.request.urlopen, "assert_called") or hasattr(urllib.request.urlopen, "mock_calls"):
         return urllib.request.urlopen(req, timeout=timeout)
-    opener = urllib.request.build_opener(StrictSameOriginRedirectHandler())
+
+    _hostname, pinned_ip = _resolve_pinned_ip(req.full_url, allow_loopback=allow_loopback)
+    handlers: list[Any] = [urllib.request.ProxyHandler({}), StrictSameOriginRedirectHandler()]
+    if pinned_ip:
+        handlers.extend((_PinnedHTTPHandler(pinned_ip), _PinnedHTTPSHandler(pinned_ip)))
+    opener = urllib.request.build_opener(*handlers)
     return opener.open(req, timeout=timeout)
 
 
@@ -257,9 +409,11 @@ def _fetch_discovery_json(
     url: str,
     timeout: float = DEFAULT_DISCOVERY_TIMEOUT_SECONDS,
     max_bytes: int = MAX_METADATA_RESPONSE_SIZE_BYTES,
+    *,
+    allow_loopback: bool = True,
 ) -> tuple[int, dict[str, Any] | None]:
     """Fetch JSON from a discovery endpoint with cross-origin redirect prevention, bounded size, and format validation."""
-    _validate_https_endpoint(url, "discovery endpoint")
+    _validate_https_endpoint(url, "discovery endpoint", allow_loopback=allow_loopback)
     bounded_timeout = min(timeout, MAX_DISCOVERY_TIMEOUT_SECONDS)
 
     req = urllib.request.Request(
@@ -273,7 +427,7 @@ def _fetch_discovery_json(
     )
 
     try:
-        with _open_url(req, timeout=bounded_timeout) as resp:
+        with _open_url(req, timeout=bounded_timeout, allow_loopback=allow_loopback) as resp:
             status = getattr(resp, "status", getattr(resp, "code", 200))
             raw_bytes = resp.read(max_bytes + 1)
             if len(raw_bytes) > max_bytes:
@@ -329,6 +483,7 @@ def discover_mcp_auth_requirements(integration: MCPIntegration) -> MCPAuthRequir
 
     url = url.strip()
     _validate_https_endpoint(url, "MCP endpoint")
+    server_is_loopback = _is_loopback_hostname(urllib.parse.urlparse(url).hostname or "")
 
     probe_req = urllib.request.Request(
         url,
@@ -346,7 +501,7 @@ def discover_mcp_auth_requirements(integration: MCPIntegration) -> MCPAuthRequir
 
     # Step 1: Probe server to identify whether it is protected
     try:
-        with _open_url(probe_req, timeout=15.0):
+        with _open_url(probe_req, timeout=15.0, allow_loopback=server_is_loopback):
             # 200 OK: unauthenticated public MCP server
             return MCPAuthRequirements(required=False)
     except urllib.error.HTTPError as exc:
@@ -398,7 +553,11 @@ def discover_mcp_auth_requirements(integration: MCPIntegration) -> MCPAuthRequir
     parsed_auth = parse_www_authenticate_header(www_auth_header)
     resource_metadata_url = parsed_auth.get("resource_metadata")
     if resource_metadata_url:
-        _validate_https_endpoint(resource_metadata_url, "resource_metadata endpoint")
+        _validate_https_endpoint(
+            resource_metadata_url,
+            "resource_metadata endpoint",
+            allow_loopback=server_is_loopback,
+        )
 
     scope_challenge = parsed_auth.get("scope")
 
@@ -417,7 +576,7 @@ def discover_mcp_auth_requirements(integration: MCPIntegration) -> MCPAuthRequir
     ):
         prm_urls = build_protected_resource_metadata_discovery_urls(resource_metadata_url, url)
         for prm_url in prm_urls:
-            status, prm_data = _fetch_discovery_json(prm_url)
+            status, prm_data = _fetch_discovery_json(prm_url, allow_loopback=server_is_loopback)
             if status == 200 and prm_data is not None:
                 try:
                     prm = ProtectedResourceMetadata.model_validate(prm_data)
@@ -447,7 +606,11 @@ def discover_mcp_auth_requirements(integration: MCPIntegration) -> MCPAuthRequir
 
                 # Select primary authorization server (first in list)
                 primary_as = str(prm.authorization_servers[0])
-                _validate_https_endpoint(primary_as, "authorization server")
+                _validate_https_endpoint(
+                    primary_as,
+                    "authorization server",
+                    allow_loopback=server_is_loopback,
+                )
 
                 discovered_prm = prm
                 selected_auth_server = primary_as
@@ -479,7 +642,11 @@ def discover_mcp_auth_requirements(integration: MCPIntegration) -> MCPAuthRequir
     discovered_oasm: OAuthMetadata | None = None
 
     for as_url in as_discovery_urls:
-        status, as_data = _fetch_discovery_json(as_url, max_bytes=MAX_OAUTH_METADATA_RESPONSE_SIZE_BYTES)
+        status, as_data = _fetch_discovery_json(
+            as_url,
+            max_bytes=MAX_OAUTH_METADATA_RESPONSE_SIZE_BYTES,
+            allow_loopback=server_is_loopback,
+        )
         if status == 200 and as_data is not None:
             try:
                 oasm = OAuthMetadata.model_validate(as_data)
@@ -500,7 +667,11 @@ def discover_mcp_auth_requirements(integration: MCPIntegration) -> MCPAuthRequir
                     f"Malformed authorization server metadata at '{as_url}': missing required 'authorization_endpoint'."
                 )
             auth_ep_str = str(oasm.authorization_endpoint)
-            _validate_https_endpoint(auth_ep_str, "authorization_endpoint")
+            _validate_https_endpoint(
+                auth_ep_str,
+                "authorization_endpoint",
+                allow_loopback=server_is_loopback,
+            )
 
             # Validate token_endpoint
             if not oasm.token_endpoint:
@@ -508,7 +679,11 @@ def discover_mcp_auth_requirements(integration: MCPIntegration) -> MCPAuthRequir
                     f"Malformed authorization server metadata at '{as_url}': missing required 'token_endpoint'."
                 )
             token_ep_str = str(oasm.token_endpoint)
-            _validate_https_endpoint(token_ep_str, "token_endpoint")
+            _validate_https_endpoint(
+                token_ep_str,
+                "token_endpoint",
+                allow_loopback=server_is_loopback,
+            )
 
             # Reject endpoint mix-up: token_endpoint must belong to the authorization server's trust domain
             token_parsed = urllib.parse.urlparse(token_ep_str)
@@ -522,7 +697,11 @@ def discover_mcp_auth_requirements(integration: MCPIntegration) -> MCPAuthRequir
             # Validate registration_endpoint if present
             reg_ep_str = str(oasm.registration_endpoint) if oasm.registration_endpoint else None
             if reg_ep_str:
-                _validate_https_endpoint(reg_ep_str, "registration_endpoint")
+                _validate_https_endpoint(
+                    reg_ep_str,
+                    "registration_endpoint",
+                    allow_loopback=server_is_loopback,
+                )
 
             discovered_oasm = oasm
             break

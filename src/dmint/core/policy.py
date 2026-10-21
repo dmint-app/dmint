@@ -260,8 +260,19 @@ class Rule:
 
     approve = approval_required
 
+    def matches_tool_action(self, request: ToolRequest) -> bool:
+        """Return whether the rule's tool/action selectors cover the request.
+
+        ``*`` is the explicit wildcard for a selector; every other value is an
+        exact, case-sensitive match.  This helper is shared by candidate
+        selection and full rule matching so the two paths cannot diverge.
+        """
+        tool_matches = self.tool == "*" or self.tool == request.tool
+        action_matches = self.action == "*" or self.action == request.action
+        return tool_matches and action_matches
+
     def matches(self, request: ToolRequest) -> bool:
-        if self.tool != request.tool or self.action != request.action:
+        if not self.matches_tool_action(request):
             return False
         if self.agent_id is not None and self.agent_id != request.agent_id:
             return False
@@ -596,7 +607,7 @@ class Policy:
 
         req = urllib.request.Request(
             clean_url,
-            headers={"User-Agent": "dmint/2.0.0 (policy-fetcher)", "Accept": "application/json"},
+            headers={"User-Agent": "dmint/2.0.1 (policy-fetcher)", "Accept": "application/json"},
         )
         try:
             with urllib.request.urlopen(req, timeout=timeout) as resp:
@@ -645,9 +656,7 @@ class Policy:
         candidate_rules = [
             rule
             for rule in self.rules
-            if rule.tool == request.tool
-            and rule.action == request.action
-            and (rule.agent_id is None or rule.agent_id == request.agent_id)
+            if rule.matches_tool_action(request) and (rule.agent_id is None or rule.agent_id == request.agent_id)
         ]
 
         # 2. Validate request resource against the explicit kind of EVERY candidate rule

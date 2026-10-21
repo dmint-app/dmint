@@ -1,144 +1,130 @@
 ---
-title: "Approvals & Lifecycle"
-description: "How human approval assertions are requested, signed via Ed25519, verified, and atomically consumed."
-icon: "stamp"
+title: "Approval Lifecycle and State Machine"
+description: "The 7-state approval lifecycle, Ed25519 digital signatures, atomic single-use consumption, and the retry protocol."
 ---
 
-# Approval Lifecycle & State Machine
+# Approval Lifecycle and State Machine
 
-When an AI agent requests an action governed by an `APPROVAL_REQUIRED` rule, Dmint intercepts the execution and initiates the **Approval Lifecycle**.
+When an AI agent requests an action governed by an `APPROVAL_REQUIRED` policy rule, Dmint intercepts the call, persists a pending record, and halts execution before the tool is invoked.
+
+Dmint does **not** block or sleep in a polling loop waiting for approval. The protected function raises `ApprovalRequiredError` immediately, allowing the host application to notify the operator and proceed with other work.
+
+---
+
+## The 7-State Lifecycle Machine
+
+An approval record transitions through a strictly validated state machine:
 
 ```text
-       ┌───────────┐
-       │  PENDING  │  (Tool request persisted in SQLite)
-       └─────┬─────┘
-             │
-      ┌──────┴──────┐
-      │             │
-      ▼             ▼
-┌───────────┐ ┌───────────┐
-│ APPROVED  │ │ REJECTED  │  (Human reviews in Dashboard)
-└─────┬─────┘ └───────────┘
-      │
-      ▼
-┌───────────┐
-│ CONSUMED  │ (Agent retries with credential; tool executes)
-└───────────┘
+                     ┌───────────┐
+                     │  PENDING  │
+                     └─────┬─────┘
+          ┌────────────────┼────────────────┬────────────────┐
+          │                │                │                │
+          ▼                ▼                ▼                ▼
+    ┌───────────┐    ┌───────────┐    ┌───────────┐    ┌───────────┐
+    │ APPROVED  │    │ REJECTED  │    │ CANCELLED │    │  EXPIRED  │
+    └─────┬─────┘    └───────────┘    └───────────┘    └───────────┘
+          │
+          ├────────────────┬────────────────┐
+          ▼                ▼                ▼
+    ┌───────────┐    ┌───────────┐    ┌────────────────────┐
+    │ CONSUMED  │    │  EXPIRED  │    │ POLICY_INVALIDATED │
+    └───────────┘    └───────────┘    └────────────────────┘
+```
+
+### Complete State Definitions
+
+| State | Trigger | Description | Tool Execution Allowed? |
+|---|---|---|---|
+| `PENDING` | Agent initiates call | Request arguments fingerprinted and written to store. | No |
+| `APPROVED` | Human signs via UI or CLI | Cryptographic Ed25519 signature generated. | Yes (exactly once on retry) |
+| `REJECTED` | Human rejects via UI or CLI | Marked as rejected with optional audit note. | No (fails closed) |
+| `CANCELLED` | Host application or agent cancels | Pending request withdrawn before review. | No |
+| `EXPIRED` | System clock > `expires_at` | Approval lifetime elapsed (default TTL: 5 minutes). | No (`DMT_APPROVAL_EXPIRED`) |
+| `POLICY_INVALIDATED`| `policy.json` modified | Policy digest changed, invalidating unconsumed approvals. | No (`DMT_APPROVAL_POLICY_INVALID`) |
+| `CONSUMED` | Host retries approved request | Atomically marked consumed as tool executes. | No (subsequent retries fail) |
+
+---
+
+## The End-to-End Retry Protocol
+
+Dmint enforces non-blocking, asynchronous retry semantics:
+
+```text
+1. Agent Calls Tool ──► Dmint halts call ──► Returns DMT_APPROVAL_REQUIRED (with req_id, apr_id)
+                                                    │
+2. Reviewer Inspects Request                        ▼
+   (Dashboard / CLI) ──────► dmint approve <apr_id> ──► Signs Ed25519 assertion (Executes NOTHING)
+                                                    │
+3. Host Retries Call ──────► Dmint Verifier         ▼
+                             ├── Checks Ed25519 Signature
+                             ├── Verifies Exact Argument Fingerprint
+                             ├── Checks TTL & Policy Digest
+                             └── Atomically transitions state: APPROVED ──► CONSUMED
+                                                    │
+4. Protected Tool ◄─────────────────────────────────┘
+   Executes ONCE
 ```
 
 ---
 
-## The 5 Approval States
+## Cryptographic Assertion Format
 
-1. **`PENDING`**: The agent has initiated the call. Dmint stopped execution before calling downstream logic and stored the exact request envelope in Core SQLite.
-2. **`APPROVED`**: An authorized authority (such as a human in `dmint dashboard` or an administrative script) inspected the payload and generated an Ed25519 signature.
-3. **`REJECTED`**: The reviewer explicitly denied the request. Any subsequent retry with this request ID will fail closed.
-4. **`CONSUMED`**: The approved assertion was submitted, verified, and used to execute the underlying tool. The assertion is now permanently invalidated and cannot be replayed.
-5. **`EXPIRED`**: The assertion exceeded its configured time-to-live (`expires_at`) before being executed.
-
----
-
-## The Approval Assertion
-
-When a human clicks **Approve** in the dashboard, Dmint's `LocalApprovalAuthority` issues a signed cryptographic assertion:
+When approved, `LocalApprovalAuthority` generates an Ed25519 digital signature over the canonical assertion envelope:
 
 ```json title="Approval Assertion Envelope"
 {
   "algorithm": "Ed25519",
-  "credential_version": "dmint/approval-assertion/v1",
+  "credential_version": "dmint/approval-assertion/v2",
   "payload": {
-    "approval_id": "apr_01j7v0q9...",
-    "approver_authority_id": "auth_01j7v0p8...",
-    "approver_kind": "local",
-    "approver_subject_id": "dashboard-human",
-    "assertion_id": "ast_01j7v0r7...",
+    "approval_id": "apr_01j7v0q9k3...",
+    "approver_id": "alice@company.com",
+    "approver_kind": "HUMAN",
     "audience": "dmint/dashboard/v1",
-    "expires_at": "2026-09-28T12:05:00+00:00",
-    "issued_at": "2026-09-28T12:00:00+00:00",
-    "issuer": "dmint-dashboard",
-    "policy_digest": "4a7d1ed414474e4033ac29ccb8653d9b4a7d1ed414474e4033ac29ccb8653d9b",
-    "policy_evaluated_at": "2026-09-28T12:00:00+00:00",
-    "policy_version_id": "prod-v1",
-    "request_fingerprint": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "request_id": "req_01j7v0p6..."
+    "created_at": "2026-10-16T01:00:00Z",
+    "deployment_epoch": "prod-2026",
+    "expires_at": "2026-10-16T01:05:00Z",
+    "issuer": "dmint-authority",
+    "nonce": "n_4x8L0mK...",
+    "policy_digest": "sha256:a1b2c3d4...",
+    "request_fingerprint": "3b1a8f9024c...",
+    "request_id": "req_8v7G9q...",
+    "schema_version": "dmint/approval-record/v2"
   },
-  "signature": "base64_signature..."
+  "signature": "base64:3f9a..."
 }
 ```
 
-### Critical Security Fields
-- **`request_fingerprint`**: Ensures the approval is valid *only* for the exact arguments that the human saw on screen.
-- **`policy_digest`**: Contains the SHA-256 digest of `policy.json` at the time of approval. If someone alters the policy file before the agent executes, the approval is automatically invalidated.
-- **`signature`**: Cryptographic Ed25519 signature over the canonical assertion payload. Cannot be forged.
+### Security Invariants in the Assertion
+- **`request_fingerprint`**: Binds the signature to the exact RFC 8785 canonical arguments.
+- **`policy_digest`**: Binds the signature to the active policy epoch.
+- **`deployment_epoch`**: Prevents cross-cluster or rollback approval replay.
+- **`expires_at`**: Caps validity to a short window (default 5 minutes).
 
 ---
 
-## Atomic Single-Use Consumption
+## Single-Use Replay Protection
 
-To prevent **Replay Attacks** (where an attacker or runaway agent captures an approved credential and uses it multiple times), Dmint enforces atomic consumption:
+Approvals are single-use tokens. Once executed, the record is permanently marked `CONSUMED`:
 
-```python
-# During tool retry, dmint.retry verifies signature and marks record CONSUMED in SQLite:
-result = dmint.retry(
-    update_record,
-    "users",
-    42,
-    "admin",
-    approval_credential=assertion,
-)
-```
-
-Inside Core's SQLite store, this runs inside an atomic transaction:
-```sql
-UPDATE approval_records
-SET state = 'CONSUMED', consumed_at = ?
-WHERE approval_id = ? AND state = 'APPROVED';
-```
-
-```text
-ApprovalConsumedError: DMT_APPROVAL_CONSUMED
-```
-
-<Warning>
-**Cryptographic Integrity Checksum (`record_checksum`)**:
-
-Every row in `approval_records` is protected by a deterministic SHA-256 HMAC `record_checksum` computed across all stored columns.
-
-**Do NOT perform direct SQL updates** (e.g. `UPDATE approval_records SET state = 'CONSUMED'`). Direct database mutations fail integrity validation on the next read, raising `CorruptApprovalRecordError: stored approval integrity check failed`.
-
-All state transitions must be executed programmatically through Dmint APIs:
-- Via `dmint.retry(...)` (recommended for application and agent runtimes)
-- Or via `store.consume_approved(...)` (for custom orchestrators and frameworks)
-</Warning>
+### Concurrency Guarantees
+- **PostgreSQL**: Dmint uses `SELECT ... FOR UPDATE` row-level locks inside a serialized transaction. If 10 concurrent workers receive the same approved assertion and retry simultaneously, exactly one worker acquires the row lock, marks it `CONSUMED`, and runs the tool. The other 9 workers fail closed with `DMT_APPROVAL_CONCURRENT_CONSUME` or `DMT_APPROVAL_CONSUMED`.
+- **SQLite**: Dmint uses immediate transactions with `PRAGMA busy_timeout = 5000` and thread-safe connection pooling to guarantee atomic serialization.
 
 ---
 
-## Pluggable Storage: SQLite & PostgreSQL
+## Row-Level Integrity Protection (HMAC)
 
-Dmint supports pluggable approval storage through the `ApprovalStore` interface implemented with SQLAlchemy Core.
+To detect out-of-band database tampering (e.g., an unauthorized user editing SQLite with a hex editor or direct SQL to flip `PENDING` to `APPROVED`), every record in the approval store includes an HMAC-SHA256 signature:
+`Domain: b"dmint/approval-record-integrity/v2\x00"`
 
-### Production: Postgres
-
-In high-concurrency or multi-instance deployments, approvals can be persisted in PostgreSQL by setting the `DMINT_DATABASE_URL` environment variable:
-
-```bash
-export DMINT_DATABASE_URL="postgresql://user:password@pg-host:5432/dmint_db"
-```
-
-PostgreSQL storage enforces exact parity with SQLite:
-- **Row-level locking (`SELECT ... FOR UPDATE`)**: Concurrent retry requests are serialized at the database row level, guaranteeing that exactly 1 worker consumes the approval while all other racing workers receive `DMT_APPROVAL_CONSUMED` or `DMT_APPROVAL_CONCURRENT_CONSUME`.
-- **Fail-Closed Startup**: If `DMINT_DATABASE_URL` is set to an unreachable host, invalid credentials, or malformed URL, Dmint raises `ApprovalStoreConfigurationError` immediately at startup and refuses to start. Dmint will **never** silently fall back to an ephemeral local SQLite file when configured for production.
-- **Local / Dev Default**: When `DMINT_DATABASE_URL` is unset, Dmint defaults to local SQLite file storage with zero external dependencies.
+If any database row has been altered without knowledge of the 0600-protected integrity key, Dmint refuses to load or evaluate the row, failing closed with `DMT_APPROVAL_CORRUPT`.
 
 ---
 
 ## Next Steps
 
-<CardGroup cols={2}>
-  <Card title="Human Approvals Guide" icon="window-maximize" href="/guides/human-approvals">
-    Learn how to launch and configure the local web approval dashboard.
-  </Card>
-  <Card title="Security Invariants" icon="shield" href="/architecture/security-invariants">
-    Review the formal proof and test matrix behind single-use assertions.
-  </Card>
-</CardGroup>
+- **[Human Approvals Guide](/guides/human-approvals)**: Step-by-step instructions for reviewing and approving via Dashboard and CLI.
+- **[Deployment Model](/operations/deployment-model)**: Process boundaries, user isolation, and key storage permissions.
+- **[Error Reference](/reference/errors)**: Meaning and remediation for all `DMT_APPROVAL_*` errors.

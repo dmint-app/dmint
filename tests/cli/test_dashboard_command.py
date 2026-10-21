@@ -62,6 +62,34 @@ class DashboardCommandTests(unittest.TestCase):
         self.assertTrue("dmint dashboard" in error_output or "dmint-dashboard" in error_output)
         self.assertIn("pip install", error_output)
 
+    def test_main_dashboard_forwards_non_int_system_exit_message(self) -> None:
+        """A non-int SystemExit payload (install hint) must be printed, not swallowed (SRC-17)."""
+        import dmint.dashboard as dashboard_pkg
+
+        def _exit_with_install_hint(*args, **kwargs) -> None:
+            # Mirrors dmint/dashboard/__main__.py: sys.exit("<install hint>") when fastapi is absent.
+            sys.exit("Install dashboard dependencies with: pip install 'dmint[dashboard]'")
+
+        stderr_buf = io.StringIO()
+        with (
+            patch.object(dashboard_pkg, "main", side_effect=_exit_with_install_hint),
+            patch("sys.stderr", stderr_buf),
+        ):
+            code = main_dashboard(["--db-path", "/tmp/nonexistent.db"])
+
+        self.assertEqual(code, 1)
+        self.assertIn("pip install", stderr_buf.getvalue())
+
+    def test_main_dashboard_preserves_int_and_none_system_exit_codes(self) -> None:
+        """Integer and None SystemExit codes keep their documented semantics (SRC-17)."""
+        import dmint.dashboard as dashboard_pkg
+
+        with patch.object(dashboard_pkg, "main", side_effect=SystemExit(2)):
+            self.assertEqual(main_dashboard([]), 2)
+
+        with patch.object(dashboard_pkg, "main", side_effect=SystemExit(None)):
+            self.assertEqual(main_dashboard([]), 0)
+
     def test_dashboard_live_subprocess_health_and_api(self) -> None:
         """Launch 'dmint dashboard' as real subprocess and query /health and /api/dashboard."""
         import urllib.request

@@ -6,7 +6,9 @@ icon: "network-wired"
 
 # MCP Protection Schema Specification
 
-The `mcp_protection.json` file configures how the `dmint-mcp` gateway connects to downstream servers, binds MCP tools to Dmint capabilities, and manages protocol routing.
+`mcp_protection.json` defines the policy, approval storage, trusted issuers, and downstream MCP integrations used by `dmint-mcp`.
+
+The file is parsed strictly: unknown duplicates are rejected, credentials must not be embedded, relative paths resolve against the config file’s directory, and an invalid config exits before the gateway starts.
 
 ---
 
@@ -18,6 +20,18 @@ The `mcp_protection.json` file configures how the `dmint-mcp` gateway connects t
   "approval_db": "./approvals.sqlite3",
   "approval_ttl": 300,
   "disclosure_mode": "dog",
+  "agent_id": "mcp-agent",
+  "context": {
+    "environment": "production",
+    "tenant": "acme"
+  },
+  "trusted_issuers": [
+    {
+      "issuer_id": "dmint-authority",
+      "public_key_hex": "PASTE_64_CHARACTER_PUBLIC_KEY_HEX"
+    }
+  ],
+  "approval_audience": "dmint/dashboard/v1",
   "integrations": [
     {
       "integration_id": "postgres",
@@ -30,24 +44,26 @@ The `mcp_protection.json` file configures how the `dmint-mcp` gateway connects t
         "query": {
           "tool_name": "query",
           "capability": "postgres.query",
-          "discovery": "exposed"
+          "discovery": "exposed",
+          "resource_key": "table_name"
         }
       }
     },
     {
-      "integration_id": "cloud_service",
-      "transport": "streamable-http",
+      "integration_id": "metrics",
+      "transport": "streamable_http",
       "connection": {
-        "url": "https://api.internal.company.com/mcp",
+        "url": "https://mcp.example.com/mcp",
         "headers": {
-          "Authorization": "Bearer ${CLOUD_MCP_TOKEN}"
-        }
+          "Authorization": "$CLOUD_MCP_TOKEN"
+        },
+        "timeout": 30
       },
       "tool_bindings": {
         "get_metrics": {
           "tool_name": "get_metrics",
           "capability": "cloud.get_metrics",
-          "discovery": "exposed"
+          "discovery": "hidden"
         }
       }
     }
@@ -55,48 +71,93 @@ The `mcp_protection.json` file configures how the `dmint-mcp` gateway connects t
 }
 ```
 
+`transport` accepts `stdio`, `streamable-http`, or `streamable_http` (case-insensitive, hyphen/underscore equivalent).
+
 ---
 
 ## Top-Level Fields
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `policy_file` | string | **Yes\*** | Relative or absolute path to the compiled `policy.json`. (\*Either `policy_file` or embedded `policy` is required). |
-| `policy` | object | **Yes\*** | Direct embedded policy dictionary containing `{"rules": [...]}`. |
-| `integrations` | array | **Yes** | Non-empty array of downstream MCP server integration configurations. |
-| `approval_db` | string | No | Path to SQLite database used for persisting approval-required requests (e.g. `./approvals.sqlite3`). If `DMINT_DATABASE_URL` is set, PostgreSQL is used automatically. |
-| `approval_ttl` | number | No | Approval validity time-to-live in seconds (e.g. `300` for 5 minutes). Required for persistence. |
-| `disclosure_mode` | string | No | Error disclosure level: `"dog"` (standard structured diagnostics, default), `"cat"` (opaque workflow IDs), or `"god"` (fail-closed 403 access denied). |
-| `agent_id` | string | No | Authenticated identity of the agent consuming the gateway (default: `"mcp-agent"`). |
-| `context` | object | No | Key-value dictionary of trusted environmental context passed into policy evaluations. |
-| `server_name` | string | No | Server identifier name exposed in MCP protocol handshakes (default: `"dmint-mcp-gateway"`). |
+| `policy_file` | string | One of policy/policy_file | Relative or absolute path to `policy.json`, or an `https://` URL. Remote URLs require `expected_policy_digest`. |
+| `policy` | object | One of policy/policy_file | Embedded policy object containing `rules`. Cannot be combined with `policy_file`. |
+| `integrations` | array | **Yes** | Non-empty array (maximum 50) of downstream MCP integrations. |
+| `approval_db` | string | No | SQLite path for pending approvals. `approval_store` is an accepted alias. Relative paths resolve against the config directory. If unset and `DMINT_DATABASE_URL` is set, the gateway uses the configured database. |
+| `approval_ttl` | number | No | Approval TTL in seconds; must be positive. Required for approval persistence/retry. |
+| `disclosure_mode` | string | No | `dog` (default; structured approval IDs/fingerprints), `cat` (structured code without internal fingerprints), or `god` (minimal opaque denial). |
+| `agent_id` | string | No | Principal for every request (default `mcp-agent`). |
+| `context` | object | No | Trusted context values available to policy conditions. Do not populate from model output. |
+| `server_name` | string | No | Agent-facing MCP server name (default `dmint-mcp-gateway`). |
+| `trusted_issuers` | array | No | Public issuers accepted for approval assertions. Required to process `APPROVAL_REQUIRED` retries. |
+| `approval_audience` | string | No | Expected assertion audience (default `dmint/dashboard/v1`). Must match the issuer’s audience. |
+| `expected_policy_digest` | string | No | Expected SHA-256 policy digest. Also settable through `--expected-policy-digest` or `DMINT_EXPECTED_POLICY_DIGEST`. |
+| `timeout` | number | No | Default operation timeout at the top level, overridable per integration or connection. |
+
+### `trusted_issuers` entries
+
+```json
+"trusted_issuers": [
+  {
+    "issuer_id": "dmint-authority",
+    "public_key_hex": "64-lowercase-hex-characters"
+  }
+]
+```
+
+Only **public** keys belong here. The gateway has no private key and cannot mint approvals. Duplicate issuer IDs, non-hex values, or wrong lengths are rejected.
 
 ---
 
 ## Integration Object Fields
 
-Each element in the `integrations` array defines one downstream server connection:
-
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `integration_id` | string | **Yes** | Unique alphanumeric identifier for this server (supports letters, numbers, `-`, and `_`). |
-| `transport` | string | **Yes** | Transport protocol: `"stdio"` (subprocess) or `"streamable-http"` (remote HTTP/SSE endpoint). |
-| `connection` | object | No | Connection settings container (`command`/`args` for stdio, or `url`/`headers` for HTTP). |
-| `command` | string | stdio | Executable command or launcher (e.g. `"npx"`, `"uvx"`, or interpreter path). Can be placed in `connection` or top-level of integration. |
-| `args` | array | No | Command-line arguments array passed to the executable. |
-| `env` | object | No | Subprocess environment variable overrides. |
-| `cwd` | string | No | Working directory for the spawned subprocess. |
-| `url` | string | HTTP | Remote MCP endpoint URL (must use HTTPS or loopback HTTP). |
-| `headers` | object | No | Request headers dictionary (supports `${ENV_VAR}` expansion). |
-| `tool_bindings` | object/array | **Yes** | Mapping of exposed MCP tools to canonical Dmint capabilities. |
-| `timeout` | number | No | Default operation timeout in seconds (default: `30.0`). |
-| `connect_timeout` | number | No | Subprocess handshake or HTTP connection timeout in seconds. |
+| `integration_id` | string | **Yes** | Unique ID matching `[A-Za-z0-9_-]+`. |
+| `transport` | string | No | `stdio` (default) or `streamable_http` / `streamable-http`. |
+| `connection` | object | **Yes** for stdio; optional for HTTP | Connection settings. **Command/args/env/cwd and url/headers must be nested here**, not at the integration top level. |
+| `tool_bindings` | object or array | **Yes** | At least one mapping from downstream tool to capability. |
+| `timeout` | number | No | Operation timeout; can be placed at integration, connection, or top level (connection wins). |
+| `connect_timeout` | number | No | Connection/handshake timeout. |
+| `call_timeout` | number | No | Per-tool-call timeout. |
+| `list_timeout` | number | No | `tools/list` timeout. |
+
+Timeout values must be positive numbers. The effective precedence is `connection` → `integration` → top level for `timeout`; the other timeouts are connection- or integration-level.
+
+### `stdio` connection
+
+```json
+"connection": {
+  "command": "npx",
+  "args": ["-y", "@modelcontextprotocol/server-postgres", "postgresql://localhost/mydb"],
+  "env": {"NODE_ENV": "production"},
+  "cwd": "/srv/mcp",
+  "timeout": 30
+}
+```
+
+`command` is required. `args` must be an array of strings. `env` is a string-to-string object; `cwd` is optional. HTTP-only fields are rejected for stdio.
+
+### `streamable_http` connection
+
+```json
+"connection": {
+  "url": "https://mcp.example.com/mcp",
+  "headers": {
+    "Authorization": "$CLOUD_MCP_TOKEN"
+  },
+  "connect_timeout": 10,
+  "call_timeout": 30,
+  "list_timeout": 15
+}
+```
+
+`url` is required. Non-loopback URLs must use HTTPS and pass the gateway’s SSRF/DNS-pinning checks. Header values beginning with `$` are resolved from the environment at connect time (`$VAR` or `${VAR}`); literal secrets are rejected by config validation. Do not put tokens directly in the file.
 
 ---
 
 ## Tool Binding Specification
 
-Tool bindings link downstream MCP tools to canonical Dmint capabilities (`<tool>.<action>`). They are specified under `tool_bindings` as a dictionary keyed by the tool name:
+Bindings map the downstream tool name to a canonical Dmint capability evaluated by policy.
 
 ```json
 "tool_bindings": {
@@ -111,12 +172,12 @@ Tool bindings link downstream MCP tools to canonical Dmint capabilities (`<tool>
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `tool_name` | string | **Yes** | Raw tool name as published by the downstream server. |
-| `capability` | string | **Yes** | Canonical Dmint capability (`<tool>.<action>`) evaluated against policy rules (e.g. `"postgres.query"`). |
-| `discovery` | string | No | `"exposed"` (default, visible in `tools/list`) or `"hidden"` (hidden from discovery, but evaluated on invocation). |
-| `resource_key` | string | No | Argument parameter name used to extract the targeted resource for granular policy matching. |
+| `tool_name` | string | No | Downstream tool name. Defaults to the binding key. |
+| `capability` | string | **Yes** | Dmint capability (`<tool>.<action>`) evaluated by the policy. |
+| `discovery` | string | No | `exposed` (default; visible in `tools/list`) or `hidden` (not advertised, but still enforced on invocation). Discovery is not an authorization boundary. |
+| `resource_key` | string | No | Argument name used as the resource for resource-aware policy matching. |
 
-Alternatively, tool bindings may be specified concisely as string mappings:
+A concise string form is also accepted:
 
 ```json
 "tool_bindings": {
@@ -124,3 +185,33 @@ Alternatively, tool bindings may be specified concisely as string mappings:
   "exec": "postgres.exec"
 }
 ```
+
+A list form is accepted for discovery-driven tooling:
+
+```json
+"tool_bindings": [
+  {"tool_name": "query", "capability": "postgres.query"},
+  {"tool_name": "exec", "capability": "postgres.exec", "discovery": "hidden"}
+]
+```
+
+Duplicate tool names within one integration are rejected.
+
+---
+
+## Policy Interaction
+
+Each call is evaluated as the capability split into tool/action (for example `postgres.query` → `postgres` / `query`), with the mapped `resource_key` value as the resource when present. Unmatched requests are denied by default. Rule precedence is **DENY > APPROVAL_REQUIRED > ALLOW**, independent of JSON order. Wildcards are whole-field only: `tool: "*"` and `action: "*"`.
+
+For a global rule use `resource: "*"`; omitting `resource` matches only calls with no resource.
+
+---
+
+## Validation Checklist
+
+1. `dmint verify-policy policy.json`
+2. Validate the config by starting `dmint-mcp -c mcp_protection.json` in a staging environment; invalid config exits with `DMT_MCP_CONFIG_ERROR`.
+3. Pin the policy digest (`--expected-policy-digest`) for production.
+4. Keep private keys out of this file; only `public_key_hex` belongs in `trusted_issuers`.
+5. Use `$ENV_VAR` placeholders for HTTP headers.
+6. Re-pin tool schemas deliberately after reviewing a downstream schema change (`DMT_MCP_SCHEMA_MISMATCH`).

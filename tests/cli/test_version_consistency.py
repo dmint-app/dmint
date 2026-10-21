@@ -47,19 +47,19 @@ class TestVersionConsistency(unittest.TestCase):
         )
 
     def test_all_monorepo_subsystems_version_match(self) -> None:
-        """All submodules (root dmint, core, mcp, cli, dashboard, skills) must export 2.0.0."""
+        """All submodules (root dmint, core, mcp, cli, dashboard, skills) must export 2.0.1."""
         import dmint
         import dmint.core
         import dmint.mcp
         import dmint.dashboard
         import dmint.skills
 
-        self.assertEqual(dmint.__version__, "2.0.0")
-        self.assertEqual(dmint.core.__version__, "2.0.0")
-        self.assertEqual(dmint.mcp.__version__, "2.0.0")
-        self.assertEqual(dmint.cli.__version__, "2.0.0")
-        self.assertEqual(dmint.dashboard.__version__, "2.0.0")
-        self.assertEqual(dmint.skills.__version__, "2.0.0")
+        self.assertEqual(dmint.__version__, "2.0.1")
+        self.assertEqual(dmint.core.__version__, "2.0.1")
+        self.assertEqual(dmint.mcp.__version__, "2.0.1")
+        self.assertEqual(dmint.cli.__version__, "2.0.1")
+        self.assertEqual(dmint.dashboard.__version__, "2.0.1")
+        self.assertEqual(dmint.skills.__version__, "2.0.1")
 
     def test_cli_version_flag_outputs(self) -> None:
         """dmint --version, -V, -v, and version all output 'dmint <version>'."""
@@ -215,7 +215,7 @@ class TestVersionConsistency(unittest.TestCase):
         with patch.dict(os.environ, {"DMINT_USER_AGENT": "custom-agent/4.2"}):
             self.assertEqual(get_ua(), "custom-agent/4.2")
             # Component-specific user agents still include component
-            self.assertEqual(get_ua("mcp"), "dmint-mcp/2.0.0")
+            self.assertEqual(get_ua("mcp"), "dmint-mcp/2.0.1")
 
 
 if __name__ == "__main__":

@@ -149,11 +149,16 @@ class DownstreamMCPClient:
         target_hostname = getattr(validated_url, "hostname", None)
         transport = None
         if pinned_ip and target_hostname and not is_loopback_host(target_hostname):
-            transport = create_pinned_async_transport(
-                target_host=target_hostname,
-                pinned_ip=pinned_ip,
-                verify=True,
-            )
+            try:
+                transport = create_pinned_async_transport(
+                    target_host=target_hostname,
+                    pinned_ip=pinned_ip,
+                    verify=True,
+                )
+            except Exception as exc:
+                raise MCPConnectionError(
+                    "secure DNS pinning transport could not be installed for downstream MCP endpoint"
+                ) from exc
 
         http_client = httpx2.AsyncClient(
             transport=transport,

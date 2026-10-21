@@ -49,29 +49,34 @@
         "group": "Get Started",
         "pages": [
           "index",
-          "introduction",
           "quickstart"
+        ]
+      },
+      {
+        "group": "Tutorials",
+        "pages": [
+          "tutorials/protect-a-tool"
         ]
       },
       {
         "group": "Core Concepts",
         "pages": [
-          "concepts/overview",
-          "concepts/capabilities",
+          "concepts/how-dmint-works",
+          "concepts/policies",
           "concepts/request-binding",
           "concepts/approvals",
-          "concepts/policies"
+          "concepts/resources"
         ]
       },
       {
-        "group": "Guides",
+        "group": "How-To Guides",
         "pages": [
-          "guides/protecting-mcp",
-          "guides/authoring-policies",
-          "guides/agent-skills",
           "guides/python-integration",
+          "guides/protecting-mcp",
           "guides/human-approvals",
-          "guides/notifications"
+          "guides/notifications",
+          "guides/authoring-policies",
+          "guides/agent-skills"
         ]
       },
       {
@@ -84,20 +89,28 @@
         ]
       },
       {
-        "group": "Architecture & Security",
+        "group": "Operations & Security",
         "pages": [
-          "architecture/deterministic-enforcement",
-          "architecture/security-invariants",
-          "architecture/threat-model"
+          "operations/deployment-model",
+          "operations/security-model",
+          "operations/known-limitations"
         ]
       },
       {
         "group": "Reference",
         "pages": [
           "reference/cli",
+          "reference/core-api",
           "reference/policy-schema",
           "reference/mcp-protection-schema",
-          "reference/core-api"
+          "reference/errors"
+        ]
+      },
+      {
+        "group": "Help & FAQ",
+        "pages": [
+          "troubleshooting",
+          "faq"
         ]
       }
     ]

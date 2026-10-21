@@ -15,7 +15,12 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from dmint.cli.__main__ import main
 from dmint.cli.keys import main_export_public_key, main_init_keys
-from dmint.core.keys import load_private_key_from_file, public_key_hex, write_private_key_atomic
+from dmint.core.keys import (
+    load_integrity_key_from_file,
+    load_private_key_from_file,
+    public_key_hex,
+    write_private_key_atomic,
+)
 
 IS_POSIX = platform.system() != "Windows"
 posix_only = pytest.mark.skipif(not IS_POSIX, reason="POSIX-only permission tests")
@@ -67,6 +72,24 @@ class TestInitKeysCLI:
         new_key = load_private_key_from_file(key_file)
         new_hex = public_key_hex(new_key.public_key())
         assert old_hex != new_hex
+
+    def test_init_keys_creates_owner_only_parent_dir_despite_umask(self, tmp_path: Path) -> None:
+        """Newly created key directories must be loadable even under a group-writable umask (002)."""
+        key_dir = tmp_path / "fresh" / "dmint"
+        previous_umask = os.umask(0o002)
+        try:
+            with patch("sys.stderr", io.StringIO()):
+                ret = main_init_keys(["--key-file", str(key_dir / "signing.key")])
+        finally:
+            os.umask(previous_umask)
+
+        assert ret == 0
+        if IS_POSIX:
+            assert stat.S_IMODE(key_dir.stat().st_mode) == 0o700
+
+        # The persisted integrity key must be loadable by the default loader path.
+        loaded = load_integrity_key_from_file(key_dir / "integrity.key")
+        assert len(loaded) == 32
 
 
 class TestExportPublicKeyCLI:

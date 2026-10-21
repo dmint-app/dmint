@@ -333,8 +333,10 @@ def run_create_policy_wizard(
 
     shape_retry_attempts = 0
     policy_error_attempts = 0
+    clarification_rounds = 0
     max_shape_retries = 3
     max_policy_error_retries = 4
+    max_clarification_rounds = 5
 
     while True:
         try:
@@ -366,6 +368,12 @@ def run_create_policy_wizard(
         msg_type = response_data.get("type")
 
         if msg_type == "clarification_needed":
+            clarification_rounds += 1
+            if clarification_rounds >= max_clarification_rounds:
+                raise JSONExtractionError(
+                    f"Model requested clarification {clarification_rounds} times without producing a policy_ready "
+                    "envelope; refusing to continue (fail closed)."
+                )
             questions = response_data.get("questions")
             if not isinstance(questions, list) or not questions:
                 questions = ["Could you clarify the resource scoping and trusted context for these rules?"]

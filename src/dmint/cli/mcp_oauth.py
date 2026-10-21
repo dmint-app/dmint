@@ -68,7 +68,12 @@ from dmint.cli.limits import (
     MAX_DISCOVERY_TIMEOUT_SECONDS,
     MAX_OAUTH_METADATA_RESPONSE_SIZE_BYTES,
 )
-from dmint.cli.mcp_auth import MCPAuthRequirements
+from dmint.cli.mcp_auth import (
+    MCPAuthRequirements,
+    _is_loopback_hostname,
+    _open_url,
+    _validate_https_endpoint,
+)
 from dmint.cli.mcp_connections import MCPIntegration, redact_secrets, redact_text
 from dmint.cli.mcp_credentials import CredentialStore, TokenRecord
 from dmint.cli.version import __version__, get_user_agent
@@ -252,12 +257,6 @@ class IsolatedCallbackHandler(http.server.BaseHTTPRequestHandler):
         callback_state.error_description = error_desc
         callback_state.iss = iss
 
-        # Sync to legacy OAuthCallbackHandler for test compatibility
-        OAuthCallbackHandler.callback_code = code
-        OAuthCallbackHandler.callback_state = state
-        OAuthCallbackHandler.callback_error = error
-        OAuthCallbackHandler.callback_iss = iss
-
         # Perform early validation for immediate HTTP response feedback
         if error:
             _send_response(
@@ -298,7 +297,6 @@ class IsolatedCallbackHandler(http.server.BaseHTTPRequestHandler):
             pass
 
         callback_state.received_event.set()
-        OAuthCallbackHandler.received_event.set()
 
 
 class OAuthCallbackServer(http.server.HTTPServer):
@@ -327,7 +325,12 @@ class OAuthCallbackHandler(IsolatedCallbackHandler):
     received_event: threading.Event = threading.Event()
 
 
-def register_dynamic_client(registration_endpoint: str, redirect_uri: str) -> str:
+def register_dynamic_client(
+    registration_endpoint: str,
+    redirect_uri: str,
+    *,
+    allow_loopback: bool = True,
+) -> str:
     """Perform RFC 7591 Dynamic Client Registration to obtain a client_id."""
     payload = {
         "client_name": "Dmint CLI",
@@ -344,7 +347,11 @@ def register_dynamic_client(registration_endpoint: str, redirect_uri: str) -> st
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, timeout=min(15.0, MAX_DISCOVERY_TIMEOUT_SECONDS)) as resp:
+        with _open_url(
+            req,
+            timeout=min(15.0, MAX_DISCOVERY_TIMEOUT_SECONDS),
+            allow_loopback=allow_loopback,
+        ) as resp:
             raw_bytes = resp.read(MAX_OAUTH_METADATA_RESPONSE_SIZE_BYTES + 1)
             if len(raw_bytes) > MAX_OAUTH_METADATA_RESPONSE_SIZE_BYTES:
                 raise CLIError(
@@ -510,6 +517,26 @@ def perform_oauth_flow(
     if not auth_reqs.authorization_endpoint or not auth_reqs.token_endpoint:
         raise CLIError(f"Missing authorization or token endpoints for '{integration.integration_id}'.")
 
+    integration_url = integration.connection.get("url", "")
+    server_hostname = urllib.parse.urlparse(integration_url).hostname or ""
+    allow_loopback = _is_loopback_hostname(server_hostname)
+    _validate_https_endpoint(
+        auth_reqs.authorization_endpoint,
+        "authorization_endpoint",
+        allow_loopback=allow_loopback,
+    )
+    _validate_https_endpoint(
+        auth_reqs.token_endpoint,
+        "token_endpoint",
+        allow_loopback=allow_loopback,
+    )
+    if auth_reqs.registration_endpoint:
+        _validate_https_endpoint(
+            auth_reqs.registration_endpoint,
+            "registration_endpoint",
+            allow_loopback=allow_loopback,
+        )
+
     # Generate PKCE and state parameters
     pkce = PKCEParameters.generate()
     state_token = secrets.token_urlsafe(32)
@@ -533,7 +560,11 @@ def perform_oauth_flow(
         if not effective_client_id:
             if auth_reqs.registration_endpoint:
                 print(f"Registering dynamic OAuth client with '{auth_reqs.registration_endpoint}'...")
-                effective_client_id = register_dynamic_client(auth_reqs.registration_endpoint, redirect_uri)
+                effective_client_id = register_dynamic_client(
+                    auth_reqs.registration_endpoint,
+                    redirect_uri,
+                    allow_loopback=allow_loopback,
+                )
             else:
                 raise CLIError(
                     f"Authentication required for '{integration.integration_id}', but no pre-registered client_id was provided "
@@ -614,7 +645,11 @@ def perform_oauth_flow(
         )
 
         try:
-            with urllib.request.urlopen(token_req, timeout=min(15.0, MAX_DISCOVERY_TIMEOUT_SECONDS)) as t_resp:
+            with _open_url(
+                token_req,
+                timeout=min(15.0, MAX_DISCOVERY_TIMEOUT_SECONDS),
+                allow_loopback=allow_loopback,
+            ) as t_resp:
                 raw_bytes = t_resp.read(MAX_OAUTH_METADATA_RESPONSE_SIZE_BYTES + 1)
                 if len(raw_bytes) > MAX_OAUTH_METADATA_RESPONSE_SIZE_BYTES:
                     raise CLIError(

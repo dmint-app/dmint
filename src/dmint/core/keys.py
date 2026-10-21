@@ -105,6 +105,21 @@ def _check_parent_dir_permissions(parent: Path) -> None:
         )
 
 
+def _ensure_key_parent_dir(path: Path) -> None:
+    """Create the key file parent directory chain with owner-only permissions.
+
+    ``mkdir`` modes are masked by the process umask (e.g. ``002`` yields a
+    group-writable directory), and the key loaders reject group-/world-writable
+    key directories, so freshly created directories are chmodded to ``0700``.
+    Existing directories are left untouched.
+    """
+    parent = path.parent
+    existed = parent.exists()
+    parent.mkdir(parents=True, exist_ok=True)
+    if _POSIX and not existed:
+        parent.chmod(0o700)
+
+
 def check_key_file_permissions(path: Path | str) -> None:
     """Public helper to verify key file and parent directory permissions.
 
@@ -381,8 +396,8 @@ def write_private_key_atomic(
             "signed with the old key will be rejected."
         )
 
-    # Ensure parent directory exists.
-    path.parent.mkdir(parents=True, exist_ok=True)
+    # Ensure parent directory exists with owner-only permissions when created.
+    _ensure_key_parent_dir(path)
 
     # Extract raw 32-byte private key as hex (64 chars).
     raw_bytes = private_key.private_bytes(
@@ -438,7 +453,7 @@ def write_integrity_key_atomic(
     if path.exists() and not force:
         raise KeyExistsError("integrity key file already exists; pass --force to overwrite.")
 
-    path.parent.mkdir(parents=True, exist_ok=True)
+    _ensure_key_parent_dir(path)
     if len(key_bytes) != 32:
         raise ValueError("integrity key must be exactly 32 bytes")
     hex_content = key_bytes.hex() + "\n"

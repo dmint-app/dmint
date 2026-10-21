@@ -28,6 +28,8 @@ from dmint import (
 from dmint.core.authority import LocalApprovalAuthority
 from dmint.approvals import ApprovalRecord
 from dmint.core.storage import ThreadSafeApprovalStore
+from dmint.core.verification import ApprovalAssertion
+from dmint.errors import ApprovalNotFoundError, IllegalApprovalTransitionError
 
 
 # Default human approver identity used in V1 (no authentication).
@@ -131,6 +133,41 @@ class CoreClient:
             approved_by=actor,
             reason=reason or None,
         )
+
+    def approve_with_assertion(
+        self,
+        approval_id: str,
+        *,
+        reason: str | None = None,
+        approved_by: str | None = None,
+    ) -> tuple[ApprovalRecord, ApprovalAssertion]:
+        """Approve a record and return the signed assertion for host retry.
+
+        The returned assertion is bound to the exact stored request and can be
+        handed to the protected host.  It remains single-use: Core consumes it
+        atomically on the first valid retry.
+        """
+        actor = approved_by.strip() if approved_by and approved_by.strip() else self._approver_id
+        approved = self.approve(approval_id, reason=reason, approved_by=actor)
+        assertion = self.issue_assertion(approval_id)
+        return approved, assertion
+
+    def issue_assertion(self, approval_id: str) -> ApprovalAssertion:
+        """Issue a fresh assertion for an APPROVED record (dashboard download).
+
+        The assertion subject is the approver recorded on the approval, not
+        whoever happens to download the artifact.  That keeps audit attribution
+        stable when an operator retrieves a credential after the decision.
+        """
+        record = self._store.get(approval_id)
+        if record is None:
+            raise ApprovalNotFoundError("approval record was not found")
+        if record.state is not ApprovalState.APPROVED:
+            raise IllegalApprovalTransitionError("only an APPROVED record can produce a retry assertion")
+        decision_authority = record.decision_authority
+        if decision_authority is None:
+            raise IllegalApprovalTransitionError("APPROVED record has no recorded human approver")
+        return self._authority.issue_for_human(record, subject_id=decision_authority.subject_id)
 
     def reject(
         self,

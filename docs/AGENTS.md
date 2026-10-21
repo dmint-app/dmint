@@ -42,136 +42,134 @@ All documentation files live inside `docs/` following standard structure:
 
 ```text
 docs/
-├── docs.json                   # Master Mintlify configuration (theme, colors, nav, links)
-├── logo/
-│   ├── light.svg               # Brand mark on dark backgrounds
-│   └── dark.svg                # Brand mark on light backgrounds
+├── docs.json                   # Master site configuration (theme, navigation, layout)
 ├── favicon.svg                 # Browser tab favicon
-├── index.mdx                   # Docs home / landing overview
-├── introduction.mdx            # What is Dmint? Why deterministic control?
-├── quickstart.mdx              # 5-minute hands-on tutorial (Zero to Protected Tool)
+├── logo.svg                    # Brand logo
+├── global.css                  # Global styling overrides
+├── public/                     # Static assets served at domain root
+│   ├── favicon.svg             # Favicon asset
+│   ├── logo.svg                # Brand logo asset
+│   ├── logo-dark.svg           # Dark mode logo asset
+│   ├── llms.txt                # Structured overview & index for AI agents
+│   └── llms-full.txt           # Consolidated single-file docs corpus for AI context
+│
+├── index.mdx                   # 60-second Overview
+├── quickstart.mdx              # 5-minute hands-on walkthrough
+│
+├── tutorials/                  # Learning-oriented guides
+│   └── protect-a-tool.mdx      # Real-world tutorial: conditional approvals for refunds
 │
 ├── concepts/                   # Deep mental models & primitives
-│   ├── overview.mdx            # How Dmint intercepts and decides
-│   ├── capabilities.mdx        # Tool, action, resource, wildcards
+│   ├── how-dmint-works.mdx     # Architecture, sequence flow, and decision engine
+│   ├── policies.mdx            # Policy structure, rule evaluation, fail-closed defaults
 │   ├── request-binding.mdx     # RFC 8785 canonicalization & SHA-256 fingerprinting
-│   ├── approvals.mdx           # Lifecycle: Pending -> Ed25519 Signed -> Single-use Consumed
-│   └── policies.mdx            # Policy structure, rule evaluation, fail-closed defaults
+│   ├── approvals.mdx           # Lifecycle: 7-state machine, Ed25519 assertions, consumption
+│   └── resources.mdx           # Resource engine: path, url, host, id matching & traversal defense
 │
 ├── guides/                     # Task-oriented, step-by-step how-to guides
-│   ├── protecting-mcp.mdx      # Wrapping MCP servers with dmint-mcp gateway
+│   ├── python-integration.mdx  # @engine.protect decorator for def, async def, class/static methods
+│   ├── protecting-mcp.mdx      # Wrapping MCP servers with dmint-mcp gateway & schema pinning
+│   ├── human-approvals.mdx     # Operating dashboard UI, CLI approvals, executing retries
+│   ├── notifications.mdx       # Real-time webhook notifications (Slack, Discord, Teams)
 │   ├── authoring-policies.mdx  # Using dmint create-policy & create-mcp-policy
-│   ├── agent-skills.mdx        # Installing AI agent skills with dmint install-skill
-│   ├── python-integration.mdx  # Direct @dmint.protected decorator in backends
-│   └── human-approvals.mdx     # Launching & using dmint dashboard
+│   └── agent-skills.mdx        # Installing AI agent skills with dmint install-skill
 │
-├── integrations/               # Environment & AI tool copy-paste setup guides
+├── integrations/               # Host environment & AI tool copy-paste setup recipes
 │   ├── cursor.mdx              # .cursor/mcp.json integration
-│   ├── claude-code.mdx         # ~/.claude/ configuration & CLI flags
-│   ├── antigravity.mdx         # Antigravity & Gemini CLI skill integration
-│   └── custom-agents.mdx       # LangChain, CrewAI, AutoGen, custom Python agents
+│   ├── claude-code.mdx         # Claude Code gateway configuration
+│   ├── antigravity.mdx         # Google Antigravity & Gemini CLI skill integration
+│   └── custom-agents.mdx       # LangChain, CrewAI, AutoGen, and custom Python loops
 │
-├── architecture/               # Security specifications & invariants
-│   ├── deterministic-enforcement.mdx # Why probabilistic models cannot enforce policy
-│   ├── security-invariants.mdx       # The 5 non-negotiable security invariants
-│   └── threat-model.mdx              # SSRF, prompt injection, replay, loopback isolation
+├── operations/                 # Security architecture & operations
+│   ├── deployment-model.mdx    # OS user separation, process boundaries, permissions matrix
+│   ├── security-model.mdx      # Attacker capabilities, formal guarantees, test traceability
+│   └── known-limitations.mdx   # Non-goals, database rollbacks, symlink caveats
 │
-└── reference/                  # Complete technical reference manual
-    ├── cli.mdx                 # dmint CLI commands, subcommands, and flags
-    ├── policy-schema.mdx       # policy.json schema and validation constraints
-    ├── mcp-protection-schema.mdx # mcp_protection.json format specification
-    └── core-api.mdx            # Python dmint package classes, methods, and error codes
+├── reference/                  # Complete technical reference manual
+│   ├── cli.mdx                 # Exhaustive CLI reference for dmint, dmint-mcp, dashboard
+│   ├── core-api.mdx            # Python dmint package classes, methods, exceptions
+│   ├── policy-schema.mdx       # policy.json formal JSON schema specification
+│   ├── mcp-protection-schema.mdx # mcp_protection.json format & routing specification
+│   └── errors.mdx              # Comprehensive index of all 32 DMT_* error codes
+│
+├── troubleshooting.mdx         # Symptom -> Cause -> Fix diagnostic index
+└── faq.mdx                     # Candid answers to top architecture & security questions
 ```
 
 ---
 
-## 4. MASTER CONFIGURATION (`docs.json`) STANDARDS
+## 4. MASTER CONFIGURATION (`docs.json`) NAVIGATION
 
-Every configuration option in `docs.json` must adhere to Mintlify's modern schema:
+`docs.json` configures the 8 Diátaxis navigation groups matching the directory structure:
 
 ```json
 {
-  "$schema": "https://mintlify.com/docs.json",
-  "theme": "mint",
-  "name": "Dmint",
-  "colors": {
-    "primary": "#10b981",
-    "light": "#34d399",
-    "dark": "#059669",
-    "background": {
-      "light": "#ffffff",
-      "dark": "#090d11"
-    }
-  },
-  "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg",
-    "href": "https://dmint.app"
-  },
-  "favicon": "/favicon.svg",
-  "topbarLinks": [
-    { "name": "GitHub", "url": "https://github.com/dmint-app" },
-    { "name": "PyPI", "url": "https://pypi.org/project/dmint/" }
-  ],
-  "topbarCtaButton": {
-    "name": "Quickstart",
-    "url": "/quickstart"
-  },
-  "navigation": [
-    {
-      "group": "Get Started",
-      "pages": ["index", "introduction", "quickstart"]
-    },
-    {
-      "group": "Core Concepts",
-      "pages": [
-        "concepts/overview",
-        "concepts/capabilities",
-        "concepts/request-binding",
-        "concepts/approvals",
-        "concepts/policies"
-      ]
-    },
-    {
-      "group": "Guides",
-      "pages": [
-        "guides/protecting-mcp",
-        "guides/authoring-policies",
-        "guides/agent-skills",
-        "guides/python-integration",
-        "guides/human-approvals"
-      ]
-    },
-    {
-      "group": "Integrations",
-      "pages": [
-        "integrations/cursor",
-        "integrations/claude-code",
-        "integrations/antigravity",
-        "integrations/custom-agents"
-      ]
-    },
-    {
-      "group": "Architecture & Security",
-      "pages": [
-        "architecture/deterministic-enforcement",
-        "architecture/security-invariants",
-        "architecture/threat-model"
-      ]
-    },
-    {
-      "group": "Reference",
-      "pages": [
-        "reference/cli",
-        "reference/policy-schema",
-        "reference/mcp-protection-schema",
-        "reference/core-api"
-      ]
-    }
-  ],
-  "footerSocials": {
-    "github": "https://github.com/dmint-app",
-    "twitter": "https://x.com/dmint_app"
+  "navigation": {
+    "groups": [
+      {
+        "group": "Get Started",
+        "pages": ["index", "quickstart"]
+      },
+      {
+        "group": "Tutorials",
+        "pages": ["tutorials/protect-a-tool"]
+      },
+      {
+        "group": "Core Concepts",
+        "pages": [
+          "concepts/how-dmint-works",
+          "concepts/policies",
+          "concepts/request-binding",
+          "concepts/approvals",
+          "concepts/resources"
+        ]
+      },
+      {
+        "group": "How-To Guides",
+        "pages": [
+          "guides/python-integration",
+          "guides/protecting-mcp",
+          "guides/human-approvals",
+          "guides/notifications",
+          "guides/authoring-policies",
+          "guides/agent-skills"
+        ]
+      },
+      {
+        "group": "Integrations",
+        "pages": [
+          "integrations/cursor",
+          "integrations/claude-code",
+          "integrations/antigravity",
+          "integrations/custom-agents"
+        ]
+      },
+      {
+        "group": "Operations & Security",
+        "pages": [
+          "operations/deployment-model",
+          "operations/security-model",
+          "operations/known-limitations"
+        ]
+      },
+      {
+        "group": "Reference",
+        "pages": [
+          "reference/cli",
+          "reference/core-api",
+          "reference/policy-schema",
+          "reference/mcp-protection-schema",
+          "reference/errors"
+        ]
+      },
+      {
+        "group": "Help & FAQ",
+        "pages": [
+          "troubleshooting",
+          "faq"
+        ]
+      }
+    ]
   }
 }
 ```

@@ -20,6 +20,7 @@ from dmint.core.canonicalize import thaw_json
 from dmint.errors import (
     ApprovalConcurrentConsumeError,
     ApprovalExpiredError,
+    ApprovalMalformedError,
     ApprovalNotFoundError,
     ApprovalStoreError,
     CorruptApprovalRecordError,
@@ -28,6 +29,7 @@ from dmint.errors import (
 )
 from dmint.models import NoResource
 
+from .auth import SESSION_HARD_TIMEOUT_SECONDS
 from .core_client import CoreClient
 
 log = logging.getLogger("dmint_dashboard")
@@ -63,6 +65,7 @@ def build_router() -> APIRouter:
         if session:
             ctx.setdefault("csrf_token", session.get("csrf_token", ""))
             ctx.setdefault("current_user", session.get("identity", ""))
+            ctx.setdefault("current_user_source", session.get("identity_source", "self-asserted"))
         return _templates(request).TemplateResponse(
             request=request, name=template, context=ctx, status_code=status_code
         )
@@ -130,7 +133,17 @@ def build_router() -> APIRouter:
         session = getattr(request.state, "session", None)
         if session:
             return RedirectResponse("/", status_code=303)
-        return _render(request, "login.html", {"next": request.query_params.get("next", "")})
+        return _render(
+            request,
+            "login.html",
+            {
+                "next": request.query_params.get("next", ""),
+                "identity_managed": bool(
+                    getattr(request.app.state, "trusted_proxy", False)
+                    and getattr(request.app.state, "trusted_identity_header", None)
+                ),
+            },
+        )
 
     @router.post("/login")
     def login_submit(
@@ -181,14 +194,34 @@ def build_router() -> APIRouter:
         csrf_token = secrets.token_urlsafe(32)
 
         now = time.time()
-        # Use configured approver_id as identity (or user-supplied if specified)
+        # Use a configured trusted-proxy identity when available.  Otherwise
+        # the form value is explicitly a self-asserted audit label, not proof
+        # of human identity.
         default_identity = getattr(request.app.state, "approver_id", "dashboard-approver")
-        clean_identity = identity.strip() or default_identity
+        trusted_header = getattr(request.app.state, "trusted_identity_header", None)
+        if getattr(request.app.state, "trusted_proxy", False) and trusted_header:
+            clean_identity = request.headers.get(trusted_header, "").strip()
+            identity_source = "trusted_proxy"
+            if not clean_identity:
+                return _render(
+                    request,
+                    "login.html",
+                    {
+                        "error": f"Trusted identity header '{trusted_header}' is missing.",
+                        "next": request.query_params.get("next", ""),
+                        "identity_managed": True,
+                    },
+                    status_code=401,
+                )
+        else:
+            clean_identity = identity.strip() or default_identity
+            identity_source = "self-asserted"
         request.app.state.sessions[session_id] = {
             "session_id": session_id,
             "csrf_token": csrf_token,
             "identity": clean_identity,
-            "expires_at": now + (12 * 3600),  # 12-hour hard limit
+            "identity_source": identity_source,
+            "expires_at": now + SESSION_HARD_TIMEOUT_SECONDS,  # 12-hour hard limit
             "last_active": now,  # 30-minute idle limit tracker
         }
 
@@ -385,7 +418,46 @@ def build_router() -> APIRouter:
         display = _record_display(record)
         display["badge"] = _state_badge_class(display["state"])
         display["is_pending"] = record.state is ApprovalState.PENDING
+        display["assertion_available"] = record.state is ApprovalState.APPROVED
         return _render(request, "approval.html", {"record": display})
+
+    # ------------------------------------------------------------------
+    # GET /approvals/{approval_id}/assertion — retry credential handoff
+    # ------------------------------------------------------------------
+
+    @router.get("/approvals/{approval_id}/assertion")
+    def download_assertion(request: Request, approval_id: str) -> Response:
+        session = getattr(request.state, "session", None)
+        if not session:
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        if session.get("identity_source") == "missing_trusted_identity":
+            return JSONResponse(
+                {"error": "trusted_identity_missing", "detail": "Trusted proxy identity is required."},
+                status_code=401,
+            )
+        client = _client(request)
+        try:
+            assertion = client.issue_assertion(approval_id)
+        except ApprovalNotFoundError:
+            return JSONResponse({"error": "approval_not_found"}, status_code=404)
+        except ApprovalExpiredError:
+            return JSONResponse({"error": "approval_expired"}, status_code=409)
+        except IllegalApprovalTransitionError:
+            return JSONResponse(
+                {"error": "assertion_not_available", "detail": "Only APPROVED records can be downloaded."},
+                status_code=409,
+            )
+        except ApprovalStoreError:
+            log.exception("store error issuing assertion for %s", approval_id)
+            return JSONResponse({"error": "assertion_issue_failed"}, status_code=500)
+        return Response(
+            content=assertion.to_bytes(),
+            media_type="application/octet-stream",
+            headers={
+                "Content-Disposition": f'attachment; filename="{approval_id}.assertion.json"',
+                "Cache-Control": "no-store",
+            },
+        )
 
     # ------------------------------------------------------------------
     # POST /approvals/{approval_id}/approve
@@ -400,6 +472,11 @@ def build_router() -> APIRouter:
         session = getattr(request.state, "session", None)
         if not session:
             return JSONResponse({"error": "unauthorized", "detail": "Authentication required."}, status_code=401)
+        if session.get("identity_source") == "missing_trusted_identity":
+            return JSONResponse(
+                {"error": "trusted_identity_missing", "detail": "Trusted proxy identity is required."},
+                status_code=401,
+            )
 
         token_to_check = csrf_token or request.headers.get("x-csrf-token", "")
         expected_csrf = session.get("csrf_token", "")
@@ -424,6 +501,19 @@ def build_router() -> APIRouter:
         except (CorruptApprovalRecordError, MalformedApprovalError) as exc:
             log.warning("approval rejected by Core for %s: %s", approval_id, exc)
             return _redirect_with_msg(detail_url, msg="Invalid approval request.", msg_type="danger")
+        except ApprovalMalformedError as exc:
+            # Assertion issuance rejected the approval (e.g. policy_evaluated_at is ahead of
+            # this host's clock due to cross-host skew). Fail closed with actionable guidance
+            # instead of an unhandled HTTP 500; the record stays PENDING.
+            log.warning("approval assertion rejected by Core for %s: %s", approval_id, exc)
+            return _redirect_with_msg(
+                detail_url,
+                msg=(
+                    "Approval could not be issued: the signed assertion was rejected as malformed "
+                    "(often caused by clock skew between hosts). Verify clock synchronization and retry."
+                ),
+                msg_type="danger",
+            )
         except ApprovalStoreError as exc:
             log.error("store error approving %s: %s", approval_id, exc)
             return _redirect_with_msg(detail_url, msg="Internal error. Could not approve.", msg_type="danger")
@@ -443,6 +533,11 @@ def build_router() -> APIRouter:
         session = getattr(request.state, "session", None)
         if not session:
             return JSONResponse({"error": "unauthorized", "detail": "Authentication required."}, status_code=401)
+        if session.get("identity_source") == "missing_trusted_identity":
+            return JSONResponse(
+                {"error": "trusted_identity_missing", "detail": "Trusted proxy identity is required."},
+                status_code=401,
+            )
 
         token_to_check = csrf_token or request.headers.get("x-csrf-token", "")
         expected_csrf = session.get("csrf_token", "")

@@ -7,6 +7,7 @@ import asyncio
 import getpass
 import json
 import os
+import re
 import sys
 import time
 from collections.abc import Mapping
@@ -59,6 +60,40 @@ SENSITIVE_SECRET_KEYS = {
 }
 
 
+# Lowercased substring markers indicating embedded credential material.
+_EMBEDDED_SECRET_MARKERS = (
+    "bearer ",
+    "sk-",
+    "api_key=",
+    "token=",
+    "password=",
+    "secret_access_key=",
+)
+
+# Unambiguous credential shapes: PEM private key blocks, GitHub PATs, AWS access key IDs.
+_EMBEDDED_SECRET_PATTERNS = (
+    re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----", re.IGNORECASE),
+    re.compile(r"\bgh[pousr]_[A-Za-z0-9]{20,}\b"),
+    re.compile(r"\bgithub_pat_[A-Za-z0-9_]{20,}\b"),
+    re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"),
+)
+
+
+def _looks_like_embedded_secret(value: str) -> bool:
+    """Heuristic check for credential material embedded in a string value.
+
+    Defense-in-depth only: this catches common marker strings and unambiguous
+    credential shapes (PEM private keys, GitHub PATs, AWS key IDs). It is not an
+    exhaustive secret scanner; human review of generated artifacts remains required.
+    """
+    if len(value) <= 4:
+        return False
+    lowered = value.lower()
+    if any(marker in lowered for marker in _EMBEDDED_SECRET_MARKERS):
+        return True
+    return any(pattern.search(value) for pattern in _EMBEDDED_SECRET_PATTERNS)
+
+
 def _assert_no_secrets_in_dict(obj: Any, path: str = "config", depth: int = 0) -> None:
     """Recursively ensure no plaintext tokens or secrets exist in configuration dict."""
     if depth > MAX_RECURSION_DEPTH:
@@ -72,11 +107,7 @@ def _assert_no_secrets_in_dict(obj: Any, path: str = "config", depth: int = 0) -
                 raise CLIError(
                     f"Security violation: Plaintext secret field '{k}' found at {path}. Credentials must be stored in CredentialStore, not config artifacts."
                 )
-            if (
-                isinstance(v, str)
-                and len(v) > 4
-                and any(pat in v.lower() for pat in ("bearer ", "sk-", "api_key=", "token=", "password="))
-            ):
+            if isinstance(v, str) and _looks_like_embedded_secret(v):
                 raise CLIError(
                     f"Security violation: Field '{k}' at {path} appears to contain an embedded credential. Secrets must never be stored in config artifacts."
                 )
@@ -123,25 +154,42 @@ def _validate_rule_completeness(rules: list[Any]) -> None:
 
 
 def _assert_no_secrets_in_policy(policy_dict: dict[str, Any]) -> None:
-    """Ensure no plaintext secrets appear inside the policy rules dict (Req 13)."""
+    """Ensure no plaintext secrets appear inside the policy rules dict (Req 13).
+
+    Scans every rule recursively — including nested constraint values — for sensitive
+    field names and embedded credential material (PEM private keys, AWS access key IDs,
+    GitHub PATs, bearer/sk- style markers). This screening is defense-in-depth behind
+    human review of wizard output, not an exhaustive secret scanner.
+    """
     rules = policy_dict.get("rules", [])
     for idx, r in enumerate(rules):
-        if isinstance(r, dict):
-            for k, v in r.items():
-                if k.lower() in SENSITIVE_SECRET_KEYS:
-                    raise CLIError(
-                        f"Security violation: secret field '{k}' found in rule at index {idx}. "
-                        f"Policy files must never contain credentials."
-                    )
-                if (
-                    isinstance(v, str)
-                    and len(v) > 4
-                    and any(pat in v.lower() for pat in ("bearer ", "sk-", "api_key=", "token=", "password="))
-                ):
-                    raise CLIError(
-                        f"Security violation: rule at index {idx} field '{k}' appears to contain "
-                        f"an embedded credential. Policy files must never contain secrets."
-                    )
+        _assert_no_secret_value_at(r, f"rules[{idx}]", depth=0)
+
+
+def _assert_no_secret_value_at(obj: Any, path: str, *, depth: int) -> None:
+    """Recursively reject sensitive field names and embedded credentials in a rule value."""
+    if depth > MAX_RECURSION_DEPTH:
+        raise CLIError(
+            f"Security violation: Object structure exceeds maximum allowed recursion depth "
+            f"of {MAX_RECURSION_DEPTH} at {path}."
+        )
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            if isinstance(k, str) and k.lower() in SENSITIVE_SECRET_KEYS:
+                raise CLIError(
+                    f"Security violation: secret field '{k}' found at {path}. "
+                    f"Policy files must never contain credentials."
+                )
+            _assert_no_secret_value_at(v, f"{path}.{k}", depth=depth + 1)
+    elif isinstance(obj, list):
+        for idx, item in enumerate(obj):
+            _assert_no_secret_value_at(item, f"{path}[{idx}]", depth=depth + 1)
+    elif isinstance(obj, str):
+        if _looks_like_embedded_secret(obj):
+            raise CLIError(
+                f"Security violation: value at {path} appears to contain "
+                f"an embedded credential. Policy files must never contain secrets."
+            )
 
 
 def _sort_tools_deterministically(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -611,14 +659,23 @@ def run_create_mcp_policy_wizard(
             print(f"\nRequirements file '{md_path.name}' not found. Please enter security rules for discovered tools:")
             req_lines = []
             for t in all_discovered_tools:
-                ans = (
-                    input(
-                        f"Effect for '{t['integration_id']}.{t['name']}' (ALLOW / DENY / APPROVAL_REQUIRED) [default ALLOW]: "
-                    )
-                    .strip()
-                    .upper()
+                prompt = (
+                    f"Effect for '{t['integration_id']}.{t['name']}' "
+                    f"(ALLOW / DENY / APPROVAL_REQUIRED) [default ALLOW]: "
                 )
-                eff = ans if ans in ("ALLOW", "DENY", "APPROVAL_REQUIRED") else "ALLOW"
+                while True:
+                    ans = input(prompt).strip().upper()
+                    if not ans:
+                        # Documented default: a blank answer intentionally selects ALLOW.
+                        eff = "ALLOW"
+                        break
+                    if ans in ("ALLOW", "DENY", "APPROVAL_REQUIRED"):
+                        eff = ans
+                        break
+                    print(
+                        f"  [!] Unrecognized effect '{ans}'. Enter ALLOW, DENY, or APPROVAL_REQUIRED "
+                        f"(or press Enter to accept the default ALLOW)."
+                    )
                 req_lines.append(f"- Tool '{t['name']}' under integration '{t['integration_id']}': {eff}")
             md_path.parent.mkdir(parents=True, exist_ok=True)
             md_path.write_text("# MCP Security Requirements\n" + "\n".join(req_lines) + "\n", encoding="utf-8")

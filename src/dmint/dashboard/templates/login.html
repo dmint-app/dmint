@@ -27,13 +27,19 @@
         <div class="d-form-hint">Generated at server startup or via DMINT_DASHBOARD_TOKEN.</div>
       </div>
 
-      <div style="margin-bottom:1.5rem;">
-        <label class="d-form-label" for="identityInput">Approver Identity (optional)</label>
-        <input class="d-input" id="identityInput" name="identity" type="text"
-               placeholder="e.g. security-lead (default: approver-session)"
-               style="width:100%;">
-        <div class="d-form-hint">Recorded in Core audit logs on approval decisions.</div>
+      {% if identity_managed %}
+      <div class="d-alert" style="margin-bottom:1.5rem;background:var(--surface-alt);border:1px solid var(--border);color:var(--text-secondary);font-size:0.8125rem;">
+        Your approver identity is supplied by the trusted reverse proxy header configured by the operator.
       </div>
+      {% else %}
+      <div style="margin-bottom:1.5rem;">
+        <label class="d-form-label" for="identityInput">Approver Identity (self-asserted)</label>
+        <input class="d-input" id="identityInput" name="identity" type="text"
+               placeholder="e.g. security-lead (default: dashboard approver ID)"
+               style="width:100%;">
+        <div class="d-form-hint">This is an audit label typed by the operator, not an identity-provider assertion. Configure a trusted proxy identity header for authenticated attribution.</div>
+      </div>
+      {% endif %}
 
       <button type="submit" class="d-btn d-btn-primary" style="width:100%;justify-content:center;padding:0.625rem;">
         Sign In

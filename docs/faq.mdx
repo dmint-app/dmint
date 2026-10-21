@@ -1,0 +1,54 @@
+---
+title: "Frequently Asked Questions"
+description: "Candid answers to common architecture, security, and developer questions about Dmint."
+---
+
+# Frequently Asked Questions
+
+---
+
+## Why not use built-in agent permission prompts?
+Built-in agent prompts (such as "Allow terminal command?") rely on the agent's host client to prompt the human. However:
+1. They are ad-hoc and not tied to declarative, auditable organizational policies.
+2. They do not cryptographically bind the exact canonical arguments using RFC 8785; a human might approve `git checkout` only for the agent to execute `git push --force`.
+3. They provide zero protection for autonomous headless pipelines, background workers, or multi-agent swarms where no interactive terminal UI exists.
+
+---
+
+## What happens if an agent edits the `policy.json` file?
+If you configure policy digest pinning via `DMINT_EXPECTED_POLICY_DIGEST` (or `expected_policy_digest` in Python), Dmint checks the SHA-256 digest of `policy.json` against the expected value at startup and on policy reload.
+
+If the file has been modified, the digests do not match, and Dmint halts with `PolicyError`. Furthermore, modifying `policy.json` automatically changes its digest, which invalidates all unconsumed pending approvals.
+
+---
+
+## Is it safe to run the AI agent and Dmint as the same OS user?
+**No.** If an AI agent has shell access and executes under the same OS user account as Dmint, it can inspect `/proc/<pid>/environ`, read private keys from `~/.config/dmint/`, or modify SQLite database files directly.
+
+Always run your AI agent in a separate container, sandbox, or under a dedicated unprivileged user account without filesystem access to Dmint's private keys. See [Deployment Model](/operations/deployment-model).
+
+---
+
+## Can an approval ever be replayed?
+**No, under normal operational conditions.**
+Approvals transition atomically to `CONSUMED` upon execution. In PostgreSQL, this is enforced by `SELECT ... FOR UPDATE` row locks; in SQLite, it is enforced by immediate serialized transactions. Once a token is marked `CONSUMED`, any subsequent attempt to execute with that token fails closed with `DMT_APPROVAL_CONSUMED`.
+
+The only exception is if an attacker restores a full filesystem snapshot of an older database file. This edge case is mitigated by the 5-minute approval TTL and deployment epoch isolation.
+
+---
+
+## What does Dmint NOT protect against?
+- **Prompt Injection / Semantic Intent**: Dmint does not evaluate whether the user's prompt is polite or malicious. It enforces boundary rules on what tools and arguments may run.
+- **Out-of-Band Execution**: If an agent has direct network or shell access outside Dmint, Dmint cannot govern tools it does not wrap.
+- **Kernel Exploits**: Dmint operates at the application and protocol layer.
+
+---
+
+## How can I test a policy without executing my real tools?
+Use `dmint verify-policy <file>` to validate schema and invariant correctness offline.
+In Python unit tests, you can instantiate `Policy.from_file()` and call `policy.evaluate(request)` directly, verifying whether decisions evaluate to `ALLOW`, `DENY`, or `APPROVAL_REQUIRED` in pure memory without executing external callables.
+
+---
+
+## What happens to existing approvals in the database after an upgrade?
+If the policy or database schema version increments (e.g. from schema v1 to v2), older pending records that cannot satisfy the current cryptographic format fail closed with `DMT_APPROVAL_DEPRECATED_FORMAT`. Operators should drain pending requests prior to upgrading.

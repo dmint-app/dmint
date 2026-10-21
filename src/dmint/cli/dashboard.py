@@ -21,7 +21,15 @@ def main_dashboard(args: list[str] | None = None) -> int:
         dashboard_main(argv=args, prog="dmint dashboard")
         return 0
     except SystemExit as exc:
-        return exc.code if isinstance(exc.code, int) else (0 if exc.code is None else 1)
+        code = exc.code
+        if code is None:
+            return 0
+        if isinstance(code, int):
+            return code
+        # Non-int payloads (e.g. sys.exit("<install hint>")) must be surfaced,
+        # not swallowed as a silent rc=1.
+        print(code, file=sys.stderr)
+        return 1
     except Exception as exc:
         print(f"Error starting dashboard: {exc}", file=sys.stderr)
         return 1

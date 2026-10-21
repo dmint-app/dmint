@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import secrets
 import urllib.parse
 from collections.abc import Collection
@@ -32,6 +33,7 @@ def create_app(
     allowed_hosts: Collection[str] | None = None,
     approver_id: str | None = None,
     trusted_proxy: bool | None = None,
+    trusted_identity_header: str | None = None,
 ) -> FastAPI:
     """Create and configure the FastAPI application.
 
@@ -50,7 +52,12 @@ def create_app(
     )
 
     # 1. Configure authentication token
-    from .auth import LoginRateLimiter, load_token_from_file
+    from .auth import (
+        SESSION_IDLE_TIMEOUT_SECONDS,
+        LoginRateLimiter,
+        load_token_from_file,
+        prune_sessions,
+    )
 
     effective_token: str
     if token_file:
@@ -88,6 +95,15 @@ def create_app(
         else (os.environ.get("DMINT_DASHBOARD_TRUSTED_PROXY", "").lower() in ("1", "true", "yes"))
     )
 
+    configured_identity_header = (
+        trusted_identity_header or os.environ.get("DMINT_DASHBOARD_IDENTITY_HEADER", "").strip() or None
+    )
+    if configured_identity_header is not None:
+        if not re.fullmatch(r"[A-Za-z0-9-]+", configured_identity_header):
+            raise ValueError("trusted_identity_header must be a valid HTTP header name")
+        if not is_trusted_proxy:
+            raise ValueError("trusted_identity_header requires trusted_proxy to be enabled")
+
     # Store state on app
     app.state.core_client = core_client
     app.state.templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
@@ -98,6 +114,7 @@ def create_app(
     app.state.rate_limiter = LoginRateLimiter(max_attempts=5, window_seconds=60.0)
     app.state.approver_id = configured_approver_id
     app.state.trusted_proxy = is_trusted_proxy
+    app.state.trusted_identity_header = configured_identity_header
 
     # Security Middleware
     @app.middleware("http")
@@ -176,6 +193,10 @@ def create_app(
                     return resp
 
         # C. Authentication check on protected routes
+        # Bound the per-process session map: sweep expired/idle sessions on every
+        # request instead of only when their own cookie is presented again.
+        prune_sessions(app.state.sessions)
+
         path = request.url.path
         if path not in ("/login", "/health", "/favicon.ico") and not path.startswith("/static"):
             session_cookie = request.cookies.get("dmint_session")
@@ -189,7 +210,7 @@ def create_app(
                 is_expired = False
                 if sess_data.get("expires_at", 0) <= now:
                     is_expired = True
-                elif sess_data.get("last_active", 0) + (30 * 60) <= now:
+                elif sess_data.get("last_active", 0) + SESSION_IDLE_TIMEOUT_SECONDS <= now:
                     is_expired = True
 
                 if is_expired:
@@ -200,7 +221,25 @@ def create_app(
                     session = sess_data
 
             if is_bearer:
-                session = {"identity": "bearer-api", "csrf_token": "api"}
+                session = {
+                    "identity": "bearer-api",
+                    "identity_source": "shared_bearer_token",
+                    "csrf_token": "api",
+                }
+            elif session and app.state.trusted_proxy and app.state.trusted_identity_header:
+                # Only a configured trusted reverse proxy may assert the human
+                # identity used for approval attribution.  If the header is
+                # absent, fail the request closed rather than silently falling
+                # back to a self-asserted session label.
+                asserted_identity = request.headers.get(app.state.trusted_identity_header, "").strip()
+                if asserted_identity:
+                    session = dict(session)
+                    session["identity"] = asserted_identity
+                    session["identity_source"] = "trusted_proxy"
+                else:
+                    session = dict(session)
+                    session["identity"] = "unattributed"
+                    session["identity_source"] = "missing_trusted_identity"
 
             if not session:
                 if path.startswith("/api/") or "application/json" in request.headers.get("accept", ""):

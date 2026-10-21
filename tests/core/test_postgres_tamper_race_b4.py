@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import hashlib
 import multiprocessing as mp
-import os
 import unittest
 from datetime import datetime, timedelta, timezone
 
@@ -21,9 +20,8 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
     Ed25519PrivateKey,
     Ed25519PublicKey,
 )
-import pytest
 import rfc8785
-from sqlalchemy import create_engine, text
+from sqlalchemy import text
 
 from dmint.core.approvals import (
     ApprovalAuthority,
@@ -44,42 +42,9 @@ from dmint.core.models import NO_RESOURCE, ToolRequest, TrustedContext
 from dmint.core.storage.sql import SQLAlchemyApprovalStore
 from dmint.core.storage.sqlite import _OLD_V1_STORED_COLUMNS
 from dmint.core.verification import ApprovalVerifier
+from tests.postgres_support import require_postgres
 
-POSTGRES_TEST_URL = os.environ.get(
-    "DMINT_TEST_DATABASE_URL",
-    "postgresql://postgres:postgres@localhost:5432/dmint_test",
-)
 TEST_KEY_BYTES = bytes.fromhex("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
-
-
-def _normalize_pg_url(url: str) -> str:
-    if url.startswith("postgres://"):
-        url = "postgresql://" + url[len("postgres://") :]
-    if url.startswith("postgresql://"):
-        try:
-            import psycopg  # noqa: F401
-        except ImportError:
-            try:
-                import psycopg2  # noqa: F401
-
-                url = "postgresql+psycopg2://" + url[len("postgresql://") :]
-            except ImportError:
-                pass
-    return url
-
-
-def _is_postgres_available(url: str) -> bool:
-    try:
-        eng = create_engine(_normalize_pg_url(url), connect_args={"connect_timeout": 2})
-        with eng.connect() as conn:
-            conn.execute(text("SELECT 1"))
-        eng.dispose()
-        return True
-    except Exception:
-        return False
-
-
-POSTGRES_AVAILABLE = _is_postgres_available(POSTGRES_TEST_URL)
 
 
 def _consume_race_worker(
@@ -123,14 +88,11 @@ def _consume_race_worker(
         out_queue.put(f"ERROR: {type(exc).__name__}: {exc}")
 
 
-@pytest.mark.skipif(not POSTGRES_AVAILABLE, reason="PostgreSQL not available")
 class PostgresTamperRaceB4Tests(unittest.TestCase):
     """B4 tests: 10-process consume race and K-21 tamper attacks on PostgreSQL."""
 
     def setUp(self) -> None:
-        if not POSTGRES_AVAILABLE:
-            self.skipTest("PostgreSQL not available")
-        self.url = _normalize_pg_url(POSTGRES_TEST_URL)
+        self.url = require_postgres()
         self.epoch = "b4-epoch"
         self.store = SQLAlchemyApprovalStore(
             self.url,

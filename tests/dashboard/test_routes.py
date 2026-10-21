@@ -297,6 +297,50 @@ class TestApprove:
         )
         assert resp.status_code == 200
 
+    def test_approve_with_clock_skew_shows_guided_error_not_500(self, test_client, store):
+        """Backward clock skew at assertion issuance yields a guided redirect, never HTTP 500 (SRC-12)."""
+        from dmint.approvals import ApprovalRecord, new_request_id
+        from dmint.models import NO_RESOURCE, ToolRequest, TrustedContext
+        from tests.dashboard.conftest import make_provenance
+
+        # The policy-evaluation host clock is one hour ahead of this host's clock
+        # (multi-host skew), so assertion issuance sees policy_evaluated_at > issued_at.
+        req = ToolRequest(
+            request_id=new_request_id(),
+            tool="skew_tool",
+            action="execute",
+            agent_id="test-agent",
+            resource=NO_RESOURCE,
+            arguments={},
+            context=TrustedContext({}),
+        )
+        record = ApprovalRecord.create(
+            request=req,
+            integration_id="test-runtime",
+            capability_id="test.execute",
+            policy_provenance=make_provenance(NOW + timedelta(hours=1)),
+            created_at=NOW,
+            expires_at=NOW + timedelta(minutes=10),
+        )
+        store.save_pending(record)
+
+        resp = test_client.post(
+            f"/approvals/{record.approval_id}/approve",
+            follow_redirects=False,
+        )
+
+        # Clean redirect with an actionable message — not HTTP 500.
+        assert resp.status_code == 303
+        assert "clock" in resp.headers["location"].lower()
+
+        # Fail closed: the record must remain PENDING (no state transition).
+        assert store.get(record.approval_id).state == ApprovalState.PENDING
+
+        # The follow-up page must render the guidance.
+        followed = test_client.get(resp.headers["location"])
+        assert followed.status_code == 200
+        assert b"clock" in followed.content.lower()
+
 
 class TestReject:
     def test_reject_redirects_on_success(self, test_client, pending_record):

@@ -17,6 +17,7 @@ import urllib.request
 
 from dmint.cli.errors import CLIError
 from dmint.cli.limits import MAX_CREDENTIAL_FILE_SIZE_BYTES, MAX_OAUTH_METADATA_RESPONSE_SIZE_BYTES
+from dmint.cli.mcp_auth import _open_url
 from dmint.cli.mcp_connections import redact_secrets, redact_text
 from dmint.cli.version import get_user_agent
 
@@ -512,8 +513,13 @@ def refresh_token(
     client_id: str | None = None,
     client_secret: str | None = None,
     credential_store: CredentialStore | None = None,
+    allow_loopback: bool = False,
 ) -> TokenRecord:
-    """Perform RFC 6749 token refresh using the stored refresh_token."""
+    """Perform RFC 6749 token refresh using the stored refresh_token.
+
+    Loopback token endpoints are opt-in for local development.  Refresh
+    endpoints supplied by a remote authorization server must be remote.
+    """
     if not record.refresh_token:
         raise CLIError("Cannot refresh token: no refresh_token available in record.")
 
@@ -534,7 +540,7 @@ def refresh_token(
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, timeout=15.0) as resp:
+        with _open_url(req, timeout=15.0, allow_loopback=allow_loopback) as resp:
             raw_bytes = resp.read(MAX_OAUTH_METADATA_RESPONSE_SIZE_BYTES + 1)
             if len(raw_bytes) > MAX_OAUTH_METADATA_RESPONSE_SIZE_BYTES:
                 raise CLIError(

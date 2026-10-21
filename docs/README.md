@@ -1,7 +1,7 @@
 # Dmint Documentation (`docs.dmint.app`)
 
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Dmint Engine: v2.0.0](https://img.shields.io/badge/Dmint-v2.0.0-10b981.svg)](../pyproject.toml)
+[![Dmint Engine: v2.0.1](https://img.shields.io/badge/Dmint-v2.0.1-10b981.svg)](../pyproject.toml)
 [![Framework: Holocron](https://img.shields.io/badge/Engine-Holocron%20%2F%20Vite-6366f1.svg)](https://holocron.so)
 [![Deployment: Cloudflare Workers](https://img.shields.io/badge/Deploy-Cloudflare%20Workers-f38020.svg)](wrangler.jsonc)
 [![Node: >=18](https://img.shields.io/badge/Node-%3E%3D18-339933.svg)](package.json)
@@ -34,7 +34,7 @@ Live Site: **[https://docs.dmint.app](https://docs.dmint.app)** &bull; Public Po
 
 ## Overview
 
-This directory (`/docs`) hosts the authoritative technical documentation for **Dmint v2.0.0**. Dmint is a deterministic security authorization and enforcement engine that sits between autonomous AI agents and privileged tools (databases, shell environments, file systems, APIs).
+This directory (`/docs`) hosts the authoritative technical documentation for **Dmint v2.0.1**. Dmint is a deterministic security authorization and enforcement engine that sits between autonomous AI agents and privileged tools (databases, shell environments, file systems, APIs).
 
 The documentation site serves developers, security engineers, and DevOps teams evaluating, deploying, and integrating Dmint with AI coding assistants (Google Antigravity, Cursor, Claude Code) and agent frameworks (LangChain, CrewAI, AutoGen).
 
@@ -112,57 +112,72 @@ docs/
 ├── AGENTS.md                   # Authoritative guidance for AI agents working in docs
 ├── LICENSE                     # Apache-2.0 open-source license
 ├── README.md                   # This documentation site manual
+├── public/                     # Static assets served at domain root
+│   ├── favicon.svg             # Favicon asset
+│   ├── logo.svg                # Brand logo asset
+│   ├── logo-dark.svg           # Dark mode logo asset
+│   ├── llms.txt                # Structured overview & index for AI agents (llmstxt.org)
+│   └── llms-full.txt           # Consolidated single-file docs corpus for AI context
 │
-├── index.mdx                   # Documentation home & interactive overview
-├── introduction.mdx            # Problem definition & deterministic security rationale
-├── quickstart.mdx              # 5-minute tutorial (zero to protected capability)
+├── index.mdx                   # 60-second Overview
+├── quickstart.mdx              # 5-minute hands-on walkthrough
 │
-├── concepts/                   # Core mental models, primitives & state machines
-│   ├── overview.mdx            # Interception lifecycle & component separation
-│   ├── capabilities.mdx        # Tool, action, resource models & wildcard matching
+├── tutorials/                  # Learning-oriented guides
+│   └── protect-a-tool.mdx      # Real-world tutorial: conditional approvals for refunds
+│
+├── concepts/                   # Deep mental models & primitives
+│   ├── how-dmint-works.mdx     # Architecture, sequence flow, and decision engine
+│   ├── policies.mdx            # Policy structure, rule evaluation, fail-closed defaults
 │   ├── request-binding.mdx     # RFC 8785 canonicalization & SHA-256 fingerprinting
-│   ├── approvals.mdx           # Atomic single-use lifecycle & Ed25519 assertions
-│   └── policies.mdx            # Rule structure, evaluation precedence & default-deny
+│   ├── approvals.mdx           # Lifecycle: 7-state machine, Ed25519 assertions, consumption
+│   └── resources.mdx           # Resource engine: path, url, host, id matching & traversal defense
 │
-├── guides/                     # Step-by-step implementation walkthroughs
-│   ├── protecting-mcp.mdx      # Wrapping Model Context Protocol servers with dmint-mcp
-│   ├── authoring-policies.mdx  # Compiling access.md into verified policy.json
-│   ├── agent-skills.mdx        # Installing AI agent skills with dmint install-skill
-│   ├── python-integration.mdx  # In-process enforcement via @dmint.protected decorator
-│   └── human-approvals.mdx     # Operating the local human approval console
+├── guides/                     # Task-oriented, step-by-step how-to guides
+│   ├── python-integration.mdx  # @engine.protect decorator for def, async def, class/static methods
+│   ├── protecting-mcp.mdx      # Wrapping MCP servers with dmint-mcp gateway & schema pinning
+│   ├── human-approvals.mdx     # Operating dashboard UI, CLI approvals, executing retries
+│   ├── notifications.mdx       # Real-time webhook notifications (Slack, Discord, Teams)
+│   ├── authoring-policies.mdx  # Using dmint create-policy & create-mcp-policy
+│   └── agent-skills.mdx        # Installing AI agent skills with dmint install-skill
 │
-├── integrations/               # AI tool & coding assistant setup recipes
-│   ├── cursor.mdx              # .cursor/mcp.json gateway configuration
-│   ├── claude-code.mdx         # Claude Code CLI integration & persistent configs
+├── integrations/               # Host environment & AI tool copy-paste setup recipes
+│   ├── cursor.mdx              # .cursor/mcp.json integration
+│   ├── claude-code.mdx         # Claude Code gateway configuration
 │   ├── antigravity.mdx         # Google Antigravity & Gemini CLI skill integration
-│   └── custom-agents.mdx       # LangChain, CrewAI, AutoGen, and Python loops
+│   └── custom-agents.mdx       # LangChain, CrewAI, AutoGen, and custom Python loops
 │
-├── architecture/               # Formal security specifications & invariant proofs
-│   ├── deterministic-enforcement.mdx # Mathematical comparison: deterministic vs. LLM guards
-│   ├── security-invariants.mdx # The 5 non-negotiable architectural security invariants
-│   └── threat-model.mdx        # Formal threat matrix (SSRF, replay, injection, TOCTOU)
+├── operations/                 # Security architecture & operations
+│   ├── deployment-model.mdx    # OS user separation, process boundaries, permissions matrix
+│   ├── security-model.mdx      # Attacker capabilities, formal guarantees, test traceability
+│   └── known-limitations.mdx   # Non-goals, database rollbacks, symlink caveats
 │
-└── reference/                  # Authoritative technical reference manuals
-    ├── cli.mdx                 # Complete dmint CLI command & option reference
-    ├── core-api.mdx            # Python dmint package classes, methods & exceptions
-    ├── policy-schema.mdx       # policy.json JSON schema specification
-    └── mcp-protection-schema.mdx # mcp_protection.json format & routing definitions
+├── reference/                  # Complete technical reference manual
+│   ├── cli.mdx                 # Exhaustive CLI reference for dmint, dmint-mcp, dashboard
+│   ├── core-api.mdx            # Python dmint package classes, methods, exceptions
+│   ├── policy-schema.mdx       # policy.json formal JSON schema specification
+│   ├── mcp-protection-schema.mdx # mcp_protection.json format & routing specification
+│   └── errors.mdx              # Comprehensive index of all 32 DMT_* error codes
+│
+├── troubleshooting.mdx         # Symptom -> Cause -> Fix diagnostic index
+└── faq.mdx                     # Candid answers to top architecture & security questions
 ```
 
 ---
 
 ## Documentation Sitemap
 
-The documentation is organized into 6 core sections configured in `docs.json`:
+The documentation is organized into 8 Diátaxis-aligned core sections configured in `docs.json`:
 
 | Group | Topic | Key Pages |
 |---|---|---|
-| **Get Started** | Getting up and running in minutes | `index`, `introduction`, `quickstart` |
-| **Core Concepts** | Primitives, exact-request binding, approval mechanics | `overview`, `capabilities`, `request-binding`, `approvals`, `policies` |
-| **Guides** | Hands-on instructions for real-world setups | `protecting-mcp`, `authoring-policies`, `agent-skills`, `python-integration`, `human-approvals` |
-| **Integrations** | Zero-to-protected guides for modern agent environments | `cursor`, `claude-code`, `antigravity`, `custom-agents` |
-| **Architecture & Security** | Invariants, formal threat modeling, fail-closed design | `deterministic-enforcement`, `security-invariants`, `threat-model` |
-| **Reference** | Syntax specifications, command flags, Python SDK APIs | `cli`, `policy-schema`, `mcp-protection-schema`, `core-api` |
+| **Get Started** | 60-second overview and 5-minute zero-to-enforced quickstart | `index`, `quickstart` |
+| **Tutorials** | Hands-on, step-by-step learning projects with real code | `tutorials/protect-a-tool` |
+| **Core Concepts** | Primitives, exact-request binding, approval lifecycle, and resource matching | `how-dmint-works`, `policies`, `request-binding`, `approvals`, `resources` |
+| **How-To Guides** | Task-oriented recipes for Python, MCP gateway, approvals, and notifications | `python-integration`, `protecting-mcp`, `human-approvals`, `notifications`, `authoring-policies`, `agent-skills` |
+| **Integrations** | Copy-paste setup recipes for modern agent environments | `cursor`, `claude-code`, `antigravity`, `custom-agents` |
+| **Operations & Security** | Threat model, deployment boundaries, security proofs, and limitations | `deployment-model`, `security-model`, `known-limitations` |
+| **Reference** | Exhaustive CLI flags, Python SDK APIs, JSON schemas, and DMT error catalog | `cli`, `core-api`, `policy-schema`, `mcp-protection-schema`, `errors` |
+| **Help & FAQ** | Diagnostic troubleshooting index and candid architectural FAQ | `troubleshooting`, `faq` |
 
 ---
 
@@ -203,7 +218,7 @@ Use only these verified callout components (unsupported tags like `<Important>` 
 
 ### Code Snippet Conventions
 
-To preserve technical consistency with Dmint v2.0.0, follow these conventions in all documentation:
+To preserve technical consistency with Dmint v2.0.1, follow these conventions in all documentation:
 
 - **Package Installation**: Always show the single unified package:
   ```bash
