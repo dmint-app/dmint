@@ -229,6 +229,7 @@ __all__ = [
     "mcp",
     "dashboard",
     "skills",
+    "templates",
     "evaluate_constraints",
     "validate_constraints_schema",
 ]

@@ -112,6 +112,12 @@ Thumbs.db
 *.swp
 *.swo
 
+# Documentation Workspaces & Scratch
+redocs/
+.claims/
+docs-plan.md
+.vite/
+
 # Node & Frontend Build Artifacts
 node_modules/
 node_modules

@@ -1,0 +1,107 @@
+{
+  "rules": [
+    {
+      "effect": "allow",
+      "tool": "github",
+      "action": "get_repository",
+      "resource": "*"
+    },
+    {
+      "effect": "allow",
+      "tool": "github",
+      "action": "list_issues",
+      "resource": "*"
+    },
+    {
+      "effect": "allow",
+      "tool": "github",
+      "action": "get_issue",
+      "resource": "*"
+    },
+    {
+      "effect": "allow",
+      "tool": "github",
+      "action": "list_pull_requests",
+      "resource": "*"
+    },
+    {
+      "effect": "allow",
+      "tool": "github",
+      "action": "get_pull_request",
+      "resource": "*"
+    },
+    {
+      "effect": "allow",
+      "tool": "github",
+      "action": "search_code",
+      "resource": "*"
+    },
+    {
+      "effect": "allow",
+      "tool": "github",
+      "action": "list_commits",
+      "resource": "*"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "github",
+      "action": "create_issue",
+      "resource": "*"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "github",
+      "action": "create_issue_comment",
+      "resource": "*"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "github",
+      "action": "create_pull_request",
+      "resource": "*"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "github",
+      "action": "merge_pull_request",
+      "resource": "*"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "github",
+      "action": "close_issue",
+      "resource": "*"
+    },
+    {
+      "effect": "deny",
+      "tool": "github",
+      "action": "delete_repository",
+      "resource": "*"
+    },
+    {
+      "effect": "deny",
+      "tool": "github",
+      "action": "delete_branch",
+      "resource": "*"
+    },
+    {
+      "effect": "deny",
+      "tool": "github",
+      "action": "remove_branch_protection",
+      "resource": "*"
+    },
+    {
+      "effect": "deny",
+      "tool": "github",
+      "action": "force_push",
+      "resource": "*"
+    },
+    {
+      "effect": "deny",
+      "tool": "github",
+      "action": "delete_release",
+      "resource": "*"
+    }
+  ],
+  "strict_arguments": false
+}

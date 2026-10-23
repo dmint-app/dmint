@@ -85,6 +85,7 @@ where = ["src"]
 "dmint.mcp" = ["py.typed"]
 "dmint.dashboard" = ["py.typed", "templates/**/*.html", "static/**/*"]
 "dmint.skills" = ["py.typed", "skills/**/*.md", "skills/*.md"]
+"dmint.templates" = ["py.typed", "data/*.json"]
 
 [tool.ruff]
 line-length = 120

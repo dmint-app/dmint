@@ -1,0 +1,83 @@
+{
+  "rules": [
+    {
+      "effect": "allow",
+      "tool": "postgres",
+      "action": "select",
+      "resource": "*"
+    },
+    {
+      "effect": "allow",
+      "tool": "postgres",
+      "action": "explain",
+      "resource": "*"
+    },
+    {
+      "effect": "allow",
+      "tool": "postgres",
+      "action": "show",
+      "resource": "*"
+    },
+    {
+      "effect": "allow",
+      "tool": "postgres",
+      "action": "describe",
+      "resource": "*"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "postgres",
+      "action": "insert",
+      "resource": "*"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "postgres",
+      "action": "update",
+      "resource": "*"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "postgres",
+      "action": "delete",
+      "resource": "*"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "postgres",
+      "action": "create_table",
+      "resource": "*"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "postgres",
+      "action": "alter_table",
+      "resource": "*"
+    },
+    {
+      "effect": "deny",
+      "tool": "postgres",
+      "action": "drop_table",
+      "resource": "*"
+    },
+    {
+      "effect": "deny",
+      "tool": "postgres",
+      "action": "drop_database",
+      "resource": "*"
+    },
+    {
+      "effect": "deny",
+      "tool": "postgres",
+      "action": "truncate",
+      "resource": "*"
+    },
+    {
+      "effect": "deny",
+      "tool": "postgres",
+      "action": "grant",
+      "resource": "*"
+    }
+  ],
+  "strict_arguments": false
+}

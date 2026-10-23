@@ -1,0 +1,125 @@
+{
+  "rules": [
+    {
+      "effect": "allow",
+      "tool": "stripe",
+      "action": "list_customers",
+      "resource": "*"
+    },
+    {
+      "effect": "allow",
+      "tool": "stripe",
+      "action": "retrieve_customer",
+      "resource": "*"
+    },
+    {
+      "effect": "allow",
+      "tool": "stripe",
+      "action": "list_charges",
+      "resource": "*"
+    },
+    {
+      "effect": "allow",
+      "tool": "stripe",
+      "action": "retrieve_charge",
+      "resource": "*"
+    },
+    {
+      "effect": "allow",
+      "tool": "stripe",
+      "action": "list_invoices",
+      "resource": "*"
+    },
+    {
+      "effect": "allow",
+      "tool": "stripe",
+      "action": "list_subscriptions",
+      "resource": "*"
+    },
+    {
+      "effect": "allow",
+      "tool": "stripe",
+      "action": "list_products",
+      "resource": "*"
+    },
+    {
+      "effect": "allow",
+      "tool": "stripe",
+      "action": "list_prices",
+      "resource": "*"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "stripe",
+      "action": "create_customer",
+      "resource": "*"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "stripe",
+      "action": "update_customer",
+      "resource": "*"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "stripe",
+      "action": "create_charge",
+      "resource": "*"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "stripe",
+      "action": "create_refund",
+      "resource": "*"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "stripe",
+      "action": "update_subscription",
+      "resource": "*"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "stripe",
+      "action": "cancel_subscription",
+      "resource": "*"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "stripe",
+      "action": "create_invoice",
+      "resource": "*"
+    },
+    {
+      "effect": "deny",
+      "tool": "stripe",
+      "action": "create_payout",
+      "resource": "*"
+    },
+    {
+      "effect": "deny",
+      "tool": "stripe",
+      "action": "update_payout",
+      "resource": "*"
+    },
+    {
+      "effect": "deny",
+      "tool": "stripe",
+      "action": "delete_account",
+      "resource": "*"
+    },
+    {
+      "effect": "deny",
+      "tool": "stripe",
+      "action": "create_secret_key",
+      "resource": "*"
+    },
+    {
+      "effect": "deny",
+      "tool": "stripe",
+      "action": "expire_secret_key",
+      "resource": "*"
+    }
+  ],
+  "strict_arguments": false
+}

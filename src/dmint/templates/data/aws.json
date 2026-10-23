@@ -1,0 +1,113 @@
+{
+  "rules": [
+    {
+      "effect": "allow",
+      "tool": "aws",
+      "action": "s3.list_buckets",
+      "resource": "*"
+    },
+    {
+      "effect": "allow",
+      "tool": "aws",
+      "action": "s3.get_object",
+      "resource": "*"
+    },
+    {
+      "effect": "allow",
+      "tool": "aws",
+      "action": "ec2.describe_instances",
+      "resource": "*"
+    },
+    {
+      "effect": "allow",
+      "tool": "aws",
+      "action": "ec2.describe_security_groups",
+      "resource": "*"
+    },
+    {
+      "effect": "allow",
+      "tool": "aws",
+      "action": "rds.describe_db_instances",
+      "resource": "*"
+    },
+    {
+      "effect": "allow",
+      "tool": "aws",
+      "action": "cloudwatch.get_metric_data",
+      "resource": "*"
+    },
+    {
+      "effect": "allow",
+      "tool": "aws",
+      "action": "iam.get_role",
+      "resource": "*"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "aws",
+      "action": "s3.put_object",
+      "resource": "*"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "aws",
+      "action": "ec2.start_instances",
+      "resource": "*"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "aws",
+      "action": "ec2.stop_instances",
+      "resource": "*"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "aws",
+      "action": "rds.reboot_db_instance",
+      "resource": "*"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "aws",
+      "action": "lambda.update_function_code",
+      "resource": "*"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "aws",
+      "action": "iam.create_role",
+      "resource": "*"
+    },
+    {
+      "effect": "deny",
+      "tool": "aws",
+      "action": "s3.delete_bucket",
+      "resource": "*"
+    },
+    {
+      "effect": "deny",
+      "tool": "aws",
+      "action": "ec2.terminate_instances",
+      "resource": "*"
+    },
+    {
+      "effect": "deny",
+      "tool": "aws",
+      "action": "rds.delete_db_instance",
+      "resource": "*"
+    },
+    {
+      "effect": "deny",
+      "tool": "aws",
+      "action": "iam.delete_role_policy",
+      "resource": "*"
+    },
+    {
+      "effect": "deny",
+      "tool": "aws",
+      "action": "organizations.leave_organization",
+      "resource": "*"
+    }
+  ],
+  "strict_arguments": false
+}

@@ -1,0 +1,107 @@
+{
+  "rules": [
+    {
+      "effect": "allow",
+      "tool": "kubernetes",
+      "action": "get_pods",
+      "resource": "*"
+    },
+    {
+      "effect": "allow",
+      "tool": "kubernetes",
+      "action": "list_pods",
+      "resource": "*"
+    },
+    {
+      "effect": "allow",
+      "tool": "kubernetes",
+      "action": "get_services",
+      "resource": "*"
+    },
+    {
+      "effect": "allow",
+      "tool": "kubernetes",
+      "action": "list_services",
+      "resource": "*"
+    },
+    {
+      "effect": "allow",
+      "tool": "kubernetes",
+      "action": "get_deployments",
+      "resource": "*"
+    },
+    {
+      "effect": "allow",
+      "tool": "kubernetes",
+      "action": "list_deployments",
+      "resource": "*"
+    },
+    {
+      "effect": "allow",
+      "tool": "kubernetes",
+      "action": "get_logs",
+      "resource": "*"
+    },
+    {
+      "effect": "allow",
+      "tool": "kubernetes",
+      "action": "describe_pod",
+      "resource": "*"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "kubernetes",
+      "action": "scale_deployment",
+      "resource": "*"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "kubernetes",
+      "action": "rollout_restart",
+      "resource": "*"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "kubernetes",
+      "action": "apply_manifest",
+      "resource": "*"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "kubernetes",
+      "action": "create_configmap",
+      "resource": "*"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "kubernetes",
+      "action": "update_configmap",
+      "resource": "*"
+    },
+    {
+      "effect": "deny",
+      "tool": "kubernetes",
+      "action": "delete_namespace",
+      "resource": "*"
+    },
+    {
+      "effect": "deny",
+      "tool": "kubernetes",
+      "action": "delete_node",
+      "resource": "*"
+    },
+    {
+      "effect": "deny",
+      "tool": "kubernetes",
+      "action": "delete_cluster",
+      "resource": "*"
+    },
+    {
+      "effect": "deny",
+      "tool": "kubernetes",
+      "action": "delete_deployment",
+      "resource": "*"
+    }
+  ],
+  "strict_arguments": false
+}
