@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import secrets
+import urllib.parse
 from typing import Any
 
 from fastapi import APIRouter, Form, Request
@@ -39,6 +40,22 @@ _MAX_REASON_LENGTH = 500
 # Limit for dashboard listing pages.
 _LIST_LIMIT = 100
 _AUDIT_LIMIT = 200
+_APPROVAL_STORE_UNAVAILABLE_MSG = "Approval store unavailable."
+_APPROVAL_STORE_ERROR_MSG = "Approval Store Error: Could not load dashboard data. Check server logs for details."
+
+
+def _redirect_to_approval(approval_id: str, *, msg: str, msg_type: str = "success") -> RedirectResponse:
+    """Redirect to a local approval detail page with a flash message.
+
+    The approval ID is untrusted path input. Keep it in a single URL-encoded
+    path segment under a constant local prefix so the redirect can never
+    acquire a scheme or host from user input.
+    """
+    params = urllib.parse.urlencode({"msg": msg, "msg_type": msg_type})
+    return RedirectResponse(
+        "/approvals/" + urllib.parse.quote(approval_id, safe="") + "?" + params,
+        status_code=303,
+    )
 
 
 def build_router() -> APIRouter:
@@ -69,12 +86,6 @@ def build_router() -> APIRouter:
         return _templates(request).TemplateResponse(
             request=request, name=template, context=ctx, status_code=status_code
         )
-
-    def _redirect_with_msg(url: str, *, msg: str, msg_type: str = "success") -> RedirectResponse:
-        import urllib.parse
-
-        params = urllib.parse.urlencode({"msg": msg, "msg_type": msg_type})
-        return RedirectResponse(f"{url}?{params}", status_code=303)
 
     def _record_display(record: ApprovalRecord) -> dict[str, Any]:
         """Convert an ApprovalRecord to a template-friendly dict."""
@@ -286,11 +297,11 @@ def build_router() -> APIRouter:
             count_pending = len(pending_records)
             count_approved = client.count_by_state(ApprovalState.APPROVED)
             count_rejected = client.count_by_state(ApprovalState.REJECTED)
-        except ApprovalStoreError as exc:
-            log.error("store error on api_dashboard: %s", exc)
+        except ApprovalStoreError:
+            log.exception("store error on api_dashboard")
             pending_records = []
             count_pending = count_approved = count_rejected = 0
-            error_msg = str(exc)
+            error_msg = _APPROVAL_STORE_UNAVAILABLE_MSG
 
         pending = []
         for rec in pending_records:
@@ -333,7 +344,7 @@ def build_router() -> APIRouter:
             count_approved = client.count_by_state(ApprovalState.APPROVED)
             count_rejected = client.count_by_state(ApprovalState.REJECTED)
         except ApprovalStoreError as exc:
-            log.error("store error on index: %s", exc)
+            log.exception("store error on index")
             pending_records = []
             count_pending = count_approved = count_rejected = 0
             if "deployment epoch mismatch" in str(exc).lower():
@@ -346,7 +357,7 @@ def build_router() -> APIRouter:
                 }
             else:
                 flash_override = {
-                    "flash_message": f"Approval Store Error: {exc}",
+                    "flash_message": _APPROVAL_STORE_ERROR_MSG,
                     "flash_type": "danger",
                 }
 
@@ -485,29 +496,32 @@ def build_router() -> APIRouter:
 
         client = _client(request)
         actor = session.get("identity")
-        detail_url = f"/approvals/{approval_id}"
         try:
             client.approve(approval_id, approved_by=actor)
         except ApprovalNotFoundError:
-            return _redirect_with_msg(detail_url, msg="Approval not found.", msg_type="danger")
+            return _redirect_to_approval(approval_id, msg="Approval not found.", msg_type="danger")
         except ApprovalExpiredError:
-            return _redirect_with_msg(detail_url, msg="Approval has expired and cannot be approved.", msg_type="danger")
+            return _redirect_to_approval(
+                approval_id, msg="Approval has expired and cannot be approved.", msg_type="danger"
+            )
         except ApprovalConcurrentConsumeError:
-            return _redirect_with_msg(
-                detail_url, msg="A concurrent decision was already made on this approval.", msg_type="warning"
+            return _redirect_to_approval(
+                approval_id, msg="A concurrent decision was already made on this approval.", msg_type="warning"
             )
         except IllegalApprovalTransitionError:
-            return _redirect_with_msg(detail_url, msg="This approval is not in a pending state.", msg_type="warning")
+            return _redirect_to_approval(
+                approval_id, msg="This approval is not in a pending state.", msg_type="warning"
+            )
         except (CorruptApprovalRecordError, MalformedApprovalError) as exc:
             log.warning("approval rejected by Core for %s: %s", approval_id, exc)
-            return _redirect_with_msg(detail_url, msg="Invalid approval request.", msg_type="danger")
+            return _redirect_to_approval(approval_id, msg="Invalid approval request.", msg_type="danger")
         except ApprovalMalformedError as exc:
             # Assertion issuance rejected the approval (e.g. policy_evaluated_at is ahead of
             # this host's clock due to cross-host skew). Fail closed with actionable guidance
             # instead of an unhandled HTTP 500; the record stays PENDING.
             log.warning("approval assertion rejected by Core for %s: %s", approval_id, exc)
-            return _redirect_with_msg(
-                detail_url,
+            return _redirect_to_approval(
+                approval_id,
                 msg=(
                     "Approval could not be issued: the signed assertion was rejected as malformed "
                     "(often caused by clock skew between hosts). Verify clock synchronization and retry."
@@ -516,8 +530,8 @@ def build_router() -> APIRouter:
             )
         except ApprovalStoreError as exc:
             log.error("store error approving %s: %s", approval_id, exc)
-            return _redirect_with_msg(detail_url, msg="Internal error. Could not approve.", msg_type="danger")
-        return _redirect_with_msg(detail_url, msg="Approval granted successfully.", msg_type="success")
+            return _redirect_to_approval(approval_id, msg="Internal error. Could not approve.", msg_type="danger")
+        return _redirect_to_approval(approval_id, msg="Approval granted successfully.", msg_type="success")
 
     # ------------------------------------------------------------------
     # POST /approvals/{approval_id}/reject
@@ -546,7 +560,6 @@ def build_router() -> APIRouter:
 
         client = _client(request)
         actor = session.get("identity")
-        detail_url = f"/approvals/{approval_id}"
 
         # Sanitise reason at the HTTP layer; Core enforces its own limit.
         clean_reason: str | None = reason.strip() if reason else None
@@ -556,22 +569,26 @@ def build_router() -> APIRouter:
         try:
             client.reject(approval_id, reason=clean_reason, rejected_by=actor)
         except ApprovalNotFoundError:
-            return _redirect_with_msg(detail_url, msg="Approval not found.", msg_type="danger")
+            return _redirect_to_approval(approval_id, msg="Approval not found.", msg_type="danger")
         except ApprovalExpiredError:
-            return _redirect_with_msg(detail_url, msg="Approval has expired and cannot be rejected.", msg_type="danger")
+            return _redirect_to_approval(
+                approval_id, msg="Approval has expired and cannot be rejected.", msg_type="danger"
+            )
         except ApprovalConcurrentConsumeError:
-            return _redirect_with_msg(
-                detail_url, msg="A concurrent decision was already made on this approval.", msg_type="warning"
+            return _redirect_to_approval(
+                approval_id, msg="A concurrent decision was already made on this approval.", msg_type="warning"
             )
         except IllegalApprovalTransitionError:
-            return _redirect_with_msg(detail_url, msg="This approval is not in a pending state.", msg_type="warning")
+            return _redirect_to_approval(
+                approval_id, msg="This approval is not in a pending state.", msg_type="warning"
+            )
         except (CorruptApprovalRecordError, MalformedApprovalError) as exc:
             log.warning("rejection rejected by Core for %s: %s", approval_id, exc)
-            return _redirect_with_msg(detail_url, msg="Invalid rejection request.", msg_type="danger")
+            return _redirect_to_approval(approval_id, msg="Invalid rejection request.", msg_type="danger")
         except ApprovalStoreError as exc:
             log.error("store error rejecting %s: %s", approval_id, exc)
-            return _redirect_with_msg(detail_url, msg="Internal error. Could not reject.", msg_type="danger")
-        return _redirect_with_msg(detail_url, msg="Approval rejected.", msg_type="success")
+            return _redirect_to_approval(approval_id, msg="Internal error. Could not reject.", msg_type="danger")
+        return _redirect_to_approval(approval_id, msg="Approval rejected.", msg_type="success")
 
     # ------------------------------------------------------------------
     # GET /audit

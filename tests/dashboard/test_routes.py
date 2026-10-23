@@ -7,12 +7,15 @@ SQLiteApprovalStore.  No mocks — all Core behavior is live.
 from __future__ import annotations
 
 import hashlib
+import logging
 from datetime import timedelta
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
 from dmint import ApprovalState
-from dmint.errors import ApprovalExpiredError
+from dmint.dashboard.routes import _redirect_to_approval
+from dmint.errors import ApprovalExpiredError, ApprovalStoreError
 
 from tests.dashboard.conftest import make_record, NOW
 
@@ -26,6 +29,30 @@ class TestHealth:
         resp = test_client.get("/health")
         body = resp.json()
         assert body["status"] == "ok"
+
+
+class TestRedirectTargetSafety:
+    @pytest.mark.parametrize(
+        "approval_id",
+        [
+            "https://evil.example",
+            "//evil.example",
+            r"\\evil.example",
+            r"/\evil.example",
+            "..%2f..%2fevil.example",
+            "apr_x?next=//evil.example",
+        ],
+    )
+    def test_approval_redirect_stays_local(self, approval_id: str) -> None:
+        response = _redirect_to_approval(approval_id, msg="test", msg_type="danger")
+        location = response.headers["location"]
+        parsed = urlsplit(location)
+
+        assert response.status_code == 303
+        assert parsed.scheme == ""
+        assert parsed.netloc == ""
+        assert parsed.path.startswith("/approvals/")
+        assert parse_qs(parsed.query) == {"msg": ["test"], "msg_type": ["danger"]}
 
 
 class TestApiDashboard:
@@ -45,6 +72,27 @@ class TestApiDashboard:
         assert data["approved_count"] == 0
         assert data["rejected_count"] == 0
         assert data["pending"] == []
+
+    def test_store_error_details_not_exposed(self, test_client, client_obj, monkeypatch, caplog) -> None:
+        secret = "/tmp/private-approval-store.sqlite: database is locked"
+
+        def fail_list_pending(*args: object, **kwargs: object) -> None:
+            raise ApprovalStoreError(secret)
+
+        monkeypatch.setattr(client_obj, "list_pending", fail_list_pending)
+
+        with caplog.at_level(logging.ERROR, logger="dmint_dashboard"):
+            resp = test_client.get("/api/dashboard")
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["error"] == "Approval store unavailable."
+        assert body["pending_count"] == 0
+        assert body["approved_count"] == 0
+        assert body["rejected_count"] == 0
+        assert body["pending"] == []
+        assert secret not in resp.text
+        assert secret in caplog.text
 
     def test_pending_data_returned_from_core(self, test_client, pending_record):
         resp = test_client.get("/api/dashboard")
@@ -103,6 +151,22 @@ class TestIndex:
     def test_returns_200(self, test_client):
         resp = test_client.get("/")
         assert resp.status_code == 200
+
+    def test_store_error_details_not_exposed(self, test_client, client_obj, monkeypatch, caplog) -> None:
+        secret = "/tmp/private-approval-store.sqlite: database is locked"
+
+        def fail_list_pending(*args: object, **kwargs: object) -> None:
+            raise ApprovalStoreError(secret)
+
+        monkeypatch.setattr(client_obj, "list_pending", fail_list_pending)
+
+        with caplog.at_level(logging.ERROR, logger="dmint_dashboard"):
+            resp = test_client.get("/")
+
+        assert resp.status_code == 200
+        assert b"Approval Store Error" in resp.content
+        assert secret.encode() not in resp.content
+        assert secret in caplog.text
 
     def test_shows_no_pending_message_when_empty(self, test_client):
         resp = test_client.get("/")
@@ -257,6 +321,17 @@ class TestApprove:
         # Should be a redirect (303)
         assert resp.status_code == 303
 
+    def test_approve_redirect_is_local(self, test_client, pending_record):
+        resp = test_client.post(
+            f"/approvals/{pending_record.approval_id}/approve",
+            follow_redirects=False,
+        )
+        parsed = urlsplit(resp.headers["location"])
+
+        assert parsed.scheme == ""
+        assert parsed.netloc == ""
+        assert parsed.path == f"/approvals/{pending_record.approval_id}"
+
     def test_approve_sets_core_state_to_approved(self, test_client, store, pending_record):
         test_client.post(f"/approvals/{pending_record.approval_id}/approve")
         loaded = store.get(pending_record.approval_id)
@@ -350,6 +425,18 @@ class TestReject:
             follow_redirects=False,
         )
         assert resp.status_code == 303
+
+    def test_reject_redirect_is_local(self, test_client, pending_record):
+        resp = test_client.post(
+            f"/approvals/{pending_record.approval_id}/reject",
+            data={"reason": ""},
+            follow_redirects=False,
+        )
+        parsed = urlsplit(resp.headers["location"])
+
+        assert parsed.scheme == ""
+        assert parsed.netloc == ""
+        assert parsed.path == f"/approvals/{pending_record.approval_id}"
 
     def test_reject_sets_core_state_to_rejected(self, test_client, store, pending_record):
         test_client.post(
