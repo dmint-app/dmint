@@ -489,9 +489,11 @@ class TestWebhookNotifierDispatch:
         notifier.send_approval_required(record)
         assert mock_urlopen.call_count == 3
         called_urls = [call_item[0][0].full_url for call_item in mock_urlopen.call_args_list]
-        assert "https://slack.example.com" in called_urls
-        assert "https://discord.example.com" in called_urls
-        assert "https://teams.example.com" in called_urls
+        assert set(called_urls) == {
+            "https://slack.example.com",
+            "https://discord.example.com",
+            "https://teams.example.com",
+        }
 
 
 @pytest.mark.usefixtures("_hermetic_dns")
@@ -557,7 +559,10 @@ class TestWebhookFailureIsolation:
             notifier.send_approval_required(record)  # Must not raise
 
         assert "Failed to dispatch Slack webhook" in caplog.text
-        assert "hooks.slack.com" in caplog.text
+        assert caplog.records
+        log_args = caplog.records[-1].args
+        assert isinstance(log_args, tuple)
+        assert log_args[:2] == ("Slack", "hooks.slack.com")
         assert secret_url not in caplog.text
         assert "XXXXXXXXXXXXXXXXXXXXXXXX" not in caplog.text
         assert "/services/" not in caplog.text
@@ -674,9 +679,11 @@ class TestWebhookFailureIsolation:
         notifier.send_policy_denied(req)
         assert mock_urlopen.call_count == 3
         called_urls = [call_item[0][0].full_url for call_item in mock_urlopen.call_args_list]
-        assert "https://slack.example.com" in called_urls
-        assert "https://discord.example.com" in called_urls
-        assert "https://teams.example.com" in called_urls
+        assert set(called_urls) == {
+            "https://slack.example.com",
+            "https://discord.example.com",
+            "https://teams.example.com",
+        }
 
     def test_dispatch_denial_webhook_standalone_exception_resilience(self, caplog: pytest.LogCaptureFixture) -> None:
         with patch.object(WebhookNotifier, "send_policy_denied", side_effect=RuntimeError("unexpected denial bug")):
