@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.2] - 2026-10-23
+
+### Fixed
+- Updated test version assertions and user-agent strings to match `2.0.2` monorepo version.
+- Aligned `tests/cli/test_version_consistency.py`, `tests/core/test_webhooks.py`, and `tests/skills/test_policy_manager_skill.py` with the `2.0.2` release.
+
+### CI
+- Added `workflow_run` trigger to `publish.yml` so every successful CI push to `main` automatically publishes to PyPI without requiring a manual GitHub Release.
+- Added PyPI version existence check to reject re-publishing an already-published version.
+- Added `concurrency` guard to prevent double-publish races.
+
 ## [2.0.1] - 2026-10-21
 
 ### Security

@@ -76,7 +76,7 @@ Modern AI agents (Claude Code, Cursor, Antigravity, AutoGPT, custom LangChain/Ll
 
 ## Subsystems
 
-`dmint` v2.0.1 is organized as a unified monorepo providing modular packages under a single distribution:
+`dmint` v2.0.2 is organized as a unified monorepo providing modular packages under a single distribution:
 
 | Module | Description | Primary Exports / Entrypoint |
 | :--- | :--- | :--- |
@@ -405,7 +405,7 @@ mypy src/
 # 4. Run targeted tests for what you changed
 pytest tests/<subsystem>/ -v   # e.g., tests/core/, tests/cli/, tests/mcp/, tests/dashboard/
 
-# 5. Run full test suite (baseline: 1515 passed, 0 skipped, 0 failed)
+# 5. Run full test suite (baseline: 1525 passed, 0 skipped, 0 failed)
 pytest tests/ -q
 
 # 6. Run pre-commit checks across all files
@@ -450,10 +450,10 @@ python3 -m venv /tmp/dmint-test-env
 source /tmp/dmint-test-env/bin/activate
 
 # Install the wheel with all extras
-pip install "dist/dmint-2.0.1-py3-none-any.whl[all]"
+pip install "dist/dmint-2.0.2-py3-none-any.whl[all]"
 
 # 4. Verify all installed CLI entrypoints
-dmint --version        # Expected: dmint 2.0.1
+dmint --version        # Expected: dmint 2.0.2
 dmint --help           # Policy wizards and verification commands
 dmint-mcp --help       # MCP multi-server gateway
 dmint-dashboard --help # Approval web review console
@@ -515,14 +515,21 @@ npm start
 
 ---
 
-## Versioning & Severity Protocol
+## Versioning & Push-Time Release Gate
 
-Dmint adheres strictly to **[Semantic Versioning 2.0.0](https://semver.org/)**:
-- **Patch (`2.0.0` &rarr; `2.0.1`)**: Bug fixes, documentation updates, test additions, non-breaking refactors.
-- **Minor (`2.0.0` &rarr; `2.1.0`)**: Backwards-compatible features, new CLI flags, new integrations.
-- **Major (`2.0.0` &rarr; `3.0.0`)**: Incompatible API changes, breaking policy schema modifications.
+Dmint adheres strictly to **[Semantic Versioning 2.0.0](https://semver.org/)** and uses a push-time release gate:
 
-> **CRITICAL RULE FOR AI AGENTS**: AI agents must **NEVER** change or bump version numbers silently. Always assess change severity, suggest the recommended SemVer bump to the user with clear rationale, and wait for explicit permission before updating `pyproject.toml`, `version.py`, `__init__.py`, or `CHANGELOG.md`.
+| Change severity | SemVer bump | Typical changes |
+|---|---|---|
+| **High / Major** | `2.0.2` &rarr; `3.0.0` | Incompatible API changes, breaking policy schema modifications, removed public methods. |
+| **Medium / Minor** | `2.0.2` &rarr; `2.1.0` | Backwards-compatible features, new CLI flags, new integrations. |
+| **Low / Patch** | `2.0.2` &rarr; `2.0.3` | Bug fixes, security hardening, documentation updates, test additions, non-breaking refactors. |
+
+Every push must include the appropriate version decision and bump. A push carrying any Major change is Major; otherwise any Minor change makes it Minor; otherwise it is Patch. When severity is ambiguous, choose the higher severity and ask before a Major bump.
+
+The bump and its required updates are made in the same push: `pyproject.toml`, `src/dmint/version.py`, `CHANGELOG.md`, `PLAIN.md`, current-version documentation, and any version-pinned tests. The full verification flow in [`FLOW.md`](FLOW.md) must pass before pushing.
+
+After CI succeeds for a push to `main`, the **Publish to PyPI** workflow publishes the new version automatically. Manual dispatch and GitHub release publication remain fallback paths. The workflow rejects a version that already exists on PyPI; bump the version instead of retrying the same one.
 
 ---
 

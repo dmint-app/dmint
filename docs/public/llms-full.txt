@@ -127,7 +127,7 @@ Executes Callable          Halts execution; persists record in SQLite/Postgres;
 
 ## Project Status
 
-- **Version**: `2.0.1`
+- **Version**: `2.0.2`
 - **Supported Python**: `3.10`, `3.11`, `3.12`, `3.13`
 - **Supported Transports**: Python decorator (`@engine.protect`), MCP Stdio proxy, MCP Streamable HTTP proxy.
 - **Backends**: SQLite (default, with WAL mode and row HMAC integrity) or PostgreSQL via SQLAlchemy (`DMINT_DATABASE_URL`).
@@ -173,7 +173,7 @@ dmint --version
 ```
 
 ```text
-dmint 2.0.1
+dmint 2.0.2
 ```
 
 Generate the signing and storage-integrity keys:
@@ -3549,7 +3549,7 @@ dmint-mcp [action] [options]
 DOCUMENT: Python Core API Reference
 URL: https://docs.dmint.app/reference/core-api
 SECTION: Reference
-SUMMARY: Public classes, signatures, methods, and parameters in the dmint 2.0.1 package.
+SUMMARY: Public classes, signatures, methods, and parameters in the dmint 2.0.2 package.
 ================================================================================
 
 # Python Core API Reference (`dmint`)

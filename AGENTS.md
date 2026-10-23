@@ -34,9 +34,9 @@ Every tool call passes through a deterministic policy evaluator before it reache
 
 ---
 
-## 3. MONOREPO ARCHITECTURE (v2.0.1)
+## 3. MONOREPO ARCHITECTURE (v2.0.2)
 
-The monorepo lives at `~/dmint` and ships as a **single distribution package** (`dmint v2.0.1`) containing five unified subsystems:
+The monorepo lives at `~/dmint` and ships as a **single distribution package** (`dmint v2.0.2`) containing five unified subsystems:
 
 ```text
 ~/dmint
@@ -104,7 +104,7 @@ mypy src/
 
 - **Always run from `~/dmint`** (the monorepo root).
 - **Always set `PYTHONPATH=src`** so all `dmint.*` imports resolve correctly.
-- **Current baseline:** 1515 tests — 1515 passed, 0 failed, 0 skipped.
+- **Current baseline:** 1525 tests — 1525 passed, 0 failed, 0 skipped.
 - **Any new code must maintain 0 skipped tests.** The `skipTest()` pattern is banned. If a test depends on a file, that file must exist at the exact path (no fallback logic).
 - **PostgreSQL-backed suites must fail, never skip.** They run against `DMINT_TEST_DATABASE_URL` (default `postgresql://postgres:postgres@localhost:5432/dmint_test`) through the shared `tests/postgres_support.py` gate (`require_postgres()`); when the server is unreachable they fail loudly with an actionable error instead of skipping (CI provisions PostgreSQL automatically).
 

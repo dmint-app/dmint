@@ -1,6 +1,10 @@
 name: Publish to PyPI
 
 on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
   release:
     types: [published]
   workflow_dispatch:
@@ -9,12 +13,23 @@ permissions:
   id-token: write
   contents: read
 
+concurrency:
+  group: pypi-publish
+  cancel-in-progress: false
+
 jobs:
   build-and-publish:
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'main')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -25,6 +40,41 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install build twine
+
+      - name: Read package version
+        id: package-version
+        run: |
+          version=$(python - <<'PY'
+          import re
+          from pathlib import Path
+
+          text = Path("pyproject.toml").read_text(encoding="utf-8")
+          match = re.search(r'^version\s*=\s*"([^"]+)"\s*$', text, re.MULTILINE)
+          if match is None:
+              raise SystemExit("Could not read version from pyproject.toml")
+          print(match.group(1))
+          PY
+          )
+          echo "value=${version}" >> "${GITHUB_OUTPUT}"
+
+      - name: Reject an already-published version
+        run: |
+          version="${{ steps.package-version.outputs.value }}"
+          status=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+            --max-time 20 "https://pypi.org/pypi/dmint/${version}/json")
+          case "${status}" in
+            404)
+              echo "dmint ${version} is not published yet."
+              ;;
+            200)
+              echo "::error::dmint ${version} is already published on PyPI. Bump the version per PLAIN.md section 19."
+              exit 1
+              ;;
+            *)
+              echo "::error::PyPI version check returned HTTP ${status}."
+              exit 1
+              ;;
+          esac
 
       - name: Build package distributions
         run: python -m build
