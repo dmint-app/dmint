@@ -11,7 +11,7 @@ The core deterministic policy authorization engine and storage subsystem of Dmin
 | Module | Purpose |
 | :--- | :--- |
 | [`policy.py`](policy.py) | Declarative policy rules (`Rule`, `Policy`, `Condition`, `Decision`). |
-| [`enforcement.py`](enforcement.py) | Engine (`Dmint`), `@engine.protect(...)` decorator, snapshot binding, and atomic retry. |
+| [`enforcement.py`](enforcement.py) | Engine (`Dmint`), `@dmint.protect(...)` decorator, snapshot binding, and atomic retry. |
 | [`canonicalize.py`](canonicalize.py) | RFC 8785 JSON Canonicalization Scheme (JCS) and sensitive data redaction. |
 | [`request_binding.py`](request_binding.py) | Domain-separated SHA-256 fingerprinting for tool requests and context. |
 | [`storage/sqlite.py`](storage/sqlite.py) | Hardened SQLite approval state machine (`SQLiteApprovalStore`). |
@@ -52,7 +52,7 @@ store = SQLiteApprovalStore("./approvals.sqlite3", deployment_epoch="prod-v1")
 provenance = PolicyProvenance("prod-v1", policy_digest(policy), datetime.now(timezone.utc))
 
 # 3. Instantiate the engine
-engine = Dmint(
+dmint = Dmint(
     policy=policy,
     agent_id="agent-007",
     context=TrustedContext({"env": "production"}),
@@ -63,17 +63,17 @@ engine = Dmint(
 
 
 # 4. Decorate functions
-@engine.protect("database.select")
+@dmint.protect("database.select")
 def select_users(query: str) -> list[dict]:
     return [{"id": 1, "username": "alice"}]
 
 
-@engine.protect("database.update")
+@dmint.protect("database.update")
 def update_user_role(user_id: int, role: str) -> str:
     return f"Updated user {user_id} to {role}"
 
 
-@engine.protect("database.drop")
+@dmint.protect("database.drop")
 def drop_table(table_name: str) -> str:
     return f"Dropped {table_name}"
 

@@ -120,7 +120,7 @@ PUBLIC_KEY_HEX = "PASTE_PUBLIC_KEY_HEX"
 policy = Policy.from_file("policy.json")
 store = SQLiteApprovalStore("approvals.sqlite3", deployment_epoch="default")
 
-engine = Dmint(
+dmint = Dmint(
     policy=policy,
     agent_id="finance-agent-01",
     context=TrustedContext({"tenant": "prod-us"}),
@@ -139,15 +139,15 @@ engine = Dmint(
     approval_ttl=timedelta(minutes=5),
 )
 
-@engine.protect("ledger.view_balance")
+@dmint.protect("ledger.view_balance")
 def view_balance(account_id: str) -> str:
     return f"Balance for {account_id}: $1,250.00"
 
-@engine.protect("ledger.transfer_funds")
+@dmint.protect("ledger.transfer_funds")
 def transfer_funds(account_id: str, amount: float) -> str:
     return f"Transferred ${amount:.2f} from {account_id}"
 
-@engine.protect("ledger.delete_account")
+@dmint.protect("ledger.delete_account")
 def delete_account(account_id: str) -> str:
     return f"Account {account_id} deleted"
 
@@ -155,7 +155,7 @@ if __name__ == "__main__":
     if len(sys.argv) == 2:
         credential = Path(sys.argv[1]).read_bytes()
         print(
-            engine.retry(
+            dmint.retry(
                 transfer_funds,
                 "acc_100",
                 500.0,

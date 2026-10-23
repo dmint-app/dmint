@@ -78,7 +78,7 @@ policy = Policy.from_file("policy.json")
 store = SQLiteApprovalStore("approvals.sqlite3", deployment_epoch="default")
 provenance = PolicyProvenance("v1", policy_digest(policy), datetime.now(timezone.utc))
 
-engine = Dmint(
+dmint = Dmint(
     policy=policy,
     agent_id="finance-agent-01",
     context=TrustedContext({"tenant": "prod-us"}),
@@ -87,7 +87,7 @@ engine = Dmint(
     approval_ttl=timedelta(minutes=5),
 )
 
-@engine.protect("database.update")
+@dmint.protect("database.update")
 def update_user(user_id: int, role: str):
     return {"user_id": user_id, "role": role}
 ```
@@ -101,7 +101,7 @@ dmint pending --db-path approvals.sqlite3
 dmint approve <approval_id> --db-path approvals.sqlite3 --reason "Verified audit note" --output-assertion ./assertion.json
 
 # Execute approved retry in Python
-result = engine.retry(update_user, user_id=42, role="admin", approval_credential=Path("./assertion.json").read_bytes())
+result = dmint.retry(update_user, user_id=42, role="admin", approval_credential=Path("./assertion.json").read_bytes())
 ```
 
 ### 6. Transparent MCP Gateway (`dmint-mcp`)
@@ -131,7 +131,7 @@ For the full, single-file plain-text corpus of all 28 documentation pages, read 
 - [Resource Matching Engine](https://docs.dmint.app/concepts/resources): How Dmint normalizes, validates, and matches paths, URLs, hostnames, and identifiers without ReDoS or traversal vulnerabilities.
 
 ### How-To Guides
-- [Python Decorator Integration](https://docs.dmint.app/guides/python-integration): How to protect Python functions, async coroutines, class methods, and static methods using the @engine.protect decorator.
+- [Python Decorator Integration](https://docs.dmint.app/guides/python-integration): How to protect Python functions, async coroutines, class methods, and static methods using the @dmint.protect decorator.
 - [Protecting MCP Servers](https://docs.dmint.app/guides/protecting-mcp): How to use dmint-mcp as a deterministic security gateway and proxy for Model Context Protocol tools with SSRF and schema pinning defenses.
 - [Human Approvals](https://docs.dmint.app/guides/human-approvals): Review, inspect parameter diffs, and sign Ed25519 approvals using the local web dashboard or terminal CLI.
 - [Approval Notifications and Webhooks](https://docs.dmint.app/guides/notifications): Configure real-time outgoing webhook alerts for Slack, Discord, and Microsoft Teams on approval events.
@@ -151,7 +151,7 @@ For the full, single-file plain-text corpus of all 28 documentation pages, read 
 
 ### Reference
 - [CLI Command Reference](https://docs.dmint.app/reference/cli): Comprehensive command-line interface documentation for the dmint CLI.
-- [Python Core API Reference](https://docs.dmint.app/reference/core-api): Public classes, signatures, methods, and parameters in the dmint v2.0.2 package.
+- [Python Core API Reference](https://docs.dmint.app/reference/core-api): Public classes, signatures, methods, and parameters in the dmint v2.0.3 package.
 - [Policy Schema Specification](https://docs.dmint.app/reference/policy-schema): Formal specification and schema for Dmint Core policy.json mappings.
 - [MCP Protection Schema](https://docs.dmint.app/reference/mcp-protection-schema): Configuration specification for mcp_protection.json used by the dmint-mcp gateway.
 - [Error Code Reference](https://docs.dmint.app/reference/errors): Complete reference for all DMT_* machine-readable error codes: meaning, causes, and remediation steps.

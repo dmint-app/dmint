@@ -227,14 +227,14 @@ class Dmint:
                 Rule.approval_required("db", "delete"),
             ]
         )
-        engine = Dmint(
+        dmint = Dmint(
             policy=policy,
             agent_id="agent-007",
             context=TrustedContext({"env": "prod"}),
         )
 
 
-        @engine.protect("db.query")
+        @dmint.protect("db.query")
         def query(sql: str) -> list[dict]: ...
         ```
 
@@ -773,7 +773,7 @@ class Dmint:
 
         Example:
             ```python
-            @engine.protect("fs.read_file", resource=lambda args: args["filename"])
+            @dmint.protect("fs.read_file", resource=lambda args: args["filename"])
             def read_file(filename: str) -> str:
                 return open(filename).read()
             ```

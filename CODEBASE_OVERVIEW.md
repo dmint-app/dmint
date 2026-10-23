@@ -10,7 +10,7 @@ Commit `618f840`, 2026-10-15, tests 1,323 passed / 0 failed / 0 skipped.
 2. Three outputs only: `ALLOW`, `DENY`, or `APPROVAL_REQUIRED`. No other states exist.
 3. Every call is RFC 8785-canonicalized and SHA-256 fingerprinted before policy lookup.
 4. Approvals are Ed25519-signed, single-use, and HMAC-protected at the storage row level.
-5. Two integration modes: Python decorator (`@engine.protect`) and MCP gateway (`dmint-mcp`).
+5. Two integration modes: Python decorator (`@dmint.protect`) and MCP gateway (`dmint-mcp`).
 6. Storage: SQLite (default) or PostgreSQL via SQLAlchemy; pluggable via `ApprovalStore` ABC.
 7. Three deprecated top-level shims (`dmint.canonicalize`, `.enforcement`, `.hashing`) — removed in v3.0.0.
 8. Tag `v2.0.0` exists at `ad18c24`; 19 subsequent security commits landed on main without a patch bump.
@@ -40,7 +40,7 @@ tests/
 AI Agent
    │
    ▼
-[Decorator @engine.protect]   or   [dmint-mcp gateway/proxy]
+[Decorator @dmint.protect]   or   [dmint-mcp gateway/proxy]
    │                                        │
    └────────────────┬───────────────────────┘
                     ▼
@@ -126,7 +126,7 @@ AI Agent
 
 ### Enforcement Decorator  `src/dmint/core/enforcement.py`
 - Does: wraps Python callables with policy enforcement; the main developer API.
-- How: `@engine.protect("tool.action")` — supports sync functions, `async def`, class methods, static methods; rejects generators.
+- How: `@dmint.protect("tool.action")` — supports sync functions, `async def`, class methods, static methods; rejects generators.
 - How: `Dmint.__init__` accepts `policy`, `policy_file` (local or remote HTTPS), `agent_id`, `context`, `approval_store`.
 - How: `execute(authorized)` atomically consumes approval then calls function.
 - Talks to: `core.policy`, `core.approvals`, `core.storage`, `core.verification`, `core.webhooks`.
@@ -304,7 +304,7 @@ AI Agent
 
 2. **`httpx2` optional dependency** — `pyproject.toml` `[mcp]` extras lists `httpx2>=2.5,<3.0.0`. `httpx2` is a real PyPI package (Pydantic's next-gen HTTP client, v2.13.1 in venv). The `mcp` SDK depends on it. **Not a bug — verified present.**
 
-3. **Async decorator support** ✅ FIXED — README callout replaced: `@engine.protect` now documented to support `async def`, class methods, and static methods. Stale SSRF Tier 2 caveat also removed.
+3. **Async decorator support** ✅ FIXED — README callout replaced: `@dmint.protect` now documented to support `async def`, class methods, and static methods. Stale SSRF Tier 2 caveat also removed.
 
 4. **`PolicyEvaluator` phantom name** — Not found in any source file; not in checked docs. **CONFIRMED absent — no fix needed.**
 

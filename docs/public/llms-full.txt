@@ -51,14 +51,14 @@ policy = Policy([
 ])
 
 # 2. Initialize the engine
-engine = Dmint(
+dmint = Dmint(
     policy=policy,
     agent_id="agent-prod-01",
     context=TrustedContext({"environment": "production"}),
 )
 
 # 3. Guard the callable
-@engine.protect("database.delete")
+@dmint.protect("database.delete")
 def delete_records(table: str, condition: str) -> int:
     return 42
 
@@ -127,9 +127,9 @@ Executes Callable          Halts execution; persists record in SQLite/Postgres;
 
 ## Project Status
 
-- **Version**: `2.0.2`
+- **Version**: `2.0.3`
 - **Supported Python**: `3.10`, `3.11`, `3.12`, `3.13`
-- **Supported Transports**: Python decorator (`@engine.protect`), MCP Stdio proxy, MCP Streamable HTTP proxy.
+- **Supported Transports**: Python decorator (`@dmint.protect`), MCP Stdio proxy, MCP Streamable HTTP proxy.
 - **Backends**: SQLite (default, with WAL mode and row HMAC integrity) or PostgreSQL via SQLAlchemy (`DMINT_DATABASE_URL`).
 - **Cryptographic Standard**: RFC 8785 (JCS) canonicalization, SHA-256 domain-separated hashing, Ed25519 public-key approval signatures.
 
@@ -173,7 +173,7 @@ dmint --version
 ```
 
 ```text
-dmint 2.0.2
+dmint 2.0.3
 ```
 
 Generate the signing and storage-integrity keys:
@@ -265,7 +265,7 @@ PUBLIC_KEY_HEX = "PASTE_PUBLIC_KEY_HEX"
 policy = Policy.from_file("policy.json")
 store = SQLiteApprovalStore("approvals.sqlite3", deployment_epoch="default")
 
-engine = Dmint(
+dmint = Dmint(
     policy=policy,
     agent_id="finance-agent-01",
     context=TrustedContext({"tenant": "prod-us"}),
@@ -284,15 +284,15 @@ engine = Dmint(
     approval_ttl=timedelta(minutes=5),
 )
 
-@engine.protect("ledger.view_balance")
+@dmint.protect("ledger.view_balance")
 def view_balance(account_id: str) -> str:
     return f"Balance for {account_id}: $1,250.00"
 
-@engine.protect("ledger.transfer_funds")
+@dmint.protect("ledger.transfer_funds")
 def transfer_funds(account_id: str, amount: float) -> str:
     return f"Transferred ${amount:.2f} from {account_id}"
 
-@engine.protect("ledger.delete_account")
+@dmint.protect("ledger.delete_account")
 def delete_account(account_id: str) -> str:
     return f"Account {account_id} deleted"
 
@@ -300,7 +300,7 @@ if __name__ == "__main__":
     if len(sys.argv) == 2:
         credential = Path(sys.argv[1]).read_bytes()
         print(
-            engine.retry(
+            dmint.retry(
                 transfer_funds,
                 "acc_100",
                 500.0,
@@ -556,7 +556,7 @@ verifier = ApprovalVerifier(
     audience="dmint/dashboard/v1",
 )
 
-engine = Dmint(
+dmint = Dmint(
     policy=policy,
     agent_id="support-agent-01",
     context=TrustedContext({"tenant": "prod-us"}),
@@ -566,11 +566,11 @@ engine = Dmint(
     approval_ttl=timedelta(minutes=5),
 )
 
-@engine.protect("billing.issue_small_refund")
+@dmint.protect("billing.issue_small_refund")
 def issue_small_refund(customer_id: str, amount: float, reason: str) -> str:
     return f"Refunded ${amount:.2f} to {customer_id}"
 
-@engine.protect("billing.issue_large_refund")
+@dmint.protect("billing.issue_large_refund")
 def issue_large_refund(customer_id: str, amount: float, reason: str) -> str:
     return f"Refunded ${amount:.2f} to {customer_id}"
 
@@ -586,7 +586,7 @@ if __name__ == "__main__":
     if len(sys.argv) == 2:
         credential = Path(sys.argv[1]).read_bytes()
         print(
-            engine.retry(
+            dmint.retry(
                 issue_large_refund,
                 "cust_42",
                 250.0,
@@ -815,7 +815,7 @@ There are no probabilistic decisions, confidence thresholds, or model calls in t
 ## Detailed Step-by-Step Breakdown
 
 ### 1. Interception and Argument Snapshotting
-Whether invoked via the `@engine.protect` decorator or via the `dmint-mcp` gateway proxy, Dmint captures the exact arguments passed to the tool. Variadic positional (`*args`) and keyword arguments (`**kwargs`) are normalized into a frozen dictionary representation.
+Whether invoked via the `@dmint.protect` decorator or via the `dmint-mcp` gateway proxy, Dmint captures the exact arguments passed to the tool. Variadic positional (`*args`) and keyword arguments (`**kwargs`) are normalized into a frozen dictionary representation.
 
 ### 2. RFC 8785 Canonicalization
 JSON serialization is non-deterministic in standard libraries: dictionary keys can be ordered arbitrarily, whitespace varies, and numeric representations can differ. Dmint normalizes all request arguments using RFC 8785 JSON Canonicalization Scheme (JCS):
@@ -1420,11 +1420,11 @@ When protecting Python callables, specify a resource extractor:
 
 ```python
 # Fixed resource:
-@engine.protect("database.query", resource="public.users")
+@dmint.protect("database.query", resource="public.users")
 def query_users(): ...
 
 # Dynamic resource extracted from arguments:
-@engine.protect(
+@dmint.protect(
     "fs.read_file",
     resource=lambda args: args["filepath"],  # Extracted from arguments
 )
@@ -1442,12 +1442,12 @@ def read_file(filepath: str) -> str: ...
 DOCUMENT: Python Decorator Integration
 URL: https://docs.dmint.app/guides/python-integration
 SECTION: How-To Guides
-SUMMARY: How to protect Python functions, async coroutines, class methods, and static methods using the @engine.protect decorator.
+SUMMARY: How to protect Python functions, async coroutines, class methods, and static methods using the @dmint.protect decorator.
 ================================================================================
 
 # Python Decorator Integration
 
-The `@engine.protect` decorator places a deterministic authorization gate directly in front of Python callables.
+The `@dmint.protect` decorator places a deterministic authorization gate directly in front of Python callables.
 
 Dmint intercepts invocations, canonicalizes arguments, verifies policies, and persists pending approval records without altering your business logic.
 
@@ -1491,7 +1491,7 @@ policy = Policy([
 store = SQLiteApprovalStore("approvals.sqlite3", deployment_epoch="default")
 provenance = PolicyProvenance("v1", policy_digest(policy), datetime.now(timezone.utc))
 
-engine = Dmint(
+dmint = Dmint(
     policy=policy,
     agent_id="agent-01",
     context=TrustedContext({"environment": "production"}),
@@ -1500,11 +1500,11 @@ engine = Dmint(
     approval_ttl=timedelta(minutes=5),
 )
 
-@engine.protect("payments.get_status")
+@dmint.protect("payments.get_status")
 def get_payment_status(payment_id: str) -> dict:
     return {"id": payment_id, "status": "SETTLED"}
 
-@engine.protect("payments.refund")
+@dmint.protect("payments.refund")
 def issue_refund(payment_id: str, amount: float) -> dict:
     return {"id": payment_id, "refunded": amount}
 ```
@@ -1524,13 +1524,13 @@ policy = Policy([
     Rule.approval_required("api", "mutate"),
 ])
 
-engine = Dmint(
+dmint = Dmint(
     policy=policy,
     agent_id="async-worker-01",
     context=TrustedContext({"environment": "staging"}),
 )
 
-@engine.protect("api.mutate")
+@dmint.protect("api.mutate")
 async def async_database_mutate(record_id: str, payload: dict) -> dict:
     await asyncio.sleep(0.01)  # Simulated async I/O
     return {"record_id": record_id, "updated": True}
@@ -1559,19 +1559,19 @@ class LedgerService:
         self.tenant_id = tenant_id
 
     # Instance method: Dmint extracts 'self' and normalizes explicit arguments
-    @engine.protect("ledger.record_entry")
+    @dmint.protect("ledger.record_entry")
     def record_entry(self, entry_id: str, amount: float) -> str:
         return f"Tenant {self.tenant_id}: Recorded entry {entry_id} for ${amount:.2f}"
 
     # Class method: Dmint preserves class reference
     @classmethod
-    @engine.protect("ledger.get_version")
+    @dmint.protect("ledger.get_version")
     def get_version(cls) -> str:
         return "ledger-v2.1"
 
     # Static method:
     @staticmethod
-    @engine.protect("ledger.compute_tax")
+    @dmint.protect("ledger.compute_tax")
     def compute_tax(subtotal: float, rate: float) -> float:
         return subtotal * rate
 ```
@@ -1584,7 +1584,7 @@ Policies can match against specific resources (such as file paths, database tabl
 
 ```python
 # Resource extracted dynamically from arguments dict:
-@engine.protect(
+@dmint.protect(
     "filesystem.read",
     resource=lambda args: args["path"],
 )
@@ -1593,7 +1593,7 @@ def read_system_file(path: str) -> str:
         return f.read()
 
 # Dynamic resource with compound formatting:
-@engine.protect(
+@dmint.protect(
     "database.table_operation",
     resource=lambda args: f"{args['schema']}.{args['table']}",
 )
@@ -1614,7 +1614,7 @@ import os
 from dmint import Dmint, TrustedContext
 
 # Remote policy loading requires expected_policy_digest:
-engine = Dmint(
+dmint = Dmint(
     policy_file="https://internal-security.company.com/policies/billing-v2.json",
     expected_policy_digest=os.environ["DMINT_EXPECTED_POLICY_DIGEST"],
     agent_id="agent-01",
@@ -1837,7 +1837,7 @@ SUMMARY: Review pending requests and transfer a signed, single-use Ed25519 asser
 
 When a policy evaluates to `APPROVAL_REQUIRED`, Dmint persists one `PENDING` record and halts. A human reviews the exact request, approves or rejects it, and — if approved — gives the protected host a signed assertion for the retry.
 
-The approval itself does **not** execute the tool. Execution happens only when the host calls `engine.retry(...)` (or MCP retries with an assertion argument) and Core verifies and consumes that assertion.
+The approval itself does **not** execute the tool. Execution happens only when the host calls `dmint.retry(...)` (or MCP retries with an assertion argument) and Core verifies and consumes that assertion.
 
 ---
 
@@ -2021,7 +2021,7 @@ Any retry after rejection fails closed. A rejected approval cannot be “un-reje
 ```python
 from pathlib import Path
 
-result = engine.retry(
+result = dmint.retry(
     transfer_funds,
     "acc_100",
     500.0,
@@ -2029,7 +2029,7 @@ result = engine.retry(
 )
 ```
 
-The callable and keyword/positional arguments must be the same as the original invocation. `engine.retry` verifies the signature and binding, re-evaluates the current policy, atomically consumes the approval, and then executes the function once.
+The callable and keyword/positional arguments must be the same as the original invocation. `dmint.retry` verifies the signature and binding, re-evaluates the current policy, atomically consumes the approval, and then executes the function once.
 
 ### MCP gateway
 
@@ -3091,7 +3091,7 @@ SQLite serializes write operations at the database level. Although Dmint enables
 ## 3. Tool and Decorator Boundaries
 
 ### Generator Functions Cannot Be Protected
-Python generator functions (`yield`) and asynchronous generators (`yield` in `async def`) cannot be decorated with `@engine.protect`. Because generators yield control iteratively, atomic pre-execution authorization cannot be enforced across multiple resumed yields. Dmint raises `RequestValidationError` if you attempt to decorate a generator.
+Python generator functions (`yield`) and asynchronous generators (`yield` in `async def`) cannot be decorated with `@dmint.protect`. Because generators yield control iteratively, atomic pre-execution authorization cannot be enforced across multiple resumed yields. Dmint raises `RequestValidationError` if you attempt to decorate a generator.
 
 ### Symlinks are Not Resolved by Path Normalization
 Dmint's `path` resource matcher performs strict lexical normalization (resolving `.` and `..`, stripping trailing slashes, rejecting percent-encoded traversal and NUL bytes). However, lexical normalization cannot inspect the underlying filesystem to resolve symbolic links.
@@ -3549,7 +3549,7 @@ dmint-mcp [action] [options]
 DOCUMENT: Python Core API Reference
 URL: https://docs.dmint.app/reference/core-api
 SECTION: Reference
-SUMMARY: Public classes, signatures, methods, and parameters in the dmint 2.0.2 package.
+SUMMARY: Public classes, signatures, methods, and parameters in the dmint 2.0.3 package.
 ================================================================================
 
 # Python Core API Reference (`dmint`)
@@ -3610,7 +3610,7 @@ engine.protect(capability: str, *, resource: ResourceSpec = NO_RESOURCE) -> Call
 engine.protected(capability: str, *, resource: ResourceSpec = NO_RESOURCE) -> Callable
 engine.authorize(function: Callable, *args, capability: str, resource: ResourceSpec = NO_RESOURCE, **kwargs) -> AuthorizedRequest
 engine.execute(authorized: AuthorizedRequest) -> Any
-engine.retry(
+dmint.retry(
     protected_callable: Callable,
     *args,
     approval_credential: ApprovalAssertion | bytes,

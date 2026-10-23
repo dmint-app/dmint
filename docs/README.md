@@ -133,7 +133,7 @@ docs/
 │   └── resources.mdx           # Resource engine: path, url, host, id matching & traversal defense
 │
 ├── guides/                     # Task-oriented, step-by-step how-to guides
-│   ├── python-integration.mdx  # @engine.protect decorator for def, async def, class/static methods
+│   ├── python-integration.mdx  # @dmint.protect decorator for def, async def, class/static methods
 │   ├── protecting-mcp.mdx      # Wrapping MCP servers with dmint-mcp gateway & schema pinning
 │   ├── human-approvals.mdx     # Operating dashboard UI, CLI approvals, executing retries
 │   ├── notifications.mdx       # Real-time webhook notifications (Slack, Discord, Teams)

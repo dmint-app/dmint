@@ -44,14 +44,14 @@ policy = Policy([
 ])
 
 # 2. Initialize the engine
-engine = Dmint(
+dmint = Dmint(
     policy=policy,
     agent_id="agent-prod-01",
     context=TrustedContext({"environment": "production"}),
 )
 
 # 3. Guard the callable
-@engine.protect("database.delete")
+@dmint.protect("database.delete")
 def delete_records(table: str, condition: str) -> int:
     return 42
 
@@ -120,9 +120,9 @@ Executes Callable          Halts execution; persists record in SQLite/Postgres;
 
 ## Project Status
 
-- **Version**: `2.0.2`
+- **Version**: `2.0.3`
 - **Supported Python**: `3.10`, `3.11`, `3.12`, `3.13`
-- **Supported Transports**: Python decorator (`@engine.protect`), MCP Stdio proxy, MCP Streamable HTTP proxy.
+- **Supported Transports**: Python decorator (`@dmint.protect`), MCP Stdio proxy, MCP Streamable HTTP proxy.
 - **Backends**: SQLite (default, with WAL mode and row HMAC integrity) or PostgreSQL via SQLAlchemy (`DMINT_DATABASE_URL`).
 - **Cryptographic Standard**: RFC 8785 (JCS) canonicalization, SHA-256 domain-separated hashing, Ed25519 public-key approval signatures.
 

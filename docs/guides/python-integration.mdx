@@ -1,11 +1,11 @@
 ---
 title: "Python Decorator Integration"
-description: "How to protect Python functions, async coroutines, class methods, and static methods using the @engine.protect decorator."
+description: "How to protect Python functions, async coroutines, class methods, and static methods using the @dmint.protect decorator."
 ---
 
 # Python Decorator Integration
 
-The `@engine.protect` decorator places a deterministic authorization gate directly in front of Python callables.
+The `@dmint.protect` decorator places a deterministic authorization gate directly in front of Python callables.
 
 Dmint intercepts invocations, canonicalizes arguments, verifies policies, and persists pending approval records without altering your business logic.
 
@@ -49,7 +49,7 @@ policy = Policy([
 store = SQLiteApprovalStore("approvals.sqlite3", deployment_epoch="default")
 provenance = PolicyProvenance("v1", policy_digest(policy), datetime.now(timezone.utc))
 
-engine = Dmint(
+dmint = Dmint(
     policy=policy,
     agent_id="agent-01",
     context=TrustedContext({"environment": "production"}),
@@ -58,11 +58,11 @@ engine = Dmint(
     approval_ttl=timedelta(minutes=5),
 )
 
-@engine.protect("payments.get_status")
+@dmint.protect("payments.get_status")
 def get_payment_status(payment_id: str) -> dict:
     return {"id": payment_id, "status": "SETTLED"}
 
-@engine.protect("payments.refund")
+@dmint.protect("payments.refund")
 def issue_refund(payment_id: str, amount: float) -> dict:
     return {"id": payment_id, "refunded": amount}
 ```
@@ -82,13 +82,13 @@ policy = Policy([
     Rule.approval_required("api", "mutate"),
 ])
 
-engine = Dmint(
+dmint = Dmint(
     policy=policy,
     agent_id="async-worker-01",
     context=TrustedContext({"environment": "staging"}),
 )
 
-@engine.protect("api.mutate")
+@dmint.protect("api.mutate")
 async def async_database_mutate(record_id: str, payload: dict) -> dict:
     await asyncio.sleep(0.01)  # Simulated async I/O
     return {"record_id": record_id, "updated": True}
@@ -117,19 +117,19 @@ class LedgerService:
         self.tenant_id = tenant_id
 
     # Instance method: Dmint extracts 'self' and normalizes explicit arguments
-    @engine.protect("ledger.record_entry")
+    @dmint.protect("ledger.record_entry")
     def record_entry(self, entry_id: str, amount: float) -> str:
         return f"Tenant {self.tenant_id}: Recorded entry {entry_id} for ${amount:.2f}"
 
     # Class method: Dmint preserves class reference
     @classmethod
-    @engine.protect("ledger.get_version")
+    @dmint.protect("ledger.get_version")
     def get_version(cls) -> str:
         return "ledger-v2.1"
 
     # Static method:
     @staticmethod
-    @engine.protect("ledger.compute_tax")
+    @dmint.protect("ledger.compute_tax")
     def compute_tax(subtotal: float, rate: float) -> float:
         return subtotal * rate
 ```
@@ -142,7 +142,7 @@ Policies can match against specific resources (such as file paths, database tabl
 
 ```python
 # Resource extracted dynamically from arguments dict:
-@engine.protect(
+@dmint.protect(
     "filesystem.read",
     resource=lambda args: args["path"],
 )
@@ -151,7 +151,7 @@ def read_system_file(path: str) -> str:
         return f.read()
 
 # Dynamic resource with compound formatting:
-@engine.protect(
+@dmint.protect(
     "database.table_operation",
     resource=lambda args: f"{args['schema']}.{args['table']}",
 )
@@ -172,7 +172,7 @@ import os
 from dmint import Dmint, TrustedContext
 
 # Remote policy loading requires expected_policy_digest:
-engine = Dmint(
+dmint = Dmint(
     policy_file="https://internal-security.company.com/policies/billing-v2.json",
     expected_policy_digest=os.environ["DMINT_EXPECTED_POLICY_DIGEST"],
     agent_id="agent-01",

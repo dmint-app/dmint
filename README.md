@@ -158,7 +158,7 @@ store = SQLiteApprovalStore("./approvals.sqlite3", deployment_epoch="prod-v1")
 provenance = PolicyProvenance("prod-v1", policy_digest(policy), datetime.now(timezone.utc))
 
 # 3. Initialize Dmint enforcement engine
-engine = Dmint(
+dmint = Dmint(
     policy=policy,
     agent_id="data-analyst-agent",
     context=TrustedContext({"environment": "production"}),
@@ -169,17 +169,17 @@ engine = Dmint(
 
 
 # 4. Protect your tool callables with decorators
-@engine.protect("database.select")
+@dmint.protect("database.select")
 def select_users(query: str) -> list[dict]:
     return [{"id": 1, "username": "alice"}]
 
 
-@engine.protect("database.update")
+@dmint.protect("database.update")
 def update_user_role(user_id: int, role: str) -> str:
     return f"Updated user {user_id} to {role}"
 
 
-@engine.protect("database.drop")
+@dmint.protect("database.drop")
 def drop_table(table_name: str) -> str:
     return f"Dropped {table_name}"
 
@@ -205,7 +205,7 @@ except ApprovalRequiredError as exc:
 ```
 
 > [!NOTE]
-> **Supported callable types**: `@engine.protect` supports synchronous functions (`def`), asynchronous functions (`async def`), instance methods, class methods (`@classmethod`), and static methods (`@staticmethod`). Generator and async-generator functions are not supported.
+> **Supported callable types**: `@dmint.protect` supports synchronous functions (`def`), asynchronous functions (`async def`), instance methods, class methods (`@classmethod`), and static methods (`@staticmethod`). Generator and async-generator functions are not supported.
 >
 > **Measured Performance**: In-memory policy evaluation runs in ~3 µs; persistent storage operations (SQLite/PostgreSQL approval lifecycle) take ~2-5 ms.
 

@@ -43,7 +43,7 @@ SQLite serializes write operations at the database level. Although Dmint enables
 ## 3. Tool and Decorator Boundaries
 
 ### Generator Functions Cannot Be Protected
-Python generator functions (`yield`) and asynchronous generators (`yield` in `async def`) cannot be decorated with `@engine.protect`. Because generators yield control iteratively, atomic pre-execution authorization cannot be enforced across multiple resumed yields. Dmint raises `RequestValidationError` if you attempt to decorate a generator.
+Python generator functions (`yield`) and asynchronous generators (`yield` in `async def`) cannot be decorated with `@dmint.protect`. Because generators yield control iteratively, atomic pre-execution authorization cannot be enforced across multiple resumed yields. Dmint raises `RequestValidationError` if you attempt to decorate a generator.
 
 ### Symlinks are Not Resolved by Path Normalization
 Dmint's `path` resource matcher performs strict lexical normalization (resolving `.` and `..`, stripping trailing slashes, rejecting percent-encoded traversal and NUL bytes). However, lexical normalization cannot inspect the underlying filesystem to resolve symbolic links.

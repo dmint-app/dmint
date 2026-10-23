@@ -84,11 +84,11 @@ When protecting Python callables, specify a resource extractor:
 
 ```python
 # Fixed resource:
-@engine.protect("database.query", resource="public.users")
+@dmint.protect("database.query", resource="public.users")
 def query_users(): ...
 
 # Dynamic resource extracted from arguments:
-@engine.protect(
+@dmint.protect(
     "fs.read_file",
     resource=lambda args: args["filepath"],  # Extracted from arguments
 )

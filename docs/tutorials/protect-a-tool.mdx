@@ -145,7 +145,7 @@ verifier = ApprovalVerifier(
     audience="dmint/dashboard/v1",
 )
 
-engine = Dmint(
+dmint = Dmint(
     policy=policy,
     agent_id="support-agent-01",
     context=TrustedContext({"tenant": "prod-us"}),
@@ -155,11 +155,11 @@ engine = Dmint(
     approval_ttl=timedelta(minutes=5),
 )
 
-@engine.protect("billing.issue_small_refund")
+@dmint.protect("billing.issue_small_refund")
 def issue_small_refund(customer_id: str, amount: float, reason: str) -> str:
     return f"Refunded ${amount:.2f} to {customer_id}"
 
-@engine.protect("billing.issue_large_refund")
+@dmint.protect("billing.issue_large_refund")
 def issue_large_refund(customer_id: str, amount: float, reason: str) -> str:
     return f"Refunded ${amount:.2f} to {customer_id}"
 
@@ -175,7 +175,7 @@ if __name__ == "__main__":
     if len(sys.argv) == 2:
         credential = Path(sys.argv[1]).read_bytes()
         print(
-            engine.retry(
+            dmint.retry(
                 issue_large_refund,
                 "cust_42",
                 250.0,
