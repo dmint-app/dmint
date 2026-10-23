@@ -1,0 +1,240 @@
+---
+title: "Policy Templates"
+description: "Production-ready, schema-compliant security policies for shell, filesystem, Postgres, GitHub, Stripe, AWS, and Kubernetes"
+---
+
+## Overview
+
+Writing least-privilege security policies from scratch can be challenging. Dmint provides **7 verified, production-ready policy templates** for common AI-agent integration domains.
+
+Every template adheres strictly to Dmint's non-negotiable security invariants:
+- **Deterministic Fail-Closed Default**: Anything not explicitly permitted is rejected (`DENY`).
+- **Deny-Overrides Precedence**: Explicit `DENY` rules take precedence over `ALLOW` and `APPROVAL_REQUIRED`.
+- **Exact Resource Binding**: Resource constraints use exact matching or path globs (`resource_kind: "path"`).
+- **Zero Redundant Rules**: Deduplicated and optimized for runtime evaluation.
+
+```text
+┌────────────────────────────────────────────────────────────────────────┐
+│                        Dmint Policy Templates                          │
+├───────────────┬───────────────────┬───────────────────┬────────────────┤
+│ Template      │ Allowed (Read)    │ Approval Required │ Denied (Risky) │
+├───────────────┼───────────────────┼───────────────────┼────────────────┤
+│ shell         │ git, tests, ls    │ systemctl, docker │ rm -rf /, dd   │
+│ filesystem    │ src/*, docs/*     │ write_file, mkdir │ .env*, /etc/*  │
+│ postgres      │ SELECT, EXPLAIN   │ INSERT, UPDATE    │ DROP, TRUNCATE │
+│ github        │ list_issues, PRs  │ create_pr, merge  │ delete_repo    │
+│ stripe        │ list_customers    │ charges, refunds  │ payouts, keys  │
+│ aws           │ describe, list    │ start/stop, s3:put│ delete_bucket  │
+│ kubernetes    │ get_pods, logs    │ scale, rollout    │ delete_cluster │
+└───────────────┴───────────────────┴───────────────────┴────────────────┘
+```
+
+---
+
+## The 7 Production Templates
+
+### 1. Shell (`shell`)
+Designed for AI coding assistants (e.g. Cursor, Claude Code, Antigravity) running terminal commands.
+
+- **`allow`**: Safe read-only inspection commands (`git status`, `git diff`, `git log`, `npm test`, `pytest`, `cargo test`, `ls`, `pwd`).
+- **`approval_required`**: System mutations and service changes (`systemctl *`, `docker *`, `kill *`, `npm install *`).
+- **`deny`**: Catastrophic and unconstrained commands (`rm -rf /*`, `mkfs *`, `dd *`, `* | sh`, `* | bash`).
+
+```json title="shell.json"
+{
+  "rules": [
+    { "effect": "allow", "tool": "shell", "action": "execute", "resource": "git status", "resource_kind": "exact" },
+    { "effect": "allow", "tool": "shell", "action": "execute", "resource": "git diff", "resource_kind": "exact" },
+    { "effect": "allow", "tool": "shell", "action": "execute", "resource": "git log", "resource_kind": "exact" },
+    { "effect": "allow", "tool": "shell", "action": "execute", "resource": "npm test", "resource_kind": "exact" },
+    { "effect": "allow", "tool": "shell", "action": "execute", "resource": "pytest", "resource_kind": "exact" },
+    { "effect": "allow", "tool": "shell", "action": "execute", "resource": "cargo test", "resource_kind": "exact" },
+    { "effect": "allow", "tool": "shell", "action": "execute", "resource": "ls", "resource_kind": "exact" },
+    { "effect": "allow", "tool": "shell", "action": "execute", "resource": "pwd", "resource_kind": "exact" },
+    { "effect": "approval_required", "tool": "shell", "action": "execute", "resource": "systemctl *", "resource_kind": "exact" },
+    { "effect": "approval_required", "tool": "shell", "action": "execute", "resource": "docker *", "resource_kind": "exact" },
+    { "effect": "approval_required", "tool": "shell", "action": "execute", "resource": "kill *", "resource_kind": "exact" },
+    { "effect": "approval_required", "tool": "shell", "action": "execute", "resource": "npm install *", "resource_kind": "exact" },
+    { "effect": "deny", "tool": "shell", "action": "execute", "resource": "rm -rf /*", "resource_kind": "exact" },
+    { "effect": "deny", "tool": "shell", "action": "execute", "resource": "mkfs *", "resource_kind": "exact" },
+    { "effect": "deny", "tool": "shell", "action": "execute", "resource": "dd *", "resource_kind": "exact" },
+    { "effect": "deny", "tool": "shell", "action": "execute", "resource": "* | sh", "resource_kind": "exact" },
+    { "effect": "deny", "tool": "shell", "action": "execute", "resource": "* | bash", "resource_kind": "exact" }
+  ],
+  "strict_arguments": false
+}
+```
+
+---
+
+### 2. File System (`filesystem`)
+Protects against source code destruction and credential exfiltration.
+
+- **`allow`**: Reading project code and documentation (`src/*`, `docs/*`, `tests/*`, `list_directory`).
+- **`approval_required`**: Writing code in `src/*`, creating directories, deleting files.
+- **`deny`**: Reading or writing secrets (`.env*`, `*.key`, `*.pem`, `/etc/*`).
+
+```json title="filesystem.json"
+{
+  "rules": [
+    { "effect": "allow", "tool": "filesystem", "action": "read_file", "resource": "src/*", "resource_kind": "path" },
+    { "effect": "allow", "tool": "filesystem", "action": "read_file", "resource": "docs/*", "resource_kind": "path" },
+    { "effect": "allow", "tool": "filesystem", "action": "read_file", "resource": "tests/*", "resource_kind": "path" },
+    { "effect": "allow", "tool": "filesystem", "action": "list_directory", "resource": "*", "resource_kind": "path" },
+    { "effect": "approval_required", "tool": "filesystem", "action": "write_file", "resource": "src/*", "resource_kind": "path" },
+    { "effect": "approval_required", "tool": "filesystem", "action": "create_directory", "resource": "*", "resource_kind": "path" },
+    { "effect": "approval_required", "tool": "filesystem", "action": "delete_file", "resource": "*", "resource_kind": "path" },
+    { "effect": "deny", "tool": "filesystem", "action": "read_file", "resource": ".env*", "resource_kind": "path" },
+    { "effect": "deny", "tool": "filesystem", "action": "read_file", "resource": "*.key", "resource_kind": "path" },
+    { "effect": "deny", "tool": "filesystem", "action": "read_file", "resource": "*.pem", "resource_kind": "path" },
+    { "effect": "deny", "tool": "filesystem", "action": "read_file", "resource": "/etc/*", "resource_kind": "path" },
+    { "effect": "deny", "tool": "filesystem", "action": "write_file", "resource": ".env*", "resource_kind": "path" },
+    { "effect": "deny", "tool": "filesystem", "action": "write_file", "resource": "/etc/*", "resource_kind": "path" }
+  ],
+  "strict_arguments": false
+}
+```
+
+---
+
+### 3. PostgreSQL (`postgres`)
+Enforces safe query analysis while requiring human sign-off on database mutations.
+
+- **`allow`**: Read-only queries (`select`, `explain`, `show`, `describe`).
+- **`approval_required`**: Data mutations (`insert`, `update`, `delete`) and schema changes (`create_table`, `alter_table`).
+- **`deny`**: Destructive and privilege-escalating commands (`drop_table`, `drop_database`, `truncate`, `grant`).
+
+```json title="postgres.json"
+{
+  "rules": [
+    { "effect": "allow", "tool": "postgres", "action": "select", "resource": "*" },
+    { "effect": "allow", "tool": "postgres", "action": "explain", "resource": "*" },
+    { "effect": "allow", "tool": "postgres", "action": "show", "resource": "*" },
+    { "effect": "allow", "tool": "postgres", "action": "describe", "resource": "*" },
+    { "effect": "approval_required", "tool": "postgres", "action": "insert", "resource": "*" },
+    { "effect": "approval_required", "tool": "postgres", "action": "update", "resource": "*" },
+    { "effect": "approval_required", "tool": "postgres", "action": "delete", "resource": "*" },
+    { "effect": "approval_required", "tool": "postgres", "action": "create_table", "resource": "*" },
+    { "effect": "approval_required", "tool": "postgres", "action": "alter_table", "resource": "*" },
+    { "effect": "deny", "tool": "postgres", "action": "drop_table", "resource": "*" },
+    { "effect": "deny", "tool": "postgres", "action": "drop_database", "resource": "*" },
+    { "effect": "deny", "tool": "postgres", "action": "truncate", "resource": "*" },
+    { "effect": "deny", "tool": "postgres", "action": "grant", "resource": "*" }
+  ],
+  "strict_arguments": false
+}
+```
+
+---
+
+### 4. GitHub (`github`)
+Prevents automated agent takeovers of source code repositories.
+
+- **`allow`**: Inspecting repos, issues, PRs, commits, and code search (`get_repository`, `list_issues`, `get_pull_request`, `search_code`, `list_commits`).
+- **`approval_required`**: Interacting with collaborators (`create_issue`, `create_pull_request`, `create_issue_comment`, `merge_pull_request`, `close_issue`).
+- **`deny`**: Irreversible administrative actions (`delete_repository`, `delete_branch`, `remove_branch_protection`, `force_push`, `delete_release`).
+
+```json title="github.json"
+{
+  "rules": [
+    { "effect": "allow", "tool": "github", "action": "get_repository", "resource": "*" },
+    { "effect": "allow", "tool": "github", "action": "list_issues", "resource": "*" },
+    { "effect": "allow", "tool": "github", "action": "get_issue", "resource": "*" },
+    { "effect": "allow", "tool": "github", "action": "list_pull_requests", "resource": "*" },
+    { "effect": "allow", "tool": "github", "action": "get_pull_request", "resource": "*" },
+    { "effect": "allow", "tool": "github", "action": "search_code", "resource": "*" },
+    { "effect": "allow", "tool": "github", "action": "list_commits", "resource": "*" },
+    { "effect": "approval_required", "tool": "github", "action": "create_issue", "resource": "*" },
+    { "effect": "approval_required", "tool": "github", "action": "create_issue_comment", "resource": "*" },
+    { "effect": "approval_required", "tool": "github", "action": "create_pull_request", "resource": "*" },
+    { "effect": "approval_required", "tool": "github", "action": "merge_pull_request", "resource": "*" },
+    { "effect": "approval_required", "tool": "github", "action": "close_issue", "resource": "*" },
+    { "effect": "deny", "tool": "github", "action": "delete_repository", "resource": "*" },
+    { "effect": "deny", "tool": "github", "action": "delete_branch", "resource": "*" },
+    { "effect": "deny", "tool": "github", "action": "remove_branch_protection", "resource": "*" },
+    { "effect": "deny", "tool": "github", "action": "force_push", "resource": "*" },
+    { "effect": "deny", "tool": "github", "action": "delete_release", "resource": "*" }
+  ],
+  "strict_arguments": false
+}
+```
+
+---
+
+### 5. Stripe (`stripe`)
+Guards financial APIs against unauthorized transactions and account drain.
+
+- **`allow`**: Safe customer, charge, invoice, and catalog queries (`list_customers`, `retrieve_customer`, `list_charges`, `list_invoices`, `list_products`).
+- **`approval_required`**: Billing actions (`create_customer`, `create_charge`, `create_refund`, `update_subscription`, `cancel_subscription`).
+- **`deny`**: Payout draining and API key generation (`create_payout`, `update_payout`, `delete_account`, `create_secret_key`, `expire_secret_key`).
+
+---
+
+### 6. Amazon Web Services (`aws`)
+Enforces least privilege on AWS CLI and SDK integrations.
+
+- **`allow`**: State inspections (`s3.list_buckets`, `s3.get_object`, `ec2.describe_instances`, `ec2.describe_security_groups`, `cloudwatch.get_metric_data`).
+- **`approval_required`**: Resource operations (`s3.put_object`, `ec2.start_instances`, `ec2.stop_instances`, `lambda.update_function_code`, `iam.create_role`).
+- **`deny`**: High-impact deletions (`s3.delete_bucket`, `ec2.terminate_instances`, `rds.delete_db_instance`, `iam.delete_role_policy`, `organizations.leave_organization`).
+
+---
+
+### 7. Kubernetes (`kubernetes`)
+Protects production clusters against rogue pod teardowns and cluster disruption.
+
+- **`allow`**: Cluster telemetry and diagnostics (`get_pods`, `list_pods`, `get_services`, `get_deployments`, `get_logs`, `describe_pod`).
+- **`approval_required`**: Workload updates (`scale_deployment`, `rollout_restart`, `apply_manifest`, `create_configmap`).
+- **`deny`**: Cluster-level destruction (`delete_namespace`, `delete_node`, `delete_cluster`, `delete_deployment`).
+
+---
+
+## Programmatic Usage (Python API)
+
+You can load and inspect templates programmatically using `dmint.templates`:
+
+```python
+from dmint.templates import list_templates, get_template_policy, get_template_dict
+
+# 1. Discover available templates
+templates = list_templates()
+print("Available templates:", templates)
+# Output: ['aws', 'filesystem', 'github', 'kubernetes', 'postgres', 'shell', 'stripe']
+
+# 2. Load as a validated Policy object
+policy = get_template_policy("postgres")
+print(f"Loaded {len(policy.rules)} rules")
+
+# 3. Use directly with Dmint engine
+from dmint import Dmint
+
+dmint = Dmint(policy=policy)
+```
+
+---
+
+## Rule Deduplication Engine
+
+If a policy contains redundant or duplicate rules, Dmint provides deterministic deduplication:
+
+```python
+from dmint.templates import deduplicate_policy_dict, deduplicate_policy_rules
+
+# Deduplicate raw JSON dictionary:
+clean_dict = deduplicate_policy_dict(raw_policy_dict)
+
+# Or deduplicate an immutable Policy instance:
+clean_policy = deduplicate_policy_rules(policy)
+```
+
+### How Deduplication Works:
+1. Canonicalizes each rule's match selector (`tool`, `action`, `agent_id`, `resource`, `resource_kind`, `conditions`, `constraints`).
+2. Retains the **first occurrence** in the policy rules sequence.
+3. Drops all subsequent identical rules, maintaining predictable evaluation order with zero policy divergence.
+
+---
+
+## Next steps
+
+- Read the [Policy Schema Reference](/reference/policy-schema) for condition operators and field definitions.
+- Learn how [MCP Protection](/reference/mcp-protection-schema) binds policies to Cursor and Claude Desktop.
+- Check [Python Integration Guide](/guides/python-integration) to enforce policies directly on in-process functions.

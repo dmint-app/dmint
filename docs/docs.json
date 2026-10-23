@@ -15,6 +15,7 @@
   "layout": {
     "mode": "compact"
   },
+  "decorativeLines": "none",
   "assistant": {
     "enabled": false
   },
@@ -102,6 +103,7 @@
           "reference/cli",
           "reference/core-api",
           "reference/policy-schema",
+          "reference/policy-templates",
           "reference/mcp-protection-schema",
           "reference/errors"
         ]
@@ -126,5 +128,5 @@
       "measurementId": "G-W7EBSH066H"
     }
   },
-  "customCss": "img[src*='logo'], .dark [class*='invert'], [class*='dark:invert'] { filter: none !important; } footer div.opacity-40, footer div:has(a[href*='holocron.so']), a[href*='holocron.so'] { display: none !important; } button[title='Copy page as Markdown'] { display: none !important; }"
+  "customCss": "img[src*='logo'], .dark [class*='invert'], [class*='dark:invert'] { filter: none !important; } footer div.opacity-40, footer div:has(a[href*='holocron.so']), a[href*='holocron.so'] { display: none !important; } button[title='Copy page as Markdown'] { display: none !important; } div[class*='grid-lines'], div[class*='decorative-lines'] { display: none !important; }"
 }

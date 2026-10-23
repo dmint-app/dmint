@@ -87,6 +87,55 @@ The policy and approval database are **inside this config**. There are no `dmint
 
 ---
 
+## Disclosure Modes: DOG vs GOD vs CAT
+
+When an AI agent calls a tool that is **denied** or **requires human approval**, how much information should be returned to the model?
+
+In an adversarial setting (e.g. indirect prompt injection), disclosing internal policy rules, policy hashes, or stack fingerprints helps attackers probe and reverse-engineer your security boundary. Dmint provides three distinct disclosure modes configured via `"disclosure_mode"` in `mcp_protection.json`:
+
+| Mode | Name | Verbosity | Internal Fingerprints | Recommended For |
+|---|---|---|---|---|
+| **`dog`** (Default) | Transparent | High | Included (`request_fingerprint`, `approval_id`) | Local development, trusted agent loops, debugging |
+| **`cat`** | Balanced | Medium | Omitted (workflow ID only) | Semi-trusted agents, multi-agent pipelines |
+| **`god`** | Zero-Knowledge | Minimal | Completely Redacted (`DMT_403`) | Hardened production, untrusted agents, high-risk tools |
+
+```text
+┌────────────────────────────────────────────────────────────────────────┐
+│                   Disclosure Mode Responses Compared                   │
+├─────────┬──────────────────────────────────────────────────────────────┤
+│ Mode    │ Response Payload returned to AI Agent on APPROVAL_REQUIRED    │
+├─────────┼──────────────────────────────────────────────────────────────┤
+│ dog     │ {                                                            │
+│         │   "status": "approval_required",                             │
+│         │   "code": "DMT_APPROVAL_REQUIRED",                           │
+│         │   "request_id": "7b8e1a2f-...",                              │
+│         │   "approval_id": "c4d3e2f1-...",                             │
+│         │   "request_fingerprint": "a3f5... (sha256 hex)",             │
+│         │   "message": "Trusted approval is required for this request."│
+│         │ }                                                            │
+├─────────┼──────────────────────────────────────────────────────────────┤
+│ cat     │ Dmint enforcement [DMT_APPROVAL_REQUIRED]: approval requested│
+│         │ (workflow 7b8e1a2f-...)                                      │
+├─────────┼──────────────────────────────────────────────────────────────┤
+│ god     │ Dmint enforcement [DMT_403]: access denied                   │
+└─────────┴──────────────────────────────────────────────────────────────┘
+```
+
+### 1. DOG Mode (`"disclosure_mode": "dog"`)
+Returns a structured JSON document. The AI agent can inspect the exact `approval_id` and `request_id`, pause execution, and present the reviewer with actionable metadata.
+
+### 2. CAT Mode (`"disclosure_mode": "cat"`)
+Returns a concise status message with the workflow reference (`request_id`), but omits the cryptographic SHA-256 `request_fingerprint`. This prevents the agent from attempting to tamper with or correlate internal hashes.
+
+### 3. GOD Mode (`"disclosure_mode": "god"`)
+Implements total information blackout. Whether an action requires approval, matches an explicit deny rule, or fails closed, the gateway returns:
+```text
+Dmint enforcement [DMT_403]: access denied
+```
+The adversarial agent receives zero telemetry about whether the tool exists, whether it is an approval pause or hard deny, or what condition caused the failure.
+
+---
+
 ## Step 2: Understand the Protections
 
 ### Tool schema hash pinning

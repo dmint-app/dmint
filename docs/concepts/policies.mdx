@@ -209,3 +209,18 @@ Use `policy-digest` in deployment tooling and pin the value with `expected_polic
 4. Do not rely on rule order.
 5. Remember that constraint failure is a deny, not an `else` branch.
 6. Keep `policy.json` under version control and rotate its digest deliberately.
+
+---
+
+## Production Policy Templates
+
+Instead of authoring policies from scratch, Dmint provides **7 verified production templates** for common operational domains:
+- **`shell`**: Safe terminal commands (`git`, `pytest`, `npm test`) allowed; service management (`systemctl`, `docker`) approval-gated; destructive commands (`rm -rf /`, `dd`, `mkfs`) denied.
+- **`filesystem`**: Path-scoped workspace reads allowed; write operations approval-gated; credentials (`.env*`, `*.key`, `*.pem`, `/etc/*`) denied.
+- **`postgres`**: `SELECT` and `EXPLAIN` allowed; mutations and DDL approval-gated; `DROP TABLE` and `TRUNCATE` denied.
+- **`github`**: Issues and PR reads allowed; PR and issue creation approval-gated; repo deletion and force push denied.
+- **`stripe`**: Customer/charge lookups allowed; billing transactions approval-gated; payouts and secret keys denied.
+- **`aws`**: Resource inspection allowed; provisioning approval-gated; deletion and termination denied.
+- **`kubernetes`**: Pod and log observation allowed; rollouts and scaling approval-gated; cluster deletion denied.
+
+Load templates programmatically via `from dmint.templates import get_template_policy, list_templates`. See the [Policy Templates Reference](/reference/policy-templates) for full JSON schemas and deduplication rules.

@@ -123,6 +123,26 @@ If any database row has been altered without knowledge of the 0600-protected int
 
 ---
 
+## Key Management & Split-Trust Model
+
+How are signing keys managed, and why can't a compromised agent forge an approval?
+
+Dmint operates on a **split-trust model**:
+- **The Human Approver** holds the **Ed25519 Private Key** (`private.key`). This file lives strictly on the reviewer's laptop or inside the isolated `dmint-dashboard` service with strict `0600` POSIX permissions. It is never mounted into or accessible by the agent.
+- **The Enforcement Gateway** holds only the **Ed25519 Public Key** configured in `trusted_issuers`.
+
+```bash
+# 1. Generate the authority keys (Ed25519 private key + HMAC storage key)
+dmint init-keys
+
+# 2. Export the public key to configure the gateway
+dmint export-public-key --format json
+```
+
+When an agent retries an execution, the gateway verifies the Ed25519 signature against its configured `trusted_issuers`. Because the agent has no access to `private.key`, it cannot forge signatures, and replaying old signatures fails because approvals are single-use (`CONSUMED`).
+
+---
+
 ## Next Steps
 
 - **[Human Approvals Guide](/guides/human-approvals)**: Step-by-step instructions for reviewing and approving via Dashboard and CLI.
