@@ -335,9 +335,9 @@ When implementing a feature, first identify which subsystem owns the responsibil
 
 ---
 
-## 4. MONOREPO ARCHITECTURE (v2.0.2)
+## 4. MONOREPO ARCHITECTURE (v2.0.3)
 
-The monorepo lives at `~/dmint` and ships as a **single distribution package** (`dmint v2.0.2`) containing five unified subsystems:
+The monorepo lives at `~/dmint` and ships as a **single distribution package** (`dmint v2.0.3`) containing five unified subsystems:
 
 ```text
 ~/dmint
@@ -594,7 +594,7 @@ Hooks configured in `.pre-commit-config.yaml`:
 - Point test subprocess helpers directly to `tests/mcp/mock_server.py`.
 - Keep `proxy_entrypoint.py` self-contained with `sys.path` setup so it works as a spawned subprocess.
 - Match the `PYTHONPATH=src` prefix when running pytest/mypy invocations that require it.
-- Treat `pyproject.toml` as the single source of truth for version (`version = "2.0.2"`).
+- Treat `pyproject.toml` as the single source of truth for version (`version = "2.0.3"`).
 - Use Core public APIs from Dashboard.
 - Preserve exact request binding and fail-closed behavior.
 - Run the complete relevant test suite after security-sensitive changes.
@@ -867,20 +867,20 @@ twine check dist/*
 Build artifacts:
 
 ```text
-dist/dmint-2.0.2-py3-none-any.whl
-dist/dmint-2.0.2.tar.gz
+dist/dmint-2.0.3-py3-none-any.whl
+dist/dmint-2.0.3.tar.gz
 ```
 
 ---
 
 ## 19. VERSION
 
-**Current Version: `2.0.2`**
+**Current Version: `2.0.3`**
 
 Version is the single source of truth in `pyproject.toml`:
 
 ```toml
-version = "2.0.2"
+version = "2.0.3"
 ```
 
 and is propagated to:
@@ -898,7 +898,7 @@ Do not update one copied version string while leaving `pyproject.toml` inconsist
 The current unified monorepo baseline is:
 
 ```text
-Dmint v2.0.2
+Dmint v2.0.3
 
 Core
  └── deterministic authorization + approval security

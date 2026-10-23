@@ -34,9 +34,9 @@ Every tool call passes through a deterministic policy evaluator before it reache
 
 ---
 
-## 3. MONOREPO ARCHITECTURE (v2.0.2)
+## 3. MONOREPO ARCHITECTURE (v2.0.3)
 
-The monorepo lives at `~/dmint` and ships as a **single distribution package** (`dmint v2.0.2`) containing five unified subsystems:
+The monorepo lives at `~/dmint` and ships as a **single distribution package** (`dmint v2.0.3`) containing five unified subsystems:
 
 ```text
 ~/dmint

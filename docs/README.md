@@ -1,7 +1,7 @@
 # Dmint Documentation (`docs.dmint.app`)
 
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Dmint Engine: v2.0.2](https://img.shields.io/badge/Dmint-v2.0.2-10b981.svg)](../pyproject.toml)
+[![Dmint Engine: v2.0.3](https://img.shields.io/badge/Dmint-v2.0.3-10b981.svg)](../pyproject.toml)
 [![Framework: Holocron](https://img.shields.io/badge/Engine-Holocron%20%2F%20Vite-6366f1.svg)](https://holocron.so)
 [![Deployment: Cloudflare Workers](https://img.shields.io/badge/Deploy-Cloudflare%20Workers-f38020.svg)](wrangler.jsonc)
 [![Node: >=18](https://img.shields.io/badge/Node-%3E%3D18-339933.svg)](package.json)
@@ -34,7 +34,7 @@ Live Site: **[https://docs.dmint.app](https://docs.dmint.app)** &bull; Public Po
 
 ## Overview
 
-This directory (`/docs`) hosts the authoritative technical documentation for **Dmint v2.0.2**. Dmint is a deterministic security authorization and enforcement engine that sits between autonomous AI agents and privileged tools (databases, shell environments, file systems, APIs).
+This directory (`/docs`) hosts the authoritative technical documentation for **Dmint v2.0.3**. Dmint is a deterministic security authorization and enforcement engine that sits between autonomous AI agents and privileged tools (databases, shell environments, file systems, APIs).
 
 The documentation site serves developers, security engineers, and DevOps teams evaluating, deploying, and integrating Dmint with AI coding assistants (Google Antigravity, Cursor, Claude Code) and agent frameworks (LangChain, CrewAI, AutoGen).
 
@@ -218,7 +218,7 @@ Use only these verified callout components (unsupported tags like `<Important>` 
 
 ### Code Snippet Conventions
 
-To preserve technical consistency with Dmint v2.0.2, follow these conventions in all documentation:
+To preserve technical consistency with Dmint v2.0.3, follow these conventions in all documentation:
 
 - **Package Installation**: Always show the single unified package:
   ```bash

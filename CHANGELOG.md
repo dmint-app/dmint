@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.3] - 2026-10-24
+
+### Security & Supply Chain
+- **Dependency Lower Bounds Hardening**: Tightened Python package minimum bounds across core, MCP, and dashboard to eliminate known vulnerabilities (GHSA/PYSEC advisories):
+  - `cryptography`: bumped minimum from `>=42` to `>=50.0.0,<52` (mitigating 15 historical CVEs).
+  - `starlette`: bumped minimum from `>=0.27` to `>=0.40.0` (mitigating 14 historical multipart/path traversal CVEs).
+  - `httpx2`: bumped minimum from `>=2.5` to `>=2.12.0,<3.0.0` (mitigating 5 connection-splitting CVEs).
+  - `fastapi`: bumped minimum from `>=0.110` to `>=0.116.0,<1.0` to enforce secure Starlette pairing.
+  - `jinja2`: bumped minimum from `>=3.1` to `>=3.1.6,<4.0` (mitigating 10 HTML attribute injection CVEs).
+  - `python-multipart`: bumped minimum from `>=0.0.9` to `>=0.0.20,<1.0` (mitigating 14 ReDoS/parsing CVEs).
+  - `psycopg2-binary`: bumped minimum from `>=2.9.0` to `>=2.9.9` (eliminating source build failures on Python 3.12+).
+  - `psycopg[binary]`: bumped minimum from `>=3.1.0` to `>=3.1.18`.
+- **Docs & Frontend Supply Chain**: Remediated 11 npm vulnerabilities in `docs/package-lock.json` via `npm audit fix`, eliminating 1 critical vulnerability (`dompurify` DOM XSS) and 8 high vulnerabilities (`@modelcontextprotocol/sdk`, `undici`, `sharp`, `source-map-js`, `vite`).
+
+### CI
+- **Conditional PyPI Publish**: Updated `.github/workflows/publish.yml` to publish exclusively when an unpublished version is introduced on `main`, cleanly skipping already-published releases without failing the CI/CD pipeline.
+
 ## [2.0.2] - 2026-10-23
 
 ### Fixed

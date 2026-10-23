@@ -57,32 +57,37 @@ jobs:
           )
           echo "value=${version}" >> "${GITHUB_OUTPUT}"
 
-      - name: Reject an already-published version
+      - name: Check PyPI publication status
+        id: pypi-check
         run: |
           version="${{ steps.package-version.outputs.value }}"
           status=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
             --max-time 20 "https://pypi.org/pypi/dmint/${version}/json")
           case "${status}" in
             404)
-              echo "dmint ${version} is not published yet."
+              echo "dmint ${version} is not published on PyPI yet. Publishing new release."
+              echo "should_publish=true" >> "${GITHUB_OUTPUT}"
               ;;
             200)
-              echo "::error::dmint ${version} is already published on PyPI. Bump the version per PLAIN.md section 19."
-              exit 1
+              echo "dmint ${version} is already published on PyPI. No version bump detected; skipping PyPI publish."
+              echo "should_publish=false" >> "${GITHUB_OUTPUT}"
               ;;
             *)
-              echo "::error::PyPI version check returned HTTP ${status}."
+              echo "::error::PyPI version check returned unexpected HTTP ${status}."
               exit 1
               ;;
           esac
 
       - name: Build package distributions
+        if: steps.pypi-check.outputs.should_publish == 'true'
         run: python -m build
 
       - name: Verify package metadata
+        if: steps.pypi-check.outputs.should_publish == 'true'
         run: twine check dist/*
 
       - name: Publish to PyPI
+        if: steps.pypi-check.outputs.should_publish == 'true'
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: dist/

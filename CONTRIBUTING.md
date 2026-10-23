@@ -154,7 +154,7 @@ twine check dist/*
 # Test-install the wheel in an isolated venv:
 python3 -m venv /tmp/test-env
 source /tmp/test-env/bin/activate
-pip install "dist/dmint-2.0.2-py3-none-any.whl[all]"
+pip install "dist/dmint-2.0.3-py3-none-any.whl[all]"
 dmint --version
 dmint --help
 deactivate

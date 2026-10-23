@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 
 # Base package version (single source of truth in code)
-DEFAULT_VERSION: str = "2.0.2"
+DEFAULT_VERSION: str = "2.0.3"
 
 # Canonical package version (overridable via DMINT_VERSION env var)
 __version__: str = os.environ.get("DMINT_VERSION", DEFAULT_VERSION)
@@ -26,10 +26,10 @@ def get_user_agent(component: str | None = None) -> str:
     Can be explicitly overridden via DMINT_USER_AGENT environment variable for base client.
 
     Examples:
-        get_user_agent() -> 'dmint-cli/2.0.2'
-        get_user_agent('mcp') -> 'dmint-mcp/2.0.2'
-        get_user_agent('oauth') -> 'dmint-oauth/2.0.2'
-        get_user_agent('webhook') -> 'dmint-webhook/2.0.2'
+        get_user_agent() -> 'dmint-cli/2.0.3'
+        get_user_agent('mcp') -> 'dmint-mcp/2.0.3'
+        get_user_agent('oauth') -> 'dmint-oauth/2.0.3'
+        get_user_agent('webhook') -> 'dmint-webhook/2.0.3'
     """
     version = get_version()
     if component:

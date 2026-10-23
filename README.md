@@ -76,7 +76,7 @@ Modern AI agents (Claude Code, Cursor, Antigravity, AutoGPT, custom LangChain/Ll
 
 ## Subsystems
 
-`dmint` v2.0.2 is organized as a unified monorepo providing modular packages under a single distribution:
+`dmint` v2.0.3 is organized as a unified monorepo providing modular packages under a single distribution:
 
 | Module | Description | Primary Exports / Entrypoint |
 | :--- | :--- | :--- |
@@ -450,10 +450,10 @@ python3 -m venv /tmp/dmint-test-env
 source /tmp/dmint-test-env/bin/activate
 
 # Install the wheel with all extras
-pip install "dist/dmint-2.0.2-py3-none-any.whl[all]"
+pip install "dist/dmint-2.0.3-py3-none-any.whl[all]"
 
 # 4. Verify all installed CLI entrypoints
-dmint --version        # Expected: dmint 2.0.2
+dmint --version        # Expected: dmint 2.0.3
 dmint --help           # Policy wizards and verification commands
 dmint-mcp --help       # MCP multi-server gateway
 dmint-dashboard --help # Approval web review console
@@ -521,9 +521,9 @@ Dmint adheres strictly to **[Semantic Versioning 2.0.0](https://semver.org/)** a
 
 | Change severity | SemVer bump | Typical changes |
 |---|---|---|
-| **High / Major** | `2.0.2` &rarr; `3.0.0` | Incompatible API changes, breaking policy schema modifications, removed public methods. |
-| **Medium / Minor** | `2.0.2` &rarr; `2.1.0` | Backwards-compatible features, new CLI flags, new integrations. |
-| **Low / Patch** | `2.0.2` &rarr; `2.0.3` | Bug fixes, security hardening, documentation updates, test additions, non-breaking refactors. |
+| **High / Major** | `2.0.3` &rarr; `3.0.0` | Incompatible API changes, breaking policy schema modifications, removed public methods. |
+| **Medium / Minor** | `2.0.3` &rarr; `2.1.0` | Backwards-compatible features, new CLI flags, new integrations. |
+| **Low / Patch** | `2.0.3` &rarr; `2.0.4` | Bug fixes, security hardening, documentation updates, test additions, non-breaking refactors. |
 
 Every push must include the appropriate version decision and bump. A push carrying any Major change is Major; otherwise any Minor change makes it Minor; otherwise it is Patch. When severity is ambiguous, choose the higher severity and ask before a Major bump.
 
