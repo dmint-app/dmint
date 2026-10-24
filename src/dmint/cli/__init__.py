@@ -12,6 +12,7 @@ from .errors import (
     OutputWriteError,
     PolicyValidationError,
 )
+from .hooks import evaluate_hook_request, install_harness_hooks, main_check, main_hook, main_init, normalize_harness_payload
 from .install_skill import install_skill_file, main_install_skill
 from .mcp_connections import MCPIntegration, MCPTransport, canonical_capability
 from .mcp_credentials import CredentialStore, TokenRecord

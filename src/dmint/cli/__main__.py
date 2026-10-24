@@ -9,6 +9,7 @@ from dmint.cli.approvals import main_approve, main_pending, main_reject
 from dmint.cli.compile_policy import main_compile
 from dmint.cli.create_policy import main_create
 from dmint.cli.dashboard import main_dashboard
+from dmint.cli.hooks import main_check, main_hook, main_init
 from dmint.cli.install_skill import main_install_skill
 from dmint.cli.keys import main_export_public_key, main_init_keys
 from dmint.cli.policy_digest import main_policy_digest
@@ -70,6 +71,14 @@ def main(args: list[str] | None = None) -> int:
             normalized_args.append("install-skill")
             i += 1
             continue
+        if arg in ("test-policy", "check-policy"):
+            normalized_args.append("check")
+            i += 1
+            continue
+        if arg == "hooks":
+            normalized_args.append("hook")
+            i += 1
+            continue
         normalized_args.append(arg)
         i += 1
 
@@ -85,6 +94,9 @@ Recommended Workflow:
   2. Verify Policy:
      - Deterministic offline:     dmint verify-policy <policy.json>""",
         epilog="""Primary Commands:
+  init                1-command zero-config project setup (keys, starter policy.json, and agent harness hooks)
+  check               Simulate and test tool calls against policy.json directly from the terminal
+  hook                Install and run PreToolUse hooks for Claude Code, Codex, OpenCode, Cursor, Windsurf & Cline
   create-policy       General policy authoring wizard (converts natural language requirements into verified policy.json)
   create-mcp-policy   Specialized MCP workflow: live tool discovery + policy authoring + mcp_protection.json generation
   verify-policy       Deterministic offline validation of policy.json against Dmint schema and invariants (LLM-free)
@@ -114,6 +126,21 @@ Compatibility Commands:
     )
     subparsers = parser.add_subparsers(dest="command", title="Available Commands", help="Command to run")
 
+    subparsers.add_parser(
+        "init",
+        help="1-command zero-config setup (keys, starter policy.json, and agent harness hooks)",
+        add_help=False,
+    )
+    subparsers.add_parser(
+        "check",
+        help="Simulate and test a tool call against policy.json from the terminal",
+        add_help=False,
+    )
+    subparsers.add_parser(
+        "hook",
+        help="Manage and run PreToolUse hooks for Claude Code, Codex, OpenCode, Cursor, Windsurf, and Cline",
+        add_help=False,
+    )
     subparsers.add_parser(
         "create-policy",
         help="General policy authoring wizard (converts requirements into verified policy.json)",
@@ -191,7 +218,13 @@ Compatibility Commands:
     cmd = normalized_args[0]
     cmd_args = normalized_args[1:]
 
-    if cmd == "create-policy":
+    if cmd == "init":
+        return main_init(cmd_args)
+    elif cmd == "check":
+        return main_check(cmd_args)
+    elif cmd == "hook":
+        return main_hook(cmd_args)
+    elif cmd == "create-policy":
         return main_create(cmd_args)
     elif cmd == "create-mcp-policy":
         return _run_create_mcp(cmd_args)

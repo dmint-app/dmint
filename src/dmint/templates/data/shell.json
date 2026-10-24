@@ -53,7 +53,21 @@
       "effect": "allow",
       "tool": "shell",
       "action": "execute",
+      "resource": "ls *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
       "resource": "pwd",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "git push *",
       "resource_kind": "exact"
     },
     {
@@ -82,6 +96,20 @@
       "tool": "shell",
       "action": "execute",
       "resource": "npm install *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "pip install *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "deny",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "rm -rf /",
       "resource_kind": "exact"
     },
     {

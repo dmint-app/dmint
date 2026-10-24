@@ -362,6 +362,108 @@ class Dmint:
             if approval_store.get_authoritative_policy() is None:
                 approval_store.set_authoritative_policy(policy, policy_provenance)
 
+    @classmethod
+    def local(
+        cls,
+        policy: Policy | str | Path,
+        *,
+        db_path: str | Path | None = None,
+        state_dir: str | Path | None = None,
+        agent_id: str = "local-agent",
+        context: TrustedContext | Mapping[str, Any] | None = None,
+        approval_ttl: timedelta = timedelta(minutes=10),
+        deployment_epoch: str = "default",
+        integration_id: str = "local-runtime",
+        clock: Callable[[], datetime] | None = None,
+    ) -> "Dmint":
+        """Zero-config local constructor that auto-provisions .dmint/ keys and SQLite store."""
+        import os
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+        from .keys import load_private_key_from_file, write_integrity_key_atomic, write_private_key_atomic
+        from .storage.sqlite import SQLiteApprovalStore
+        from .verification import DEFAULT_APPROVAL_AUDIENCE
+
+        if isinstance(policy, Policy):
+            resolved_policy = policy
+        else:
+            p_str = str(policy).strip()
+            if Path(p_str).is_file():
+                resolved_policy = Policy.from_file(p_str)
+            else:
+                from dmint.templates import AVAILABLE_TEMPLATES, get_template_policy
+                if p_str.lower() in AVAILABLE_TEMPLATES:
+                    resolved_policy = get_template_policy(p_str.lower())
+                else:
+                    resolved_policy = Policy.from_file(p_str)
+
+        if isinstance(context, TrustedContext):
+            resolved_ctx = context
+        elif isinstance(context, Mapping):
+            resolved_ctx = TrustedContext(dict(context))
+        else:
+            resolved_ctx = TrustedContext({})
+
+        if state_dir is not None:
+            dmint_dir = Path(state_dir)
+            db_p = Path(db_path) if db_path is not None else (dmint_dir / "approvals.sqlite3")
+        elif db_path is not None:
+            db_p = Path(db_path)
+            dmint_dir = db_p.parent if db_p.parent.name == ".dmint" else Path(".dmint")
+        else:
+            dmint_dir = Path(".dmint")
+            db_p = dmint_dir / "approvals.sqlite3"
+        dmint_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+        try:
+            os.chmod(str(dmint_dir), 0o700)
+        except OSError:
+            pass
+
+        skey_path = dmint_dir / "signing.key"
+        ikey_path = dmint_dir / "integrity.key"
+        if not skey_path.exists():
+            write_private_key_atomic(skey_path, Ed25519PrivateKey.generate())
+        if not ikey_path.exists():
+            write_integrity_key_atomic(ikey_path, os.urandom(32))
+
+        ikey_source: Path | None = None
+        if not os.environ.get("DMINT_INTEGRITY_KEY") and not os.environ.get("DMINT_INTEGRITY_KEY_FILE"):
+            ikey_source = ikey_path
+
+        now_fn = clock or (lambda: datetime.now(timezone.utc))
+        store = SQLiteApprovalStore(
+            db_p,
+            deployment_epoch=deployment_epoch,
+            integrity_key=ikey_source,
+            clock=now_fn,
+        )
+        prov = PolicyProvenance("v1", policy_digest(resolved_policy), now_fn())
+        store.set_authoritative_policy(resolved_policy, prov)
+
+        priv = load_private_key_from_file(skey_path)
+        pub = priv.public_key()
+        trusted_map = {"dmint-cli": pub, "dmint-authority": pub, "local-authority": pub}
+        default_skey = Path.home() / ".config" / "dmint" / "signing.key"
+        if default_skey.exists() and not skey_path.exists():
+            try:
+                trusted_map["dmint-cli"] = load_private_key_from_file(default_skey).public_key()
+            except Exception:
+                pass
+
+        aud = os.environ.get("DMINT_AUTHORITY_AUDIENCE", DEFAULT_APPROVAL_AUDIENCE)
+        verifier = ApprovalVerifier(trusted_issuers=trusted_map, audience=aud, clock=now_fn)
+
+        return cls(
+            policy=resolved_policy,
+            agent_id=agent_id,
+            context=resolved_ctx,
+            approval_store=store,
+            approval_verifier=verifier,
+            policy_provenance=prov,
+            approval_ttl=approval_ttl,
+            integration_id=integration_id,
+            clock=now_fn,
+        )
+
     def reload_policy(self) -> None:
         """Reload policy from configured policy_file, verifying expected digest."""
         import os
@@ -659,7 +761,7 @@ class Dmint:
         self,
         protected_callable: Callable[..., Any],
         *args: Any,
-        approval_credential: ApprovalAssertion | bytes,
+        approval_credential: ApprovalAssertion | bytes | None = None,
         **kwargs: Any,
     ) -> Any:
         """Verify, atomically consume, and execute one exact approved retry."""
@@ -672,6 +774,52 @@ class Dmint:
             )
         if self._approval_store is None or self._approval_verifier is None:
             raise AuthorizationError("approval retry is not configured", code="DMT_AUTHORIZATION_FAILED")
+        if approval_credential is None and args:
+            first_arg = args[0]
+            if isinstance(first_arg, (ApprovalAssertion, bytes)):
+                approval_credential = first_arg
+                args = args[1:]
+            elif first_arg is None:
+                sig_params = [
+                    p for name, p in inspect.signature(binding.function).parameters.items()
+                    if name not in ("self", "cls")
+                    and p.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+                ]
+                if len(args) == len(sig_params) + 1:
+                    args = args[1:]
+        if approval_credential is None and hasattr(self._approval_store, "get_approved_assertion_for_request"):
+            from .request_binding import request_binding_fingerprint
+            from .errors import ApprovalConsumedError
+            _, _, probe_req = self._prepare_call(
+                binding.function,
+                args,
+                kwargs,
+                capability=binding.capability,
+                resource=binding.resource,
+            )
+            probe_fp = request_binding_fingerprint(
+                probe_req,
+                integration_id=self._integration_id,
+                capability_id=binding.capability,
+            )
+            matched = self._approval_store.get_approved_assertion_for_request(
+                request_fingerprint=probe_fp,
+                principal_id=self._agent_id,
+                integration_id=self._integration_id,
+            )
+            if matched is not None:
+                _, approval_credential = matched
+            elif hasattr(self._approval_store, "_connection"):
+                row = self._approval_store._connection.execute(
+                    """
+                    SELECT state FROM approval_records
+                    WHERE request_fingerprint = ? AND principal_id = ? AND integration_id = ?
+                    ORDER BY decision_at DESC, created_at DESC LIMIT 1
+                    """,
+                    (probe_fp, self._agent_id, self._integration_id),
+                ).fetchone()
+                if row is not None and row["state"] == "CONSUMED":
+                    raise ApprovalConsumedError("approval was already consumed")
         if type(approval_credential) is bytes:
             try:
                 approval_credential = ApprovalAssertion.from_bytes(approval_credential)

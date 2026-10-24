@@ -59,6 +59,7 @@ def _get_store(
     database_url: str | None = None,
     db_path: str | None = None,
     deployment_epoch: str | None = None,
+    integrity_key_file: str | Path | None = None,
     clock: Callable[[], datetime] | None = None,
 ) -> ApprovalStore:
     """Instantiate the active ApprovalStore (SQLite or Postgres)."""
@@ -67,18 +68,30 @@ def _get_store(
     target_sqlite = db_path or os.environ.get("DMINT_DB_PATH")
 
     if not target_url and not target_sqlite:
-        if Path("approvals.sqlite3").exists():
+        if Path(".dmint/approvals.sqlite3").exists():
+            target_sqlite = ".dmint/approvals.sqlite3"
+        elif Path("approvals.sqlite3").exists():
             target_sqlite = "approvals.sqlite3"
         elif Path("approvals.sqlite").exists():
             target_sqlite = "approvals.sqlite"
         elif Path("dmint.db").exists():
             target_sqlite = "dmint.db"
+        elif Path(".dmint").is_dir():
+            target_sqlite = ".dmint/approvals.sqlite3"
         else:
             target_sqlite = "approvals.sqlite3"
+
+    integrity_key: Path | None = Path(integrity_key_file) if integrity_key_file else None
+    if integrity_key is None and not os.environ.get("DMINT_INTEGRITY_KEY") and not os.environ.get("DMINT_INTEGRITY_KEY_FILE"):
+        if target_sqlite and (Path(target_sqlite).parent / "integrity.key").exists():
+            integrity_key = Path(target_sqlite).parent / "integrity.key"
+        elif Path(".dmint/integrity.key").exists():
+            integrity_key = Path(".dmint/integrity.key")
 
     return create_approval_store(
         database_url=target_url,
         deployment_epoch=target_epoch,
+        integrity_key=integrity_key,
         default_sqlite_path=target_sqlite or "approvals.sqlite3",
         clock=clock,
     )
@@ -94,10 +107,15 @@ def _get_authority(
     """Instantiate a local approval authority for signing assertions."""
     issuer = authority_issuer or os.environ.get("DMINT_AUTHORITY_ISSUER") or "dmint-cli"
     aud = audience or os.environ.get("DMINT_AUTHORITY_AUDIENCE", DEFAULT_APPROVAL_AUDIENCE)
+    resolved_key_file = key_file
+    if resolved_key_file is None and not os.environ.get("DMINT_KEY_FILE") and not os.environ.get("DMINT_SIGNING_KEY_FILE"):
+        local_skey = Path(".dmint/signing.key")
+        if local_skey.exists():
+            resolved_key_file = local_skey
     return LocalApprovalAuthority(
         issuer_id=issuer,
         audience=aud,
-        key_file=key_file,
+        key_file=resolved_key_file,
         clock=clock,
     )
 
@@ -150,6 +168,22 @@ def _resolve_current_policy(
     return None
 
 
+
+def _resolve_approval_id(store: ApprovalStore, raw_id: str) -> str:
+    """Resolve either an approval_id (apr_...) or request_id (req_...) to approval_id."""
+    if raw_id.startswith("req_") and hasattr(store, "_connection"):
+        try:
+            row = store._connection.execute(
+                "SELECT approval_id FROM approval_records WHERE request_id = ?",
+                (raw_id,),
+            ).fetchone()
+            if row is not None:
+                return str(row["approval_id"])
+        except Exception:
+            pass
+    return raw_id
+
+
 def main_pending(args: list[str] | None = None) -> int:
     """List all approvals currently in PENDING state."""
     parser = argparse.ArgumentParser(
@@ -187,6 +221,7 @@ def main_pending(args: list[str] | None = None) -> int:
             database_url=parsed.database_url,
             db_path=parsed.db_path,
             deployment_epoch=parsed.deployment_epoch,
+            integrity_key_file=getattr(parsed, "integrity_key_file", None),
         )
     except ApprovalStoreConfigurationError as exc:
         print(f"Error: Database configuration failed: {exc}", file=sys.stderr)
@@ -249,12 +284,21 @@ def main_approve(args: list[str] | None = None) -> int:
     parser.add_argument("--database-url", default=None, help="Database URL (or set DMINT_DATABASE_URL)")
     parser.add_argument("--deployment-epoch", default=None, help="Deployment epoch (default: 'default')")
     parser.add_argument("--policy", default=None, help="Path to policy file for re-verification")
-    parser.add_argument("--approver-id", default=None, help="Approver principal ID (or set DMINT_APPROVER_ID)")
+    parser.add_argument("--approver-id", "--by", "--approver", dest="approver_id", default=None, help="Approver principal ID (or set DMINT_APPROVER_ID)")
     parser.add_argument("--authority-issuer", default=None, help="Authority issuer ID")
     parser.add_argument(
         "--key-file",
+        "--key-path",
+        dest="key_file",
         default=os.environ.get("DMINT_KEY_FILE"),
         help="Path to Ed25519 signing key file (or set DMINT_KEY_FILE)",
+    )
+    parser.add_argument(
+        "--integrity-key-file",
+        "--integrity-key-path",
+        dest="integrity_key_file",
+        default=None,
+        help="Path to HMAC integrity key file (or set DMINT_INTEGRITY_KEY_FILE)",
     )
     parser.add_argument(
         "--audience",
@@ -276,6 +320,7 @@ def main_approve(args: list[str] | None = None) -> int:
             database_url=parsed.database_url,
             db_path=parsed.db_path,
             deployment_epoch=parsed.deployment_epoch,
+            integrity_key_file=getattr(parsed, "integrity_key_file", None),
         )
     except ApprovalStoreConfigurationError as exc:
         print(f"Error: Database configuration failed: {exc}", file=sys.stderr)
@@ -286,7 +331,8 @@ def main_approve(args: list[str] | None = None) -> int:
 
     try:
         with store:
-            record = store.get(parsed.approval_id)
+            target_id = _resolve_approval_id(store, parsed.approval_id)
+            record = store.get(target_id)
             if record is None:
                 print(f"Error: Approval request '{parsed.approval_id}' was not found.", file=sys.stderr)
                 return 1
@@ -333,7 +379,7 @@ def main_approve(args: list[str] | None = None) -> int:
             approver_id = _get_approver_id(parsed.approver_id)
 
             store.approve_pending(
-                parsed.approval_id,
+                target_id,
                 authority=authority,
                 approved_by=approver_id,
                 reason=parsed.reason,
@@ -381,13 +427,22 @@ def main_reject(args: list[str] | None = None) -> int:
     parser.add_argument("--db-path", default=None, help="Path to SQLite database (or set DMINT_DB_PATH)")
     parser.add_argument("--database-url", default=None, help="Database URL (or set DMINT_DATABASE_URL)")
     parser.add_argument("--deployment-epoch", default=None, help="Deployment epoch (default: 'default')")
-    parser.add_argument("--approver-id", default=None, help="Rejecter principal ID (or set DMINT_APPROVER_ID)")
+    parser.add_argument("--approver-id", "--by", "--approver", dest="approver_id", default=None, help="Rejecter principal ID (or set DMINT_APPROVER_ID)")
     parser.add_argument("--authority-issuer", default=None, help="Authority issuer ID")
     parser.add_argument("--audience", default=None, help="Approval authority audience")
     parser.add_argument(
         "--key-file",
+        "--key-path",
+        dest="key_file",
         default=None,
         help="Path to Ed25519 private signing key file (or set DMINT_SIGNING_KEY_FILE)",
+    )
+    parser.add_argument(
+        "--integrity-key-file",
+        "--integrity-key-path",
+        dest="integrity_key_file",
+        default=None,
+        help="Path to HMAC integrity key file (or set DMINT_INTEGRITY_KEY_FILE)",
     )
     try:
         parsed = parser.parse_args(args)
@@ -399,6 +454,7 @@ def main_reject(args: list[str] | None = None) -> int:
             database_url=parsed.database_url,
             db_path=parsed.db_path,
             deployment_epoch=parsed.deployment_epoch,
+            integrity_key_file=getattr(parsed, "integrity_key_file", None),
         )
     except ApprovalStoreConfigurationError as exc:
         print(f"Error: Database configuration failed: {exc}", file=sys.stderr)
@@ -409,7 +465,8 @@ def main_reject(args: list[str] | None = None) -> int:
 
     try:
         with store:
-            record = store.get(parsed.approval_id)
+            target_id = _resolve_approval_id(store, parsed.approval_id)
+            record = store.get(target_id)
             if record is None:
                 print(f"Error: Approval request '{parsed.approval_id}' was not found.", file=sys.stderr)
                 return 1
@@ -438,7 +495,7 @@ def main_reject(args: list[str] | None = None) -> int:
             approver_id = _get_approver_id(parsed.approver_id)
 
             store.reject_pending(
-                parsed.approval_id,
+                target_id,
                 authority=authority,
                 rejected_by=approver_id,
                 reason=parsed.reason,

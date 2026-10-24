@@ -260,6 +260,7 @@ class Rule:
         )
 
     approve = approval_required
+    require_approval = approval_required
 
     def matches_tool_action(self, request: ToolRequest) -> bool:
         """Return whether the rule's tool/action selectors cover the request.
@@ -323,6 +324,7 @@ class Policy:
     strict_arguments: bool = False
     tool_schemas: Mapping[str, str] = field(default_factory=dict)
     _file_digest: str | None = None
+    default: str = "deny"
 
     def __post_init__(self) -> None:
         if not isinstance(self.rules, Sequence) or isinstance(self.rules, (str, bytes)):
@@ -336,6 +338,9 @@ class Policy:
         for k, v in self.tool_schemas.items():
             if not isinstance(k, str) or not isinstance(v, str):
                 raise PolicyError("policy tool_schemas must be a string to string mapping")
+        if not isinstance(self.default, str) or self.default.lower() != "deny":
+            raise PolicyError("Dmint policies are strictly default-deny (default must be 'deny')")
+        object.__setattr__(self, "default", "deny")
         object.__setattr__(self, "rules", tuple(self.rules))
         object.__setattr__(self, "strict_arguments", bool(self.strict_arguments))
         object.__setattr__(self, "tool_schemas", MappingProxyType(dict(self.tool_schemas)))
