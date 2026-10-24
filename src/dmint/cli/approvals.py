@@ -383,6 +383,12 @@ def main_reject(args: list[str] | None = None) -> int:
     parser.add_argument("--deployment-epoch", default=None, help="Deployment epoch (default: 'default')")
     parser.add_argument("--approver-id", default=None, help="Rejecter principal ID (or set DMINT_APPROVER_ID)")
     parser.add_argument("--authority-issuer", default=None, help="Authority issuer ID")
+    parser.add_argument("--audience", default=None, help="Approval authority audience")
+    parser.add_argument(
+        "--key-file",
+        default=None,
+        help="Path to Ed25519 private signing key file (or set DMINT_SIGNING_KEY_FILE)",
+    )
     try:
         parsed = parser.parse_args(args)
     except SystemExit as exc:
@@ -424,7 +430,11 @@ def main_reject(args: list[str] | None = None) -> int:
                 )
                 return 1
 
-            authority = _get_authority(authority_issuer=parsed.authority_issuer)
+            authority = _get_authority(
+                authority_issuer=parsed.authority_issuer,
+                audience=parsed.audience,
+                key_file=parsed.key_file,
+            )
             approver_id = _get_approver_id(parsed.approver_id)
 
             store.reject_pending(

@@ -13,6 +13,8 @@ Dmint Policy JSON Schema Specification:
       "tool": "<tool_name>",
       "action": "<action_name>",
       "resource": "*" | null | "<resource_string>",
+      "resource_kind": "exact" | "path" | "url" | "host" | "identifier",
+      "case_sensitive": true | false,
       "agent_id": null | "<agent_id_string>",
       "conditions": [
         {
@@ -20,7 +22,16 @@ Dmint Policy JSON Schema Specification:
           "operator": "equals" | "notEquals" | "in" | "contains" | "startsWith" | "endsWith",
           "value": <json_value>
         }
-      ]
+      ],
+      "constraints": {
+        "properties": {
+          "<arg_name>": {
+            "type": "string" | "integer" | "number" | "boolean" | "array" | "object"
+          }
+        },
+        "required": ["<arg_name>"],
+        "additionalProperties": false
+      }
     }
   ]
 }

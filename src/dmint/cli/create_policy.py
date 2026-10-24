@@ -7,7 +7,10 @@ import ast
 import getpass
 import json
 import sys
-import questionary
+try:
+    import questionary
+except ImportError:  # pragma: no cover
+    questionary = None  # type: ignore[assignment]
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any

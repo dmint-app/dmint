@@ -19,7 +19,14 @@ A rule is:
   "action": "<string, required>",
   "agent_id": "<string, optional — omit to apply to every agent>",
   "resource": "<string>" | "*",
-  "conditions": [ {"field": "<string>", "operator": "equals"|"notEquals"|"in"|"contains"|"startsWith"|"endsWith", "value": <json>} ]
+  "resource_kind": "exact" | "path" | "url" | "host" | "identifier",
+  "case_sensitive": true | false,
+  "conditions": [ {"field": "<string>", "operator": "equals"|"notEquals"|"in"|"contains"|"startsWith"|"endsWith", "value": <json>} ],
+  "constraints": {
+    "properties": { "<arg_name>": { "type": "string"|"integer"|"number"|"boolean"|"array"|"object", "minimum": <num>, "maximum": <num>, "enum": [...], "pattern": "<regex>" } },
+    "required": ["<arg_name>"],
+    "additionalProperties": true | false
+  }
 }
 
 No other keys are permitted anywhere in a rule, a policy, or a condition — Dmint rejects unknown fields outright, so never add explanatory fields, comments, or metadata.
