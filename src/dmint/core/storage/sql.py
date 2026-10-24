@@ -327,31 +327,12 @@ class SQLAlchemyApprovalStore(ApprovalStore):
             self._engine.dispose()
 
     def set_authoritative_policy(self, policy: Policy, provenance: PolicyProvenance) -> None:
-        from ..models import AnyResource
         from ..policy import Policy
 
         if type(policy) is not Policy or type(provenance) is not PolicyProvenance:
             raise MalformedApprovalError("invalid policy or provenance for store")
 
-        rules_list = []
-        for r in policy.rules:
-            rule_dict: dict[str, Any] = {"effect": r.effect.value.lower(), "tool": r.tool, "action": r.action}
-            if r.agent_id is not None:
-                rule_dict["agent_id"] = r.agent_id
-            if type(r.resource) is str:
-                rule_dict["resource"] = r.resource
-            elif type(r.resource) is AnyResource:
-                rule_dict["resource"] = "*"
-            if r.conditions:
-                from ..canonicalize import thaw_json
-
-                conds = []
-                for c in r.conditions:
-                    conds.append({"field": c.field, "operator": c.operator, "value": thaw_json(c.value)})
-                rule_dict["conditions"] = conds
-            rules_list.append(rule_dict)
-
-        rules_json = _canonical_json({"rules": rules_list})
+        rules_json = _canonical_json(policy.to_dict())
         now_str = _timestamp(self._clock())
 
         try:

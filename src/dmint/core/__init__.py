@@ -4,6 +4,7 @@ from dmint.version import __version__
 
 if TYPE_CHECKING:
     from .authority import LocalApprovalAuthority
+    from .storage.sql import SQLAlchemyApprovalStore
     from .keys import (
         load_private_key,
         load_private_key_from_file,
@@ -109,7 +110,6 @@ from .request_binding import (
 )
 from .storage import (
     ApprovalStore,
-    SQLAlchemyApprovalStore,
     SQLiteApprovalStore,
     ThreadSafeApprovalStore,
     create_approval_store,
@@ -241,6 +241,10 @@ __all__ = [
 
 
 def __getattr__(name: str) -> Any:
+    if name == "SQLAlchemyApprovalStore":
+        from .storage.sql import SQLAlchemyApprovalStore
+
+        return SQLAlchemyApprovalStore
     if name == "LocalApprovalAuthority":
         from .authority import LocalApprovalAuthority
 

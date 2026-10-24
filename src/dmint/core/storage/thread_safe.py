@@ -19,7 +19,6 @@ if TYPE_CHECKING:
     from dmint.core.authority import LocalApprovalAuthority
 from .base import ApprovalStore
 from .factory import create_approval_store
-from .sql import SQLAlchemyApprovalStore
 from .sqlite import SQLiteApprovalStore
 
 
@@ -107,7 +106,7 @@ class ThreadSafeApprovalStore(ApprovalStore):
                             pass
 
     def _get_current_store(self) -> ApprovalStore:
-        if isinstance(self._initial_store, SQLAlchemyApprovalStore):
+        if not isinstance(self._initial_store, SQLiteApprovalStore):
             return self._initial_store
 
         tid = threading.get_ident()

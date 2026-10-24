@@ -13,11 +13,9 @@ from mcp.server import Server
 from mcp.server.context import ServerRequestContext
 from mcp.server.stdio import stdio_server
 from mcp.shared.exceptions import MCPError as SDKMCPError
-import rfc8785
-
 from dmint.core.approvals import ApprovalRecord, ApprovalState, PolicyProvenance
 from dmint.core.verification import ApprovalAssertion, ApprovalVerifier
-from dmint.core.canonicalize import thaw_json
+from dmint.core.canonicalize import canonicalize_bytes, thaw_json
 from dmint.core.errors import (
     ApprovalCredentialInvalidError,
     ApprovalError,
@@ -682,7 +680,7 @@ class DmintMCPProxy:
                 if isinstance(approval_cred, str):
                     approval_cred = approval_cred.encode("utf-8")
                 elif isinstance(approval_cred, dict):
-                    approval_cred = rfc8785.dumps(approval_cred)
+                    approval_cred = canonicalize_bytes(approval_cred)
 
                 return await self._gate.retry_call(
                     integration_id=self._integration_id,

@@ -71,7 +71,6 @@ from .core import (
     normalize_url,
     Rule,
     ApprovalStore,
-    SQLAlchemyApprovalStore,
     SQLiteApprovalStore,
     ThreadSafeApprovalStore,
     create_approval_store,
@@ -120,6 +119,10 @@ def __getattr__(name: str) -> Any:
         globals()[name] = mod
         sys.modules.setdefault(f"dmint_{name}", mod)
         return mod
+    if name == "SQLAlchemyApprovalStore":
+        from .core.storage.sql import SQLAlchemyApprovalStore
+
+        return SQLAlchemyApprovalStore
     if name == "LocalApprovalAuthority":
         from .core.authority import LocalApprovalAuthority
 

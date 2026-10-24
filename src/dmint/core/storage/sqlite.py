@@ -27,9 +27,7 @@ try:  # Windows cross-process lock
 except ImportError:  # pragma: no cover - exercised on POSIX
     msvcrt = None  # type: ignore[assignment]
 
-import rfc8785
-
-from ..canonicalize import redact_sensitive_data, thaw_json
+from ..canonicalize import canonicalize_bytes, redact_sensitive_data, thaw_json
 
 if TYPE_CHECKING:
     from ..authority import LocalApprovalAuthority
@@ -57,6 +55,7 @@ from ..errors import (
     ApprovalPrincipalMismatchError,
     ApprovalRequestMismatchError,
     ApprovalStoreError,
+    CanonicalizationError,
     CorruptApprovalRecordError,
     DeprecatedStorageFormatError,
     MalformedApprovalError,
@@ -219,15 +218,15 @@ def _reject_json_constant(value: str) -> None:
 
 def _canonical_json(value: Any) -> str:
     try:
-        return rfc8785.dumps(value).decode("utf-8")
-    except (TypeError, ValueError, OverflowError) as exc:
+        return canonicalize_bytes(value).decode("utf-8")
+    except (CanonicalizationError, TypeError, ValueError, OverflowError) as exc:
         raise CorruptApprovalRecordError("value is not valid JCS JSON") from exc
 
 
 def _integrity_checksum(payload: Mapping[str, Any], integrity_key: bytes) -> str:
     try:
-        canonical = rfc8785.dumps(dict(payload))
-    except (TypeError, ValueError, OverflowError) as exc:
+        canonical = canonicalize_bytes(dict(payload))
+    except (CanonicalizationError, TypeError, ValueError, OverflowError) as exc:
         raise CorruptApprovalRecordError("stored integrity payload is invalid") from exc
     return hmac.new(integrity_key, _INTEGRITY_DOMAIN_SEPARATOR + canonical, hashlib.sha256).hexdigest()
 
@@ -236,7 +235,7 @@ def _is_deprecated_v1_checksum(row: Any, stored_checksum: str) -> bool:
     try:
         keys = row.keys() if hasattr(row, "keys") else row
         v1_payload = {col: row[col] for col in _OLD_V1_STORED_COLUMNS if col in keys}
-        canonical = rfc8785.dumps(dict(v1_payload))
+        canonical = canonicalize_bytes(dict(v1_payload))
         old_checksum = hashlib.sha256(b"dmint/approval-record-integrity/v1\x00" + canonical).hexdigest()
         return hmac.compare_digest(stored_checksum, old_checksum)
     except Exception:
@@ -517,27 +516,11 @@ class SQLiteApprovalStore(ApprovalStore):
 
     @_synchronized
     def set_authoritative_policy(self, policy: Policy, provenance: PolicyProvenance) -> None:
-        from ..models import AnyResource
-        from ..policy import Policy, Rule
+        from ..policy import Policy
 
         if type(policy) is not Policy or type(provenance) is not PolicyProvenance:
             raise MalformedApprovalError("invalid policy or provenance for store")
-        rules_list = []
-        for r in policy.rules:
-            rule_dict: dict[str, Any] = {"effect": r.effect.value.lower(), "tool": r.tool, "action": r.action}
-            if r.agent_id is not None:
-                rule_dict["agent_id"] = r.agent_id
-            if type(r.resource) is str:
-                rule_dict["resource"] = r.resource
-            elif type(r.resource) is AnyResource:
-                rule_dict["resource"] = "*"
-            if r.conditions:
-                conds = []
-                for c in r.conditions:
-                    conds.append({"field": c.field, "operator": c.operator, "value": thaw_json(c.value)})
-                rule_dict["conditions"] = conds
-            rules_list.append(rule_dict)
-        rules_json = _canonical_json({"rules": rules_list})
+        rules_json = _canonical_json(policy.to_dict())
         now_str = _timestamp(self._clock())
         try:
             with self._connection:

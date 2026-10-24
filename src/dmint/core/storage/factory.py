@@ -10,7 +10,6 @@ from pathlib import Path
 
 from ..errors import ApprovalStoreConfigurationError
 from .base import ApprovalStore
-from .sql import SQLAlchemyApprovalStore
 from .sqlite import SQLiteApprovalStore
 
 _VALID_SCHEMES = {
@@ -91,6 +90,8 @@ def create_approval_store(
             )
 
     # 3. Instantiate SQLAlchemyApprovalStore (validates connection during init, fails loud on failure)
+    from .sql import SQLAlchemyApprovalStore
+
     return SQLAlchemyApprovalStore(
         url_str,
         deployment_epoch=deployment_epoch,
