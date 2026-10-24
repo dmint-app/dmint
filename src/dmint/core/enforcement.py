@@ -28,7 +28,7 @@ from .errors import (
 )
 from .hashing import request_fingerprint
 from .models import Decision, NO_RESOURCE, NoResource, ToolRequest, TrustedContext, validate_text
-from .policy import Policy, policy_digest
+from .policy import Policy, policy_digest, sync_authoritative_policy
 from .approvals import PolicyProvenance
 from .storage import ApprovalStore
 from .webhooks import WebhookNotifier
@@ -359,8 +359,7 @@ class Dmint:
         object.__setattr__(self, "_policy_file", policy_file)
         object.__setattr__(self, "_expected_policy_digest", expected_digest)
         if approval_store is not None and policy_provenance is not None:
-            if approval_store.get_authoritative_policy() is None:
-                approval_store.set_authoritative_policy(policy, policy_provenance)
+            sync_authoritative_policy(approval_store, policy, policy_provenance)
 
     @classmethod
     def local(
@@ -441,7 +440,7 @@ class Dmint:
 
         priv = load_private_key_from_file(skey_path)
         pub = priv.public_key()
-        trusted_map = {"dmint-cli": pub, "dmint-authority": pub, "local-authority": pub}
+        trusted_map = {"dmint-cli": pub, "dmint-authority": pub, "dmint-dashboard": pub, "local-authority": pub}
         default_skey = Path.home() / ".config" / "dmint" / "signing.key"
         if default_skey.exists() and not skey_path.exists():
             try:

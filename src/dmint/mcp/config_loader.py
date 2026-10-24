@@ -83,6 +83,7 @@ class MCPGatewayConfig:
     approval_audience: str = _DEFAULT_APPROVAL_AUDIENCE
     expected_policy_digest: str | None = None
     deployment_epoch: str = "default"
+    approval_retry_mode: str = "stored"
 
     def get_integration(self, integration_id: str) -> MCPIntegrationConfig | None:
         """Lookup an integration configuration by ID."""
@@ -473,6 +474,9 @@ def parse_protection_config(
     if not isinstance(raw_epoch, str) or not raw_epoch.strip():
         raise MCPConfigurationError("deployment_epoch must be a non-empty string")
     deployment_epoch = raw_epoch.strip()
+    raw_retry_mode = data.get("approval_retry_mode", "stored")
+    if not isinstance(raw_retry_mode, str) or raw_retry_mode.strip() not in ("stored", "credential"):
+        raise MCPConfigurationError("approval_retry_mode must be 'stored' or 'credential'")
 
     return MCPGatewayConfig(
         policy=policy,

@@ -104,18 +104,34 @@ def main(argv: list[str] | None = None, prog: str | None = None) -> None:
             "Pass --allow-public-bind flag explicitly if exposing the dashboard to the network."
         )
 
+    from pathlib import Path
     if not args.db_path and not args.database_url:
-        parser.error(
-            "DMINT_DB_PATH / DMINT_DATABASE_URL environment variable or --db-path / --database-url argument is required.\n"
-            "  Example: dmint-dashboard --db-path /var/dmint/approvals.sqlite3 "
-            "--deployment-epoch my-deployment"
-        )
+        if Path(".dmint/approvals.sqlite3").is_file():
+            args.db_path = ".dmint/approvals.sqlite3"
+        else:
+            parser.error(
+                "DMINT_DB_PATH / DMINT_DATABASE_URL environment variable or --db-path / --database-url argument is required.\n"
+                "  Example: dmint-dashboard --db-path /var/dmint/approvals.sqlite3 "
+                "--deployment-epoch my-deployment"
+            )
 
     approver_id = args.approver_id or os.environ.get("DMINT_APPROVER_ID")
     if not approver_id:
-        parser.error(
-            "Configured approver ID is required. Pass --approver-id <id> or set DMINT_APPROVER_ID environment variable."
-        )
+        if args.db_path and (Path(args.db_path).resolve().parent / "signing.key").is_file():
+            import getpass
+            try:
+                approver_id = getpass.getuser() or "dashboard-admin"
+            except Exception:
+                approver_id = "dashboard-admin"
+        else:
+            parser.error(
+                "Configured approver ID is required. Pass --approver-id <id> or set DMINT_APPROVER_ID environment variable."
+            )
+
+    if not args.key_file and args.db_path:
+        sibling_skey = Path(args.db_path).resolve().parent / "signing.key"
+        if sibling_skey.is_file():
+            args.key_file = str(sibling_skey)
 
     # Import Core here so startup errors are surfaced clearly.
     try:

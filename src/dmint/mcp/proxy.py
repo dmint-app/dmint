@@ -130,8 +130,7 @@ class EnforcementGate:
 
         # Synchronize authoritative policy into store via public API if empty
         if self._approval_store is not None and self._policy_provenance is not None:
-            if self._approval_store.get_authoritative_policy() is None:
-                self._approval_store.set_authoritative_policy(self._policy, self._policy_provenance)
+            sync_authoritative_policy(self._approval_store, self._policy, self._policy_provenance)
 
         self._agent_id = agent_id
         self._mapper = MCPRequestMapper(

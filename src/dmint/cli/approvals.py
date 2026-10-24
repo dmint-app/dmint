@@ -19,6 +19,7 @@ from dmint.approvals import (
 from dmint.authority import LocalApprovalAuthority
 from dmint.cli.errors import PolicyValidationError
 from dmint.core.verification import DEFAULT_APPROVAL_AUDIENCE
+from dmint.core.errors import ApprovalDeploymentInvalidError
 from dmint.errors import (
     ApprovalConcurrentConsumeError,
     ApprovalExpiredError,
@@ -234,8 +235,12 @@ def main_pending(args: list[str] | None = None) -> int:
         with store:
             pending_records = store.list_pending(limit=parsed.limit)
 
+            active_epoch = parsed.deployment_epoch or os.environ.get("DMINT_DEPLOYMENT_EPOCH", "default")
             if not pending_records:
-                print("No pending approvals found.")
+                print(
+                    f"No pending approvals found. (epoch: {active_epoch}) — "
+                    "if your gateway uses another epoch, pass --deployment-epoch or set DMINT_DEPLOYMENT_EPOCH."
+                )
                 return 0
 
             headers = ["APPROVAL ID", "TOOL/ACTION", "RESOURCE/TARGET", "PRINCIPAL", "REQUESTED"]
@@ -309,6 +314,11 @@ def main_approve(args: list[str] | None = None) -> int:
         "--output-assertion",
         default=None,
         help="File path to write the signed approval assertion bytes for retry",
+    )
+    parser.add_argument(
+        "--store-assertion",
+        action="store_true",
+        help="Persist signed assertion in store for automatic retry (enabled by default in v2.0.4+)",
     )
     try:
         parsed = parser.parse_args(args)
@@ -400,6 +410,13 @@ def main_approve(args: list[str] | None = None) -> int:
             return 0
     except UnknownApprovalVersionError as exc:
         print(f"Error [{exc.code}]: Cannot approve '{parsed.approval_id}': {exc}", file=sys.stderr)
+        return 1
+    except ApprovalDeploymentInvalidError as exc:
+        print(
+            f"Error: Deployment epoch mismatch for '{parsed.approval_id}': {exc}. "
+            "Pass --deployment-epoch <epoch> or set DMINT_DEPLOYMENT_EPOCH.",
+            file=sys.stderr,
+        )
         return 1
     except (
         ApprovalNotFoundError,
@@ -505,6 +522,13 @@ def main_reject(args: list[str] | None = None) -> int:
             if parsed.reason:
                 print(f"  Reason: {parsed.reason}")
             return 0
+    except ApprovalDeploymentInvalidError as exc:
+        print(
+            f"Error: Deployment epoch mismatch for '{parsed.approval_id}': {exc}. "
+            "Pass --deployment-epoch <epoch> or set DMINT_DEPLOYMENT_EPOCH.",
+            file=sys.stderr,
+        )
+        return 1
     except (
         ApprovalNotFoundError,
         ApprovalExpiredError,

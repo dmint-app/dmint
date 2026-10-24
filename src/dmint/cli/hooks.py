@@ -422,7 +422,7 @@ def evaluate_hook_request(
 
     effective_agent = (
         agent_id
-        or str(payload.get("agent_id") or payload.get("session_id") or f"{norm_harness}-agent").strip()
+        or str(payload.get("agent_id") or f"{norm_harness}-agent").strip()
     )
     req = ToolRequest(
         request_id=new_request_id(),
@@ -506,6 +506,7 @@ def evaluate_hook_request(
                 trusted_issuers[issuer_key] = pub
                 trusted_issuers["dmint-cli"] = pub
                 trusted_issuers["dmint-authority"] = pub
+                trusted_issuers["dmint-dashboard"] = pub
             default_key_file = Path.home() / ".config" / "dmint" / "signing.key"
             if default_key_file.exists() and not signing_key_file.exists():
                 try:

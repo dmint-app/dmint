@@ -347,6 +347,15 @@ class SQLiteApprovalStore(ApprovalStore):
             raise ValueError("max_pending_per_principal must be a positive integer")
         from ..keys import load_integrity_key_source
 
+        if (
+            integrity_key is None
+            and database != ":memory:"
+            and not os.environ.get("DMINT_INTEGRITY_KEY")
+            and not os.environ.get("DMINT_INTEGRITY_KEY_FILE")
+        ):
+            sibling_ikey = Path(db_str).resolve().parent / "integrity.key"
+            if sibling_ikey.is_file():
+                integrity_key = sibling_ikey
         self._integrity_key = load_integrity_key_source(integrity_key)
         self._deployment_epoch = deployment_epoch
         self._max_pending_per_principal = max_pending_per_principal

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dmint"
-version = "2.0.3"
+version = "2.0.4"
 description = "Deterministic authorization and security enforcement for AI-agent tool execution"
 readme = "README.md"
 license = "Apache-2.0"
@@ -13,7 +13,7 @@ authors = [
     { name = "Dmint Authors" }
 ]
 classifiers = [
-    "Development Status :: 5 - Production/Stable",
+    "Development Status :: 4 - Beta",
     "Environment :: Console",
     "Intended Audience :: Developers",
     "Operating System :: OS Independent",

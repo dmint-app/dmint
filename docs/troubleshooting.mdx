@@ -39,7 +39,7 @@ ls -la ~/.config/dmint/
 |---|---|---|
 | `DMT_APPROVAL_REQUEST_MISMATCH` | Arguments changed between approval and execution retry. | Ensure retried call uses identical arguments as approved. |
 | `DMT_APPROVAL_CONSUMED` | Approval token was already used. | Approvals are single-use; re-request approval for subsequent call. |
-| `DMT_APPROVAL_EXPIRED` | TTL (default 5 min) elapsed before retry. | Approvals expire after 5 minutes; re-request approval. |
+| `DMT_APPROVAL_EXPIRED` | Configured `approval_ttl` elapsed before retry. | Approvals expire after `approval_ttl`; re-request approval. |
 | `DMT_APPROVAL_POLICY_INVALID` | `policy.json` modified after approval issued. | Re-request approval under the updated policy. |
 | `DMT_KEY_PERMISSION_ERROR` | Key file permissions looser than `0600`. | Run `chmod 0600 ~/.config/dmint/*.key`. |
 | `DMT_MCP_PROTOCOL_ERROR: duplicate JSON key` | Inbound MCP JSON contains duplicate keys. | Strip duplicate dictionary keys in caller payload. |

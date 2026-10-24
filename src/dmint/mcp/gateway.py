@@ -184,6 +184,28 @@ class MCPGateway:
             )
         else:
             self._approval_verifier = None
+            candidate_keys = []
+            if config.approval_store_path:
+                candidate_keys.append(Path(config.approval_store_path).resolve().parent / "signing.key")
+            candidate_keys.append(Path(".dmint/signing.key"))
+            candidate_keys.append(Path.home() / ".config" / "dmint" / "signing.key")
+            for ck in candidate_keys:
+                if ck.is_file():
+                    try:
+                        from dmint.core.keys import load_private_key_from_file
+                        pub = load_private_key_from_file(ck).public_key()
+                        self._approval_verifier = ApprovalVerifier(
+                            trusted_issuers={
+                                "dmint-cli": pub,
+                                "dmint-authority": pub,
+                                "dmint-dashboard": pub,
+                                "local-authority": pub,
+                            },
+                            audience=config.approval_audience,
+                        )
+                        break
+                    except Exception:
+                        pass
         self._integrations: dict[str, GatewayIntegration] = {}
 
         for integ_cfg in config.integrations:

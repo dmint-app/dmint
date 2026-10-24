@@ -17,7 +17,7 @@ pip install dmint
 Verify installation:
 ```bash
 dmint --version
-# Output: dmint 2.0.3
+# Output: dmint 2.0.4
 ```
 
 ---

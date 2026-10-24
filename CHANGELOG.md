@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.4] - 2026-10-25
+
+### Added
+- **Multi-Harness `PreToolUse` Hooks (`dmint hook`)**: Native pre-execution tool interception (`dmint hook install|run|status|uninstall`) for **Claude Code**, **OpenAI Codex CLI**, **OpenCode**, **Cursor**, **Windsurf**, and **Cline / Roo Code**.
+- **60-Second Developer Experience (`dmint init`, `dmint check`, `Dmint.local()`)**: One-command workspace bootstrap (`dmint init`), offline CLI policy simulator (`dmint check`), zero-config Python SDK constructor (`Dmint.local()`), and credential-free `dmint.retry()` auto-lookup.
+- **Automatic Store-Backed Approval Retry (`F4`)**: `approve_pending()` persists signed Ed25519 assertions in `approval_assertions` so `dmint-mcp`, `dmint hook run`, and `Dmint.retry()` can verify and consume single-use approvals by RFC 8785 fingerprint without requiring the LLM to carry a 942-byte token.
+- **Documentation & Generator (`scripts/gen_llms_txt.py`)**: Added dedicated guides for Coding-Agent Hooks, Codex CLI, OpenCode, and Windsurf/Cline (33 total pages) plus deterministic `llms.txt` / `llms-full.txt` / `sitemap.xml` generation.
+
+### Fixed
+- **Shared Store Policy Snapshot (`F2`)**: `set_authoritative_policy()` in `SQLiteApprovalStore` and `SQLAlchemyApprovalStore` now serializes via `Policy.to_dict()`, preserving `resource_kind`, `case_sensitive`, `constraints`, `schema_hash`, `strict_arguments`, and `tool_schemas`, with automatic self-healing via `sync_authoritative_policy()`.
+- **Overview Example & Missing Config Error (`F1`)**: `Dmint._persist_pending` now explicitly names every missing argument (`approval_store`, `policy_provenance`, `approval_ttl`).
+- **Rich Argument Types & `NaN` Error Code (`F7`)**: Non-JSON arguments and non-finite floats (`NaN`, `Infinity`) now consistently surface `DMT_CANONICALIZATION_ERROR` with the argument path.
+- **Shell Command Prefix/Suffix Wildcards**: `match_resource(..., kind="exact")` now supports bounded command prefix/suffix wildcards (`"docker *"`, `"rm -rf /*"`, `"* | sh"`).
+- **Remote Policy SSRF & Postgres Recovery Lock**: `Policy.from_url()` enforces DNS pinning (`_PinnedHTTPSHandler`), redirect blocking, and 10 MB size bounds; `SQLAlchemyApprovalStore` enforces cross-process `.recovery` sidecar locking and pre-increment rollback checks.
+- **Test Portability (`F8`)**: Fixed root-user `chmod 000` test skip, optional Node `canonicalize` fixture skip, `FakeStat` owner check, and regex timing assertions.
+
+### Changed
+- **Unified Default Deployment Epoch (`F3`)**: `MCPGateway` now defaults `deployment_epoch` to `"default"` (configurable via `"deployment_epoch"` in `mcp_protection.json` or `DMINT_DEPLOYMENT_EPOCH`), matching `dmint pending`, `dmint approve`, and `dmint dashboard` out of the box.
+- **PyPI Maturity Classifier (`F6`)**: Updated classifier from `5 - Production/Stable` to `4 - Beta`.
+
 ## [2.0.3] - 2026-10-24
 
 ### Security & Supply Chain

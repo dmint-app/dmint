@@ -298,5 +298,29 @@ class AuditRegressionTests(unittest.TestCase):
                 self.assertEqual(rec.state, ApprovalState.REJECTED)
 
 
+
+    def test_f01b_self_heal_old_lossy_policy_snapshot(self) -> None:
+        """sync_authoritative_policy repairs a truncated v2.0.3 snapshot when version_id and digest match."""
+        from dmint.core.policy import sync_authoritative_policy
+        policy = Policy([Rule.allow("fs", "read", resource="/srv/**", resource_kind="path")])
+        prov = PolicyProvenance("v1", policy_digest(policy), self.now)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = SQLiteApprovalStore(Path(tmpdir) / "store.db", deployment_epoch="default", clock=lambda: self.now)
+            # Simulate old lossy v2.0.3 snapshot missing resource_kind
+            store._connection.execute(
+                "INSERT OR REPLACE INTO store_policy (id, version_id, policy_digest, rules_json, updated_at) VALUES (1, ?, ?, ?, ?)",
+                (prov.version_id, prov.policy_digest, '{"rules":[{"action":"read","effect":"allow","resource":"/srv/**","tool":"fs"}]}', self.now.isoformat()),
+            )
+            store._connection.commit()
+            assert store.get_authoritative_policy()[0].rules[0].resource_kind == "exact"
+
+            # sync_authoritative_policy self-heals the row in place
+            sync_authoritative_policy(store, policy, prov)
+            repaired_policy, _ = store.get_authoritative_policy()
+            self.assertEqual(repaired_policy.to_dict(), policy.to_dict())
+            self.assertEqual(repaired_policy.rules[0].resource_kind, "path")
+            store.close()
+
+
 if __name__ == "__main__":
     unittest.main()
