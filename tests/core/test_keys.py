@@ -228,7 +228,21 @@ class TestCheckKeyFilePermissions:
         key = _gen_key()
         dest = tmp_path / "signing.key"
         _write_hex_key(dest, key, mode=0o600)
-        with patch("os.geteuid", return_value=os.geteuid() + 5000):
+        real_stat = dest.parent.stat()
+
+        class NonRootStat:
+            st_uid = 4242
+            st_mode = real_stat.st_mode
+
+        parent_str = str(dest.parent.resolve())
+        orig_stat = Path.stat
+
+        def fake_stat(self_path: Path) -> Any:
+            if str(self_path) == parent_str:
+                return NonRootStat()
+            return orig_stat(self_path)
+
+        with patch.object(Path, "stat", fake_stat), patch("os.geteuid", return_value=9999):
             with pytest.raises(KeyPermissionError, match="parent directory owner UID"):
                 check_key_file_permissions(dest)
 

@@ -161,7 +161,7 @@ No other states. No probabilistic decisions. No LLM calls in the decision path.
 - Point test subprocess helpers directly to `tests/mcp/mock_server.py` (never via legacy fallback paths).
 - Keep `proxy_entrypoint.py` self-contained with `sys.path` setup so it works as a spawned subprocess.
 - Match the `PYTHONPATH=src` prefix when running any `pytest` or `mypy` invocation.
-- Update `pyproject.toml` as the single source of truth for version (`version = "2.0.1"`).
+- Update `pyproject.toml` as the single source of truth for version (`version = "2.0.3"`).
 
 ---
 
@@ -192,22 +192,22 @@ python3 -m build --no-isolation
 twine check dist/*
 ```
 
-Build artifacts: `dist/dmint-2.0.1-py3-none-any.whl` and `dist/dmint-2.0.1.tar.gz`
+Build artifacts: `dist/dmint-2.0.3-py3-none-any.whl` and `dist/dmint-2.0.3.tar.gz`
 
 ---
 
 ## 9. VERSION & VERSION BUMPING PROTOCOL
 
-**Current Version: `2.0.1`**
+**Current Version: `2.0.3`**
 
-Version is the single source of truth in `pyproject.toml` (`version = "2.0.1"`) and propagated to:
+Version is the single source of truth in `pyproject.toml` (`version = "2.0.3"`) and propagated to:
 - `src/dmint/version.py`
 - `src/dmint/core/__init__.py` (`__version__`)
 - All subsystem `__init__.py` files
 
 ### Version Severity Guidelines (Semantic Versioning)
 When proposing changes, assess severity to recommend the appropriate SemVer bump:
-- **Patch (`2.0.0` → `2.0.1`)**: Bug fixes, documentation improvements, test additions, internal refactoring, non-breaking maintenance (`fix:`, `docs:`, `chore:`, `test:`, `refactor:`).
+- **Patch (`2.0.0` → `2.0.3`)**: Bug fixes, documentation improvements, test additions, internal refactoring, non-breaking maintenance (`fix:`, `docs:`, `chore:`, `test:`, `refactor:`).
 - **Minor (`2.0.0` → `2.1.0`)**: Backwards-compatible features, new CLI commands/flags, new integrations, new capabilities (`feat:`).
 - **Major (`2.0.0` → `3.0.0`)**: Incompatible API changes, breaking policy schema modifications, removed public methods (`feat!:`, `fix!:`, `BREAKING CHANGE:`).
 

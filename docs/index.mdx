@@ -5,7 +5,7 @@ description: "Dmint is a deterministic authorization layer for AI agent tool cal
 
 # Deterministic Security for AI Agent Tool Calls
 
-Dmint places an unbypassable, code-governed authorization boundary between AI agents and privileged execution environments.
+Dmint places a deterministic, code-governed authorization boundary between AI agents and privileged execution environments.
 
 ---
 
@@ -35,7 +35,8 @@ Dmint evaluates every tool request against deterministic, declarative policies b
 Protect a sensitive tool with policy evaluation and human approval:
 
 ```python
-from dmint import Dmint, Policy, Rule, TrustedContext
+from datetime import datetime, timedelta, timezone
+from dmint import Dmint, Policy, PolicyProvenance, Rule, SQLiteApprovalStore, TrustedContext, policy_digest
 
 # 1. Define deterministic rules
 policy = Policy([
@@ -43,11 +44,14 @@ policy = Policy([
     Rule.approval_required("database", "delete"),
 ])
 
-# 2. Initialize the engine
+# 2. Initialize the engine with local approval store
 dmint = Dmint(
     policy=policy,
     agent_id="agent-prod-01",
     context=TrustedContext({"environment": "production"}),
+    approval_store=SQLiteApprovalStore("approvals.sqlite3", deployment_epoch="default"),
+    policy_provenance=PolicyProvenance("v1", policy_digest(policy), datetime.now(timezone.utc)),
+    approval_ttl=timedelta(minutes=5),
 )
 
 # 3. Guard the callable

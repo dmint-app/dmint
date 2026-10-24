@@ -93,7 +93,7 @@ Each element in the `rules` array defines an authorization rule for an agent act
 ## RFC 8785 Numeric Canonicalization
 
 <Note>
-**Strict Numeric Representation**: Dmint uses deterministic RFC 8785 JSON canonicalization to compute cryptographic request fingerprints. Floating-point numbers that have an integer value (such as `5000.0` or `-0.0`) are strictly rejected with a `CanonicalizationError`. Numerical values representing whole integers must be passed as `int` (`5000`).
+**Strict Numeric Representation**: Dmint uses deterministic RFC 8785 (JCS) JSON canonicalization to compute cryptographic request fingerprints. Non-finite floats (`NaN`, `Infinity`, `-Infinity`) and integers outside the IEEE 754 safe integer range (`[-2^53 + 1, 2^53 - 1]`) are strictly rejected with `CanonicalizationError` (`DMT_CANONICALIZATION_ERROR`). In parameter constraints (`type: "integer"`), whole floats like `5000.0` are rejected so integer fields require exact Python `int` values.
 </Note>
 
 ---
