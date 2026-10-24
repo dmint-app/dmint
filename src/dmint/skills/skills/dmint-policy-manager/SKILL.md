@@ -289,6 +289,30 @@ When the user wants to protect more than one MCP server (e.g., both Postgres and
 
 ---
 
+---
+
+## Workflow 6: Installing Coding-Agent Pre-Tool Hooks (`dmint init` & `dmint hook`)
+
+When the user wants to protect built-in shell commands (`Bash`, `exec_command`) and file edits (`Read`, `Write`, `Edit`) in Claude Code, OpenAI Codex CLI, OpenCode, Cursor, Windsurf, or Cline:
+
+1. **Bootstrap Keys, Starter Policy, and Hooks in One Command:**
+   ```bash
+   dmint init --harness all
+   ```
+   (Or specify `--harness claude-code`, `--harness codex`, `--harness opencode`, `--harness cursor`, `--harness windsurf`, or `--harness cline`.)
+2. **Test the Policy with `dmint check`:**
+   ```bash
+   dmint check -p policy.json -t shell.execute -r "git status"           # -> ALLOW
+   dmint check -p policy.json -t shell.execute -r "git push origin main" # -> APPROVAL_REQUIRED
+   dmint check -p policy.json -t shell.execute -r "rm -rf /"             # -> DENY
+   ```
+3. **Check Installed Hook Status:**
+   ```bash
+   dmint hook status
+   ```
+
+---
+
 ## Standard Output Report Template
 
 Whenever you successfully generate or update a policy, use this friendly format:

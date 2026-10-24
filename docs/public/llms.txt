@@ -44,6 +44,17 @@ pip install "dmint[mcp]"       # Include MCP gateway proxy
 pip install "dmint[all]"       # Core, MCP, PostgreSQL, Dashboard
 ```
 
+### 1.5 One-Command Coding Agent Setup (Claude Code, Codex, OpenCode, Cursor, Windsurf, Cline)
+```bash
+# Generates .dmint/ keys, starter policy.json (shell + filesystem), and PreToolUse hooks:
+dmint init --harness all
+
+# Test policy decisions from the terminal:
+dmint check -t shell.execute -r "git status"           # -> ALLOW (exit 0)
+dmint check -t shell.execute -r "git push origin main" # -> APPROVAL_REQUIRED (exit 1)
+dmint check -t shell.execute -r "rm -rf /"             # -> DENY (exit 2)
+```
+
 ### 2. Generate Authority Keys (0600 permissions enforced)
 ```bash
 dmint init-keys

@@ -117,7 +117,71 @@ pip install "dmint[all]"
 
 ---
 
+## 60-Second Quickstart: Coding Agents (Claude Code, Codex, OpenCode, Cursor)
+
+Protect built-in shell commands (`Bash`, `exec_command`), file edits (`Read`, `Write`, `Edit`), and MCP tools across all major AI coding harnesses with one command:
+
+```bash
+pip install dmint
+
+# Generates .dmint/ keys (0600), starter policy.json (shell + filesystem), and pre-tool hooks:
+dmint init --harness all
+```
+
+Supported harnesses out of the box (`--harness all` or comma-separated):
+- **Claude Code** (`.claude/settings.json` `PreToolUse` hook)
+- **OpenAI Codex CLI** (`.codex/hooks.json` & `.codex/dmint-hook.sh`)
+- **OpenCode** (`.opencode/plugin/dmint-guard.ts` `tool.execute.before` plugin)
+- **Cursor** (`.cursor/hooks.json`), **Windsurf** (`.windsurf/hooks.json`), **Cline / Roo Code** (`.clinerules/hooks.json`)
+
+Test how your `policy.json` evaluates any command right from the terminal:
+
+```bash
+dmint check -t shell.execute -r "git status"           # -> ALLOW (exit 0)
+dmint check -t shell.execute -r "git push origin main" # -> APPROVAL_REQUIRED (exit 1)
+dmint check -t shell.execute -r "rm -rf /"             # -> DENY (exit 2)
+```
+
+When an agent hits an `APPROVAL_REQUIRED` rule (like `git push origin main`), approve it once from your terminal and ask the agent to retry:
+
+```bash
+dmint pending
+dmint approve apr_... --by alice@company.com
+```
+
+The next retry automatically verifies the Ed25519 signature against the exact RFC 8785 canonicalized arguments and consumes the approval atomically (`APPROVED -> CONSUMED`). Editing any argument or replaying the call a second time is refused.
+
+---
+
 ## Quickstart: Python SDK
+
+### Option A: Zero-Config Local Setup (`Dmint.local`)
+
+For local agents and quick evaluation, `Dmint.local()` automatically creates `.dmint/signing.key`, `.dmint/integrity.key`, and `.dmint/approvals.sqlite3`:
+
+```python
+from dmint import ApprovalRequiredError, Dmint, Policy, Rule
+
+policy = Policy([
+    Rule.allow("database", "select"),
+    Rule.approval_required("database", "update"),
+    Rule.deny("database", "drop"),
+])
+dmint = Dmint.local(policy)
+
+@dmint.protect("database.update")
+def update_user_role(user_id: int, role: str) -> str:
+    return f"Updated user {user_id} to {role}"
+
+try:
+    update_user_role(1, "admin")
+except ApprovalRequiredError as exc:
+    print(f"Paused for human sign-off: dmint approve {exc.approval_id}")
+    # After running `dmint approve <id>`, retry without manually passing the credential bytes:
+    # dmint.retry(update_user_role, 1, "admin")
+```
+
+### Option B: Explicit Production Configuration
 
 Dmint's approval store is tamper-evident: pending records are HMAC-signed with a local integrity key, and approvals are signed with an Ed25519 key. Generate both once before running the example:
 
@@ -296,6 +360,9 @@ Add Dmint MCP as a stdio server in your client configuration (e.g. `.cursor/mcp.
 
 | Command | Usage | Description |
 | :--- | :--- | :--- |
+| `dmint init` | `dmint init --harness all` | One-command setup: generates `.dmint/` keys, starter `policy.json`, and coding-agent hooks. |
+| `dmint check` | `dmint check -t shell.execute -r "git status"` | Simulates a tool call against `policy.json` (`ALLOW` / `APPROVAL_REQUIRED` / `DENY`). |
+| `dmint hook` | `dmint hook <install\|run\|status\|uninstall>` | Manages and runs pre-tool hooks for Claude Code, Codex, OpenCode, Cursor, Windsurf, and Cline. |
 | `dmint create-policy` | `dmint create-policy -f access.md -o policy.json` | Interactive LLM wizard that converts markdown access requirements into validated policies. |
 | `dmint create-mcp-policy` | `dmint create-mcp-policy --url https://api.example.com/mcp` | Discovers live MCP server tools and generates `policy.json` and `mcp_protection.json`. |
 | `dmint protect-mcp` | `dmint protect-mcp --url https://api.example.com/mcp` | Compatibility alias for `dmint create-mcp-policy` (identical options). |
@@ -329,6 +396,17 @@ export DMINT_TEAMS_WEBHOOK_URL="https://example.webhook.office.com/webhookb2/...
 > [!NOTE]
 > **TODO (Approver Environment)**: Because `--database-url` credentials are strictly stripped from outgoing webhook notifications to prevent credential leakage in chat channels, approvers executing `dmint approve <id>` must ensure the `DMINT_DATABASE_URL` environment variable is configured in their execution environment if using a remote PostgreSQL store.
 
+
+---
+
+## When to Use Dmint (and When to Pick Something Else)
+
+| If you... | Use | Why |
+| :--- | :--- | :--- |
+| **Need self-hosted, Ed25519-signed, single-use human sign-off on high-risk actions in Python, MCP, or coding-agent hooks** | **Dmint** | Approvals are cryptographically bound to exact RFC 8785 arguments, usable once (`PENDING -> APPROVED -> CONSUMED`), and voided if `policy.json` changes. |
+| Run entirely on AWS Bedrock AgentCore | AWS AgentCore Policy | Managed Cedar policy enforcement at the AWS gateway with zero infrastructure to host. |
+| Need broad multi-language governance across Go, .NET, Java, and Rust | Microsoft Agent Governance Toolkit / Cerbos | Multi-language SDKs and centralized policy decision points (PDPs). |
+| Need prompt-injection classification, toxicity filtering, or PII redaction | LLM Guardrails (Llama Guard, NeMo) | Dmint is a deterministic capability and argument gate—never a text classifier. |
 
 ---
 

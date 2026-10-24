@@ -1,90 +1,101 @@
 ---
-title: "Claude Code Integration"
-description: "How to route Claude Code MCP tools through dmint-mcp with deterministic policy enforcement."
+title: "Claude Code, Codex & OpenCode Hooks"
+description: "How to enforce deterministic policy rules and single-use human approvals on native shell, file, and MCP tools in Claude Code, OpenAI Codex, and OpenCode."
 icon: "terminal"
 ---
 
-# Claude Code Integration
+# Claude Code, Codex & OpenCode Integration
 
-[Claude Code](https://docs.anthropic.com/en/docs/agents-and-tools/claude-code/overview) is Anthropic's agentic command-line tool. By routing Claude Code's tools through `dmint-mcp`, you ensure that autonomous file edits, database mutations, and external API requests follow deterministic security boundaries.
+AI coding agents execute two kinds of tools:
+1. **Built-in native tools** (`Bash` / `exec_command`, `Read`, `Write`, `Edit`, `MultiEdit`) that run directly inside the agent harness.
+2. **Model Context Protocol (MCP) tools** (`mcp__postgres__query`, etc.) that run over stdio or Streamable HTTP.
 
----
-
-## 1. Install the Policy Skill
-
-Install the official `dmint-policy-manager` skill into Claude Code's global configuration:
-
-```bash
-dmint install-skill --claude
-# Installs to ~/.claude/skills/dmint-policy-manager/
-```
-
-This gives Claude Code full understanding of Dmint's policy syntax, failure modes, and approval retries.
+Dmint protects **both** layers:
+- **`dmint hook`** intercepts built-in shell, filesystem, and MCP tool calls via the harness's native `PreToolUse` / `tool.execute.before` hook before a command ever runs.
+- **`dmint-mcp`** wraps downstream MCP servers in a fail-closed proxy.
 
 ---
 
-## 2. Configure Claude Code with `dmint-mcp`
+## 1. 30-Second Setup (`dmint init`)
 
-Configure Claude Code to route downstream tools through the `dmint-mcp` gateway.
-
-Add the gateway to your Claude Code configuration:
+In your project directory, run a single command to generate cryptographic keys (`.dmint/`), a starter `policy.json` (covering `shell` and `filesystem` tools), and pre-tool hooks for your coding agent:
 
 ```bash
-claude mcp add dmint-gateway -- dmint-mcp run \
-  --config /path/to/mcp_protection.json
+# Install for Claude Code, Codex, OpenCode, Cursor, Windsurf, and Cline at once:
+dmint init --harness all
+
+# Or target a specific harness:
+dmint init --harness claude-code
+dmint init --harness codex
+dmint init --harness opencode
 ```
 
-<Note>
-The policy file (`policy_file`), approval database (`approval_db`), and TTL (`approval_ttl`) are configured inside `mcp_protection.json`.
-</Note>
+What this creates:
+- `policy.json` — Deterministic rules for `shell.execute` and `filesystem.*` (`read_file`, `write_file`, `delete_file`, `list_directory`).
+- `.dmint/signing.key` & `.dmint/integrity.key` (`0600` permissions) — Ed25519 approval signing key and HMAC store integrity key.
+- `.claude/settings.json` — Claude Code `PreToolUse` hook matching `Bash|Read|Write|Edit|MultiEdit|NotebookEdit|WebFetch|mcp__.*`.
+- `.codex/hooks.json` & `.codex/dmint-hook.sh` — OpenAI Codex CLI pre-execution hook.
+- `.opencode/plugin/dmint-guard.ts` — OpenCode `tool.execute.before` guard plugin.
 
-Alternatively, configure `~/.claude/config.json`:
+---
 
-```json title="~/.claude/config.json"
-{
-  "mcpServers": {
-    "dmint-gateway": {
-      "command": "python",
-      "args": [
-        "-m",
-        "dmint.mcp",
-        "run",
-        "--config",
-        "/path/to/mcp_protection.json"
-      ]
-    }
-  }
-}
+## 2. Test Your Policy from the Terminal (`dmint check`)
+
+Before launching your agent, verify how your `policy.json` evaluates any tool call:
+
+```bash
+# Safe inspection command -> ALLOW (exit code 0)
+dmint check --tool shell.execute --resource "git status"
+
+# Sensitive command -> APPROVAL_REQUIRED (exit code 1)
+dmint check --tool shell.execute --resource "git push origin main"
+
+# Destructive command -> DENY (exit code 2)
+dmint check --tool shell.execute --resource "rm -rf /"
 ```
 
 ---
 
-## 3. Run Claude Code
+## 3. How the Approval Loop Works in Practice
 
-Start your Claude Code session as usual:
+When Claude Code, Codex, or OpenCode attempts an action marked `approval_required` (such as `git push origin main` or `docker run ...`):
 
-```bash
-claude
-```
-
-When Claude Code requests a tool call:
-1. `ALLOW` tools (e.g. reading logs, running tests) execute immediately.
-2. `DENY` tools (e.g. dropping production databases, deleting root files) fail closed immediately with a structured security error.
-3. `APPROVAL_REQUIRED` tools halt and wait for human review on your local dashboard.
+1. **Intercept & Pause**: `dmint hook run` halts the tool call, saves a tamper-evident `PENDING` record (`apr_...`) in `.dmint/approvals.sqlite3`, and returns the exact approval command to the agent/user:
+   ```text
+   Dmint APPROVAL_REQUIRED [apr_9k2L...]: shell.execute on 'git push origin main' requires human sign-off.
+   To approve, run: `dmint approve apr_9k2L...` (or use `dmint dashboard`), then retry.
+   ```
+2. **Human Sign-Off**: In another terminal (or via `dmint dashboard`), approve the exact request:
+   ```bash
+   dmint pending
+   dmint approve apr_9k2L... --by alice@company.com
+   ```
+3. **Single-Use Retry**: Tell the agent to retry the command. `dmint hook run` verifies the Ed25519 signature against the exact RFC 8785 canonicalized arguments, atomically transitions the record from `APPROVED` to `CONSUMED`, and lets the command execute **once**.
+4. **Tamper & Replay Protection**:
+   - If the agent changes any argument on retry (e.g., `git push origin main --force`), the request fingerprint does not match and the call is blocked.
+   - If the agent tries to run the same command a second time later, the consumed approval cannot be reused.
 
 ---
 
-## 4. Approve via CLI or Dashboard
-
-Run the approval dashboard alongside your terminal session:
+## 4. Managing Hooks (`dmint hook`)
 
 ```bash
-# Terminal approval:
-dmint pending
-dmint approve apr_abc123...
+# Check which harnesses have Dmint hooks installed in the current workspace:
+dmint hook status
 
-# Or launch the approval dashboard web UI:
-dmint dashboard --db-path /path/to/approvals.sqlite3
+# Install hooks into your global home directory (~/.claude/settings.json, ~/.config/opencode/plugin/, etc.):
+dmint hook install --harness claude-code --global
+
+# Remove hooks cleanly:
+dmint hook uninstall --harness all
 ```
 
-Review the request via `dmint approve` or in the browser at **http://127.0.0.1:8080**, inspect the parameters, and approve. Claude Code resumes execution immediately upon approval.
+---
+
+## 5. Wrapping External MCP Servers with `dmint-mcp`
+
+If you also connect Claude Code to external MCP servers (PostgreSQL, GitHub, Stripe), wrap them with `dmint-mcp`:
+
+```bash
+claude mcp add dmint-gateway -- dmint-mcp run --config /absolute/path/to/mcp_protection.json
+```

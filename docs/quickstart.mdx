@@ -1,11 +1,13 @@
 ---
 title: "Quickstart"
-description: "Protect a Python function, stop unauthorized calls, approve a sensitive action, and consume a single-use retry credential."
+description: "Set up Dmint in 60 seconds: protect coding-agent hooks (Claude Code, Codex, OpenCode, Cursor) or Python functions with single-use human approvals."
 ---
 
 # 5-Minute Quickstart
 
-This walkthrough creates a protected ledger, blocks a denied action, pauses a sensitive transfer for human approval, and retries it with a single-use Ed25519 credential.
+This guide shows two ways to start using Dmint immediately:
+1. **Track A (CLI & Coding Agents)**: Protect shell and file tools in Claude Code, OpenAI Codex CLI, OpenCode, Cursor, Windsurf, or Cline with `dmint init`.
+2. **Track B (Python SDK)**: Protect Python functions with `Dmint.local()`, approve a paused call via `dmint approve`, and execute a single-use retry.
 
 ---
 
@@ -13,11 +15,6 @@ This walkthrough creates a protected ledger, blocks a denied action, pauses a se
 
 - **Python**: 3.10, 3.11, 3.12, or 3.13.
 - **Operating system**: Linux, macOS, or Windows WSL.
-- **Dmint**: installed in a clean virtual environment.
-
----
-
-## Step 1: Install and Initialize
 
 ```bash
 mkdir dmint-quickstart && cd dmint-quickstart
@@ -31,26 +28,41 @@ dmint --version
 dmint 2.0.3
 ```
 
-Generate the signing and storage-integrity keys:
+---
+
+## Track A: Coding Agent Hooks in 30 Seconds (`dmint init`)
+
+Run `dmint init` to generate local signing/integrity keys (`.dmint/`), a starter `policy.json` (`shell` and `filesystem` templates), and pre-tool execution hooks for your coding agents:
 
 ```bash
-dmint init-keys
+dmint init --harness all
 ```
 
-Actual default locations:
+Test how your policy evaluates commands from the terminal using `dmint check`:
 
-```text
-~/.config/dmint/signing.key
-~/.config/dmint/integrity.key
+```bash
+# 1. Allowed command (exit code 0)
+dmint check --tool shell.execute --resource "git status"
+
+# 2. Approval-required command (exit code 1)
+dmint check --tool shell.execute --resource "git push origin main"
+
+# 3. Denied command (exit code 2)
+dmint check --tool shell.execute --resource "rm -rf /"
 ```
 
-The command prints a `public_key_hex` value. Copy it for the verifier below. The private key stays with the approval process; do not ship it to the agent.
+When your coding agent triggers an `APPROVAL_REQUIRED` command, approve it from your terminal and tell the agent to retry:
+
+```bash
+dmint pending
+dmint approve apr_... --by alice@company.com
+```
 
 ---
 
-## Step 2: Create a Policy
+## Track B: Python SDK Quickstart (`Dmint.local`)
 
-Create `policy.json`:
+### Step 1: Create `policy.json`
 
 ```json title="policy.json"
 {
@@ -74,7 +86,7 @@ Create `policy.json`:
 }
 ```
 
-Validate and inspect it:
+Validate it offline:
 
 ```bash
 dmint verify-policy policy.json
@@ -87,177 +99,94 @@ dmint verify-policy policy.json
   [DENY] tool='ledger', action='delete_account', resource='NoResource'
 ```
 
-Rules with no `resource` match only requests with no resource. A global rule would use `"resource": "*"`.
-
-Precedence is fixed: **DENY > APPROVAL_REQUIRED > ALLOW**, regardless of JSON order. A request that matches no rule is denied with `DMT_DEFAULT_DENIED`.
-
 ---
 
-## Step 3: Protect the Functions
+### Step 2: Protect Functions in `app.py`
 
-Create `app.py`:
+`Dmint.local("policy.json")` automatically provisions `.dmint/signing.key`, `.dmint/integrity.key`, and `.dmint/approvals.sqlite3` with zero boilerplate:
 
 ```python title="app.py"
-from datetime import datetime, timedelta, timezone
-from pathlib import Path
 import sys
+from dmint import ApprovalRequiredError, AuthorizationError, Dmint
 
-from dmint import (
-    ApprovalRequiredError,
-    ApprovalVerifier,
-    AuthorizationError,
-    Dmint,
-    Policy,
-    PolicyProvenance,
-    SQLiteApprovalStore,
-    TrustedContext,
-    policy_digest,
-)
-from dmint.core import public_key_from_hex
+dmint = Dmint.local("policy.json", agent_id="ledger-agent-01")
 
-PUBLIC_KEY_HEX = "PASTE_PUBLIC_KEY_HEX"
-
-policy = Policy.from_file("policy.json")
-store = SQLiteApprovalStore("approvals.sqlite3", deployment_epoch="default")
-
-dmint = Dmint(
-    policy=policy,
-    agent_id="finance-agent-01",
-    context=TrustedContext({"tenant": "prod-us"}),
-    approval_store=store,
-    approval_verifier=ApprovalVerifier(
-        trusted_issuers={
-            "dmint-authority": public_key_from_hex(PUBLIC_KEY_HEX),
-        },
-        audience="dmint/dashboard/v1",
-    ),
-    policy_provenance=PolicyProvenance(
-        "quickstart-v1",
-        policy_digest(policy),
-        datetime.now(timezone.utc),
-    ),
-    approval_ttl=timedelta(minutes=5),
-)
 
 @dmint.protect("ledger.view_balance")
-def view_balance(account_id: str) -> str:
-    return f"Balance for {account_id}: $1,250.00"
+def view_balance(account_id: str) -> dict:
+    return {"account_id": account_id, "balance_usd": 12500}
+
 
 @dmint.protect("ledger.transfer_funds")
-def transfer_funds(account_id: str, amount: float) -> str:
-    return f"Transferred ${amount:.2f} from {account_id}"
+def transfer_funds(from_acct: str, to_acct: str, amount: int) -> dict:
+    return {"from": from_acct, "to": to_acct, "amount": amount, "status": "transferred"}
+
 
 @dmint.protect("ledger.delete_account")
-def delete_account(account_id: str) -> str:
-    return f"Account {account_id} deleted"
+def delete_account(account_id: str) -> dict:
+    return {"deleted": account_id}
+
 
 if __name__ == "__main__":
-    if len(sys.argv) == 2:
-        credential = Path(sys.argv[1]).read_bytes()
-        print(
-            dmint.retry(
-                transfer_funds,
-                "acc_100",
-                500.0,
-                approval_credential=credential,
-            )
-        )
-    else:
-        print(view_balance("acc_100"))
-        try:
-            delete_account("acc_100")
-        except AuthorizationError as exc:
-            print(f"Blocked: {exc.code}")
-        try:
-            transfer_funds("acc_100", 500.0)
-        except ApprovalRequiredError as exc:
-            print(f"Paused: {exc.code}")
-            print(f"Approval ID: {exc.approval_id}")
-            print(f"Request Fingerprint: {exc.request_fingerprint}")
+    if len(sys.argv) > 1 and sys.argv[1] == "--retry":
+        # Automatically verifies and consumes the single-use approval from .dmint/approvals.sqlite3
+        res = dmint.retry(transfer_funds, "acct_100", "acct_200", 500)
+        print(f"[✓] Approved retry succeeded: {res}")
+        sys.exit(0)
+
+    # 1. ALLOW: executes immediately
+    print("[✓] Balance:", view_balance("acct_100"))
+
+    # 2. DENY: fails closed immediately
+    try:
+        delete_account("acct_100")
+    except AuthorizationError as exc:
+        print(f"[✗] Denied as expected: {exc.code}")
+
+    # 3. APPROVAL_REQUIRED: pauses and writes pending record to .dmint/approvals.sqlite3
+    try:
+        transfer_funds("acct_100", "acct_200", 500)
+    except ApprovalRequiredError as exc:
+        print(f"[⏸] Paused for approval: {exc.approval_id}")
+        print(f"    Run: dmint approve {exc.approval_id}")
+        print("    Then run: python app.py --retry")
 ```
-
-Run it:
-
-```bash
-python app.py
-```
-
-```text
-Balance for acc_100: $1,250.00
-Blocked: DMT_POLICY_DENIED
-Paused: DMT_APPROVAL_REQUIRED
-Approval ID: apr_...
-Request Fingerprint: 4fb78bc8...
-```
-
-The transfer did not execute. Dmint persisted a `PENDING` approval bound to the exact request and raised `ApprovalRequiredError`.
-
-`deny` produces `DMT_POLICY_DENIED`; an unmatched request produces `DMT_DEFAULT_DENIED`. `DMT_AUTHORIZATION_ERROR` is reserved for evaluator/config failures, not an ordinary policy deny.
 
 ---
 
-## Step 4: Approve and Receive the Assertion
+### Step 3: Run, Approve, and Retry
 
-List pending requests:
+1. Run `app.py`:
+   ```bash
+   python app.py
+   ```
+   ```text
+   [✓] Balance: {'account_id': 'acct_100', 'balance_usd': 12500}
+   [✗] Denied as expected: DMT_POLICY_DENIED
+   [⏸] Paused for approval: apr_7x9K...
+       Run: dmint approve apr_7x9K...
+       Then run: python app.py --retry
+   ```
 
-```bash
-dmint pending --db-path approvals.sqlite3
-```
+2. Approve the pending request in your terminal:
+   ```bash
+   dmint approve apr_7x9K... --by finance@company.com --reason "Verified invoice #402"
+   ```
+   ```text
+   ✓ Approved 'apr_7x9K...' (ledger.transfer_funds) successfully.
+     Reason: Verified invoice #402
+   ```
 
-```text
-APPROVAL ID       TOOL/ACTION            RESOURCE/TARGET  PRINCIPAL         REQUESTED
-----------------  ---------------------  ---------------  ----------------  ---------
-apr_...           ledger.transfer_funds  (none)           finance-agent-01  0s ago
-```
+3. Run the approved retry:
+   ```bash
+   python app.py --retry
+   ```
+   ```text
+   [✓] Approved retry succeeded: {'from': 'acct_100', 'to': 'acct_200', 'amount': 500, 'status': 'transferred'}
+   ```
 
-Approve the exact request and write the retry credential:
-
-```bash
-dmint approve apr_... \
-  --db-path approvals.sqlite3 \
-  --policy policy.json \
-  --approver-id alice@example.com \
-  --authority-issuer dmint-authority \
-  --reason "Verified quarterly audit transfer" \
-  --output-assertion approval.json
-```
-
-```text
-✓ Approved 'apr_...' (ledger.transfer_funds) successfully.
-  Reason: Verified quarterly audit transfer
-```
-
-The command updates the record to `APPROVED` and writes signed assertion bytes to `approval.json`. It does not execute the transfer.
-
-> `--authority-issuer` must match the issuer ID in the verifier’s `trusted_issuers` mapping. This example uses `dmint-authority`; `dmint approve` otherwise defaults to `dmint-cli`.
-
----
-
-## Step 5: Retry Exactly Once
-
-```bash
-python app.py approval.json
-```
-
-```text
-Transferred $500.00 from acc_100
-```
-
-Dmint verifies the signature, re-checks the current policy, matches the full request fingerprint, atomically consumes the approval, and only then runs the function.
-
-Replay the same file:
-
-```bash
-python app.py approval.json
-```
-
-It fails closed with `ApprovalConsumedError` (`DMT_APPROVAL_CONSUMED`). Changing an argument fails with `DMT_APPROVAL_REQUEST_MISMATCH`.
-
----
-
-## Next Steps
-
-- **[Protect a Tool End-to-End](/tutorials/protect-a-tool)**: argument constraints, host-side tiering, dashboard assertion download, and multi-step operational flow.
-- **[Policies and Rules](/concepts/policies)**: precedence, wildcard selectors, resources, and constraints.
-- **[Human Approvals](/guides/human-approvals)**: dashboard identity attribution, CI automation, and MCP retry payloads.
-- **[MCP Gateway](/guides/protecting-mcp)**: enforce policy for external MCP servers without changing agent code.
+4. Try replaying the exact same retry a second time:
+   ```bash
+   python app.py --retry
+   ```
+   It fails closed with `DMT_APPROVAL_CONSUMED` because every Dmint approval assertion is single-use.

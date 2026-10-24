@@ -49,6 +49,53 @@ dmint [command] [options]
 
 ---
 
+## `dmint init`
+
+One-command zero-config setup: generates `.dmint/signing.key` (`0600`), `.dmint/integrity.key` (`0600`), `.dmint/approvals.sqlite3`, a starter `policy.json` from built-in templates (`shell,filesystem`), and pre-tool execution hooks for AI coding harnesses.
+
+```bash
+dmint init [--harness all|claude-code|codex|opencode|cursor|windsurf|cline|none] [--templates shell,filesystem] [--policy policy.json] [--dir .] [--force]
+```
+
+---
+
+## `dmint check` (alias: `dmint test-policy`)
+
+Simulate and test how a `policy.json` evaluates a tool call directly from your terminal. Outputs structured JSON with `"verdict"` (`ALLOW`, `APPROVAL_REQUIRED`, or `DENY`), `"code"`, and `"matched_rules"`.
+
+```bash
+dmint check --policy policy.json --tool shell.execute --resource "git status"
+dmint check --policy policy.json --tool shell.execute --resource "git push origin main"
+dmint check --policy policy.json --tool shell.execute --resource "rm -rf /"
+```
+
+### Exit Codes
+- `0`: `ALLOW`
+- `1`: `APPROVAL_REQUIRED`
+- `2`: `DENY`
+
+---
+
+## `dmint hook` (alias: `dmint hooks`)
+
+Install, inspect, execute, or uninstall runtime `PreToolUse` / pre-execution hooks across AI coding harnesses (**Claude Code**, **OpenAI Codex CLI**, **OpenCode**, **Cursor**, **Windsurf**, **Cline / Roo Code**).
+
+```bash
+# Install pre-tool hooks for one or all harnesses
+dmint hook install --harness all [--global] [--policy policy.json] [--db-path .dmint/approvals.sqlite3]
+
+# Check installed hook status in workspace
+dmint hook status [--dir .]
+
+# Evaluate a hook payload (invoked automatically by the coding agent harness)
+dmint hook run --harness claude-code --policy policy.json --db-path .dmint/approvals.sqlite3
+
+# Remove installed Dmint hooks
+dmint hook uninstall --harness all
+```
+
+---
+
 ## `dmint create-policy`
 
 Interactive wizard to convert natural language requirements into a verified `policy.json`.

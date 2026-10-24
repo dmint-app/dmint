@@ -1,65 +1,42 @@
 # Dmint Roadmap & Engineering Backlog
 
-This document outlines active development initiatives, upcoming architectural enhancements, and ecosystem extensions for the Dmint deterministic security engine.
+This document tracks shipped milestones and focused near-term priorities for Dmint. Our philosophy is **ship a sharp, reliable library and CLI first**—focusing on deterministic enforcement, cryptographic single-use human approvals, and zero-friction developer ergonomics across AI coding harnesses and Python agents.
 
 ---
 
-## 🚀 Active Initiatives (Ongoing / Started Phase)
+## ✅ Shipped in v2.0.4
 
-### 1. `dmint-core-rs` — Native Rust Core Engine
-> **Status:** 🟡 **In Progress / Started Phase**  
-> **Goal:** High-throughput, zero-GIL deterministic policy evaluation and memory-safe cryptography.
+### 1. Multi-Harness Pre-Tool Execution Hooks (`dmint hook`)
+- [x] **Claude Code (`PreToolUse`)**: Native `.claude/settings.json` hook intercepting `Bash`, `Read`, `Write`, `Edit`, `MultiEdit`, `NotebookEdit`, `WebFetch`, and `mcp__*` calls.
+- [x] **OpenAI Codex CLI**: Native `.codex/hooks.json` and `.codex/dmint-hook.sh` pre-execution hook.
+- [x] **OpenCode**: Native `.opencode/plugin/dmint-guard.ts` (`tool.execute.before`) TypeScript guard plugin.
+- [x] **Cursor, Windsurf & Cline / Roo Code**: Pre-tool hook installation (`.cursor/hooks.json`, `.windsurf/hooks.json`, `.clinerules/hooks.json`).
+- [x] **Automatic Single-Use Approval Consumption**: Re-running an approved tool call in any hooked harness or MCP gateway automatically verifies and consumes the Ed25519 approval assertion (`APPROVED -> CONSUMED`) without requiring the LLM to copy-paste a 942-byte token.
 
-- [ ] **Deterministic Policy Evaluator**: Port the 3-state (`ALLOW`, `DENY`, `APPROVAL_REQUIRED`) decision engine to pure Rust.
-- [ ] **Zero-Allocation Canonicalizer**: Implement RFC 8785 JSON Canonicalization Scheme (JCS) in Rust with minimal heap allocations.
-- [ ] **Ed25519 Cryptographic Layer**: Native assertion signing, verification, and key management using `ed25519-dalek`.
-- [ ] **Embedded State Machine**: High-concurrency SQLite storage with native write-ahead logging (WAL) and atomic single-use consumption.
-- [ ] **PyO3 Python Bindings**: Drop-in native extension module for `dmint.core`, transparently accelerating Python evaluations with zero GIL contention.
-- [ ] **WebAssembly (WASM) Compilation**: Target `wasm32-unknown-unknown` for edge environments (Cloudflare Workers, Fastly Compute).
-
----
-
-### 2. `@dmint.app/core` & `@dmint.app/mcp` — JavaScript / TypeScript SDK
-> **Status:** 🟡 **In Progress / Started Phase**  
-> **Goal:** First-class Node.js, Bun, Deno, and browser support for modern AI agent stacks under `@dmint.app`.
-
-- [ ] **TypeScript Core Implementation**: Native RFC 8785 canonicalization and Ed25519 verification with zero native dependencies.
-- [ ] **MCP Gateway for TypeScript**: Standard transport proxy wrapping `@modelcontextprotocol/sdk` servers with deterministic parameter interception.
-- [ ] **Framework Adapters**:
-  - [ ] Vercel AI SDK tool call authorization wrapper (`createDmintTool`).
-  - [ ] LangChain.js / LangGraph checkpoint and approval hook integration.
-  - [ ] AutoGen and LlamaIndex.ts tool interception middleware.
-- [ ] **Client SDK**: Lightweight HTTP/SSE client for interacting with the local approval dashboard and webhook notifications.
+### 2. 60-Second Developer Experience (`dmint init`, `dmint check`, `Dmint.local()`)
+- [x] **`dmint init`**: One-command project bootstrap that generates `.dmint/signing.key` (`0600`), `.dmint/integrity.key` (`0600`), `.dmint/approvals.sqlite3`, a starter `policy.json` from built-in templates (`shell,filesystem`), and harness hooks.
+- [x] **`dmint check` / `dmint test-policy`**: Instant offline terminal simulator to test `ALLOW`, `APPROVAL_REQUIRED`, and `DENY` decisions against `policy.json`.
+- [x] **`Dmint.local()`**: Zero-boilerplate Python SDK constructor with automatic `.dmint/` key and SQLite store provisioning, plus credential-free `dmint.retry()` auto-lookup.
 
 ---
 
-## 📋 Upcoming Roadmap & Planned Features
+## 🎯 Near-Term Priorities (Focused & User-Driven)
 
-### 3. Agent Framework Pause & Resume Adapters
-> **Status:** ⚪ **Planned**  
-> **Goal:** Eliminate agent hallucination when encountering `APPROVAL_REQUIRED`.
+### 1. Python Agent Framework Helpers
+- [ ] **LangGraph / LangChain Tool Wrapper**: Lightweight helper to pause and resume LangGraph node execution cleanly on `ApprovalRequiredError`.
+- [ ] **OpenAI Agents SDK / PydanticAI Guard**: Drop-in function decorator adapter with built-in approval polling/webhook callback support.
 
-- [ ] **LangGraph Interrupt Hook**: First-class integration with LangGraph's human-in-the-loop state checkpointing.
-- [ ] **CrewAI Task Interceptor**: Middleware to park agent tasks cleanly while waiting for human sign-off.
-- [ ] **Claude Code & Cursor Bridge**: Seamless retry loop management that prevents rapid polling or broken tool calls during human review.
-
----
-
-### 4. Automated Policy Discovery & Synthesis
-> **Status:** ⚪ **Planned**  
-> **Goal:** Zero-friction policy bootstrapping from existing tool definitions.
-
-- [ ] **OpenAPI 3.1 Compiler**: Ingest Swagger/OpenAPI specs and auto-generate least-privilege `policy.json` rules.
-- [ ] **MCP Server Introspection**: Scan running MCP servers via `tools/list` and synthesize initial protection manifests.
-- [ ] **Interactive TUI Policy Wizard**: Terminal interface to review, tighten, and test auto-generated policies against sample payloads.
+### 2. Standards & Policy Ergonomics
+- [ ] **Interactive Policy Diff & Dry-Run Audit Mode**: Log-only mode (`--dry-run`) for `dmint hook run` and `dmint-mcp` so teams can observe which tool calls a new policy would block before enforcing.
+- [ ] **OpenID AuthZEN Alignment**: Optional adapter mapping Dmint's `ToolRequest` and single-use approval records to emerging OpenID AuthZEN tool-authorization payloads.
 
 ---
 
-### 5. Advanced Security & Infrastructure Hardening
-> **Status:** ⚪ **Planned**  
-> **Goal:** Enterprise defense-in-depth and distributed trust.
+## ⏸ Deferred (Until Community Demand Warrants)
 
-- [ ] **Threshold Multisig Approvals**: Require $k$-of-$n$ trusted human approvers for critical capabilities (e.g., production database updates, financial transactions).
-- [ ] **eBPF / Linux Namespaces Sandbox**: Kernel-enforced filesystem and network isolation for tools executed by local agent runners.
-- [ ] **OpenTelemetry Integration**: W3C `traceparent` context propagation through policy decisions, approval lifecycles, and audit logs.
-- [ ] **Hardware Security Module (HSM) Signing**: Support PKCS#11 and AWS KMS / GCP Cloud KMS for authoritative Ed25519 assertion signing.
+To keep the core small, auditable, and fast (~50 µs per evaluation in pure Python), the following items are intentionally deferred unless concrete user workloads require them:
+
+- Native Rust/PyO3 core rewrite and WebAssembly compilation.
+- Kernel-level eBPF / Linux namespace sandboxing (use container/VM isolation or separate OS users alongside Dmint).
+- Hardware Security Module (HSM / PKCS#11) signing and $k$-of-$n$ threshold multisig approvals.
+- Standalone TypeScript / Go re-implementations of the core evaluation engine.
