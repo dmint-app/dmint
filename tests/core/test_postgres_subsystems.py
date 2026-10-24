@@ -255,7 +255,6 @@ class TestSubsystemsCrossIntegration(unittest.IsolatedAsyncioTestCase):
         self.dashboard_client = CoreClient(
             authority=self.authority,
             approver_id="dash-human",
-            deployment_epoch="gateway_epoch",
         )
 
     def _restore_env(self) -> None:

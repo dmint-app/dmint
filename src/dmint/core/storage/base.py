@@ -61,6 +61,16 @@ class ApprovalStore(abc.ABC):
         """Retrieve a record only if currently APPROVED."""
         raise NotImplementedError
 
+    def get_approved_assertion_for_request(
+        self,
+        *,
+        request_fingerprint: str,
+        principal_id: str,
+        integration_id: str,
+    ) -> tuple[ApprovalRecord, ApprovalAssertion] | None:
+        """Return an unexpired APPROVED record and signed assertion matching the request if available."""
+        return None
+
     @abc.abstractmethod
     def get(self, approval_id: str) -> ApprovalRecord | None:
         """Retrieve an approval record by its unique ID regardless of state."""

@@ -82,6 +82,7 @@ class MCPGatewayConfig:
     trusted_issuers: tuple[TrustedIssuerConfig, ...] = ()
     approval_audience: str = _DEFAULT_APPROVAL_AUDIENCE
     expected_policy_digest: str | None = None
+    deployment_epoch: str = "default"
 
     def get_integration(self, integration_id: str) -> MCPIntegrationConfig | None:
         """Lookup an integration configuration by ID."""
@@ -466,6 +467,13 @@ def parse_protection_config(
     if not isinstance(approval_audience, str) or not approval_audience.strip():
         raise MCPConfigurationError("approval_audience must be a non-empty string")
 
+    raw_epoch = data.get("deployment_epoch")
+    if raw_epoch is None:
+        raw_epoch = os.environ.get("DMINT_DEPLOYMENT_EPOCH", "default")
+    if not isinstance(raw_epoch, str) or not raw_epoch.strip():
+        raise MCPConfigurationError("deployment_epoch must be a non-empty string")
+    deployment_epoch = raw_epoch.strip()
+
     return MCPGatewayConfig(
         policy=policy,
         policy_file=str(policy_file) if policy_file else None,
@@ -480,6 +488,7 @@ def parse_protection_config(
         trusted_issuers=tuple(parsed_issuers),
         approval_audience=approval_audience,
         expected_policy_digest=expected_digest,
+        deployment_epoch=deployment_epoch,
     )
 
 

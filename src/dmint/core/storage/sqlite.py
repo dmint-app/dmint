@@ -202,6 +202,14 @@ CREATE TABLE IF NOT EXISTS store_recovery (
 );
 """
 
+_CREATE_ASSERTIONS_TABLE = """
+CREATE TABLE IF NOT EXISTS approval_assertions (
+    approval_id TEXT PRIMARY KEY,
+    assertion_json TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+"""
+
 
 def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     result: dict[str, Any] = {}
@@ -377,6 +385,7 @@ class SQLiteApprovalStore(ApprovalStore):
             self._connection.execute(_CREATE_TABLE)
             self._connection.execute(_CREATE_POLICY_TABLE)
             self._connection.execute(_CREATE_RECOVERY_TABLE)
+            self._connection.execute(_CREATE_ASSERTIONS_TABLE)
             table_info = [r[1] for r in self._connection.execute("PRAGMA table_info(approval_records)").fetchall()]
             if table_info and "row_version" not in table_info:
                 self._connection.execute(
@@ -691,6 +700,46 @@ class SQLiteApprovalStore(ApprovalStore):
         if record is not None and record.state is not ApprovalState.APPROVED:
             raise CorruptApprovalRecordError("stored record is not approved")
         return record
+
+    @_synchronized
+    def get_approved_assertion_for_request(
+        self,
+        *,
+        request_fingerprint: str,
+        principal_id: str,
+        integration_id: str,
+    ) -> tuple[ApprovalRecord, ApprovalAssertion] | None:
+        """Return an unexpired APPROVED record and its stored signed assertion matching the request."""
+        ts = _timestamp(self._clock())
+        try:
+            row = self._connection.execute(
+                """
+                SELECT r.approval_id, a.assertion_json
+                FROM approval_records r
+                JOIN approval_assertions a ON r.approval_id = a.approval_id
+                WHERE r.request_fingerprint = ?
+                AND r.principal_id = ?
+                AND r.integration_id = ?
+                AND r.state = 'APPROVED'
+                AND r.expires_at > ?
+                AND r.deployment_epoch = ?
+                ORDER BY r.decision_at DESC, r.created_at DESC
+                LIMIT 1
+                """,
+                (request_fingerprint, principal_id, integration_id, ts, self._deployment_epoch),
+            ).fetchone()
+        except sqlite3.Error:
+            return None
+        if row is None:
+            return None
+        record = self.get(row["approval_id"])
+        if record is None or record.state is not ApprovalState.APPROVED:
+            return None
+        try:
+            assertion = ApprovalAssertion.from_bytes(str(row["assertion_json"]).encode("utf-8"))
+        except Exception:
+            return None
+        return record, assertion
 
     @_synchronized
     def get(self, approval_id: str) -> ApprovalRecord | None:
@@ -1015,7 +1064,7 @@ class SQLiteApprovalStore(ApprovalStore):
             )
             approved = record.approve(approver, now=now_dt, reason=reason)
             # Issue signed assertion bound to the exact stored request
-            authority.issue(record, approver, now=now_dt)
+            issued_assertion = authority.issue(record, approver, now=now_dt)
             serialized = self._serialize(approved)
             assignments = ", ".join(f"{column} = ?" for column in (*_STORED_COLUMNS, "record_checksum"))
             cursor = self._connection.execute(
@@ -1024,6 +1073,16 @@ class SQLiteApprovalStore(ApprovalStore):
             )
             if cursor.rowcount != 1:
                 raise ApprovalConcurrentConsumeError("approval state changed during approve operation")
+            self._connection.execute(
+                """
+                INSERT INTO approval_assertions (approval_id, assertion_json, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(approval_id) DO UPDATE SET
+                    assertion_json = excluded.assertion_json,
+                    updated_at = excluded.updated_at
+                """,
+                (approval_id, issued_assertion.to_bytes().decode("utf-8"), _timestamp(now_dt)),
+            )
             self._connection.commit()
             return approved
         except (ApprovalStoreError, MalformedApprovalError):

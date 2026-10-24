@@ -347,6 +347,30 @@ class EnforcementGate:
         if decision is Decision.APPROVAL_REQUIRED:
             if (
                 self._approval_store is not None
+                and self._approval_verifier is not None
+                and hasattr(self._approval_store, "get_approved_assertion_for_request")
+            ):
+                candidate_fp = request_binding_fingerprint(
+                    mapped.tool_request,
+                    integration_id=self._config.integration_id,
+                    capability_id=mapped.capability,
+                )
+                matched_approval = self._approval_store.get_approved_assertion_for_request(
+                    request_fingerprint=candidate_fp,
+                    principal_id=mapped.tool_request.agent_id,
+                    integration_id=self._config.integration_id,
+                )
+                if matched_approval is not None:
+                    _approved_rec, stored_assertion = matched_approval
+                    return await self.retry_call(
+                        integration_id=self._config.integration_id,
+                        tool_name=tool_name,
+                        arguments=arguments,
+                        approval_credential=stored_assertion,
+                        agent_id=agent_id,
+                    )
+            if (
+                self._approval_store is not None
                 and self._policy_provenance is not None
                 and self._approval_ttl is not None
             ):

@@ -146,6 +146,19 @@ class ThreadSafeApprovalStore(ApprovalStore):
     def get_approved(self, approval_id: str) -> ApprovalRecord | None:
         return self._get_current_store().get_approved(approval_id)
 
+    def get_approved_assertion_for_request(
+        self,
+        *,
+        request_fingerprint: str,
+        principal_id: str,
+        integration_id: str,
+    ) -> tuple[ApprovalRecord, ApprovalAssertion] | None:
+        return self._get_current_store().get_approved_assertion_for_request(
+            request_fingerprint=request_fingerprint,
+            principal_id=principal_id,
+            integration_id=integration_id,
+        )
+
     def require_pending(self, approval_id: str) -> ApprovalRecord:
         return self._get_current_store().require_pending(approval_id)
 

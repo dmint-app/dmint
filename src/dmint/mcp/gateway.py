@@ -152,9 +152,12 @@ class MCPGateway:
             else:
                 self._approval_store = approval_store
         elif config.approval_store_path or os.environ.get("DMINT_DATABASE_URL"):
+            effective_epoch = getattr(config, "deployment_epoch", None) or os.environ.get(
+                "DMINT_DEPLOYMENT_EPOCH", "default"
+            )
             self._approval_store = ThreadSafeApprovalStore(
                 database=config.approval_store_path,
-                deployment_epoch="gateway_epoch",
+                deployment_epoch=effective_epoch,
                 clock=self._clock,
             )
             self._own_store = True

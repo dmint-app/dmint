@@ -180,6 +180,14 @@ def _build_tables(metadata: MetaData) -> tuple[Table, Table, Table]:
         CheckConstraint("id = 1", name="ck_store_recovery_id"),
     )
 
+    assertions = Table(
+        "approval_assertions",
+        metadata,
+        Column("approval_id", Text, primary_key=True),
+        Column("assertion_json", Text, nullable=False),
+        Column("updated_at", Text, nullable=False),
+    )
+
     return records, policy, recovery
 
 
@@ -572,6 +580,53 @@ class SQLAlchemyApprovalStore(ApprovalStore):
             raise CorruptApprovalRecordError("stored record is not approved")
         return record
 
+    def get_approved_assertion_for_request(
+        self,
+        *,
+        request_fingerprint: str,
+        principal_id: str,
+        integration_id: str,
+    ) -> tuple[ApprovalRecord, ApprovalAssertion] | None:
+        ts = _timestamp(self._clock())
+        try:
+            with self._engine.connect() as conn:
+                row = conn.execute(
+                    text(
+                        """
+                        SELECT r.approval_id, a.assertion_json
+                        FROM approval_records r
+                        JOIN approval_assertions a ON r.approval_id = a.approval_id
+                        WHERE r.request_fingerprint = :fp
+                        AND r.principal_id = :pid
+                        AND r.integration_id = :iid
+                        AND r.state = 'APPROVED'
+                        AND r.expires_at > :ts
+                        AND r.deployment_epoch = :epoch
+                        ORDER BY r.decision_at DESC, r.created_at DESC
+                        LIMIT 1
+                        """
+                    ),
+                    {
+                        "fp": request_fingerprint,
+                        "pid": principal_id,
+                        "iid": integration_id,
+                        "ts": ts,
+                        "epoch": self._deployment_epoch,
+                    },
+                ).fetchone()
+        except Exception:
+            return None
+        if row is None:
+            return None
+        record = self.get(str(row[0]))
+        if record is None or record.state is not ApprovalState.APPROVED:
+            return None
+        try:
+            assertion = ApprovalAssertion.from_bytes(str(row[1]).encode("utf-8"))
+        except Exception:
+            return None
+        return record, assertion
+
     def get(self, approval_id: str) -> ApprovalRecord | None:
         if type(approval_id) is not str or not _ID_PATTERN.fullmatch(approval_id) or not approval_id.startswith("apr_"):
             raise CorruptApprovalRecordError("invalid approval_id lookup")
@@ -860,7 +915,7 @@ class SQLAlchemyApprovalStore(ApprovalStore):
                     ApprovalAuthorityKind.HUMAN,
                 )
                 approved = record.approve(approver, now=now_dt, reason=reason)
-                authority.issue(record, approver, now=now_dt)
+                issued_assertion = authority.issue(record, approver, now=now_dt)
                 serialized = self._serialize(approved)
                 payload = dict(zip((*_STORED_COLUMNS, "record_checksum"), serialized))
 
@@ -874,6 +929,23 @@ class SQLAlchemyApprovalStore(ApprovalStore):
                 )
                 if result.rowcount != 1:
                     raise ApprovalConcurrentConsumeError("approval state changed during approve operation")
+
+                conn.execute(
+                    text(
+                        """
+                        INSERT INTO approval_assertions (approval_id, assertion_json, updated_at)
+                        VALUES (:aid, :ajson, :now_str)
+                        ON CONFLICT (approval_id) DO UPDATE SET
+                            assertion_json = excluded.assertion_json,
+                            updated_at = excluded.updated_at
+                        """
+                    ),
+                    {
+                        "aid": approval_id,
+                        "ajson": issued_assertion.to_bytes().decode("utf-8"),
+                        "now_str": _timestamp(now_dt),
+                    },
+                )
 
                 return approved
         except (ApprovalStoreError, MalformedApprovalError):
