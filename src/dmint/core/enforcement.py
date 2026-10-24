@@ -21,6 +21,7 @@ from .errors import (
     ApprovalCredentialInvalidError,
     ApprovalRequiredError,
     AuthorizationError,
+    CanonicalizationError,
     ExecutionError,
     PolicyError,
     RequestValidationError,
@@ -537,7 +538,7 @@ class Dmint:
     def _persist_pending(self, request: ToolRequest) -> None:
         if self._approval_store is None or self._policy_provenance is None or self._approval_ttl is None:
             raise AuthorizationError(
-                "approval storage and policy provenance are required",
+                "approval storage and policy provenance are required (along with approval_ttl)",
                 code="DMT_AUTHORIZATION_ERROR",
                 request_id=request.request_id,
             )
@@ -618,6 +619,8 @@ class Dmint:
             )
         except AuthorizationError:
             raise
+        except CanonicalizationError as exc:
+            raise AuthorizationError(str(exc), code=exc.code) from exc
         except Exception as exc:
             raise AuthorizationError("authorization failed", code="DMT_AUTHORIZATION_ERROR") from exc
 
@@ -831,6 +834,8 @@ class Dmint:
                         )
                     except AuthorizationError:
                         raise
+                    except CanonicalizationError as exc:
+                        raise AuthorizationError(str(exc), code=exc.code) from exc
                     except Exception as exc:
                         raise AuthorizationError("authorization failed", code="DMT_AUTHORIZATION_ERROR") from exc
                     res = self.execute(authorized)
@@ -852,6 +857,8 @@ class Dmint:
                         )
                     except AuthorizationError:
                         raise
+                    except CanonicalizationError as exc:
+                        raise AuthorizationError(str(exc), code=exc.code) from exc
                     except Exception as exc:
                         raise AuthorizationError("authorization failed", code="DMT_AUTHORIZATION_ERROR") from exc
                     return self.execute(authorized)

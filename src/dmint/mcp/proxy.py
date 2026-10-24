@@ -246,7 +246,7 @@ class EnforcementGate:
         """Persist a pending approval record using Core's ApprovalRecord and SQLiteApprovalStore."""
         if self._approval_store is None or self._policy_provenance is None or self._approval_ttl is None:
             raise AuthorizationError(
-                "approval storage and policy provenance are required",
+                "approval storage and policy provenance are required (along with approval_ttl)",
                 code="DMT_AUTHORIZATION_ERROR",
                 request_id=request.request_id,
             )
