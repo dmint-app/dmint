@@ -163,6 +163,12 @@ def build_router() -> APIRouter:
         identity: str = Form(default=""),
     ) -> Response:
         client_ip = request.client.host if request.client else "unknown"
+        if getattr(request.app.state, "trusted_proxy", False):
+            xff = request.headers.get("x-forwarded-for", "").strip()
+            if xff:
+                first_ip = xff.split(",")[0].strip()
+                if first_ip:
+                    client_ip = first_ip
         rate_limiter = getattr(request.app.state, "rate_limiter", None)
         if rate_limiter and rate_limiter.is_rate_limited(client_ip):
             return _render(
@@ -491,8 +497,12 @@ def build_router() -> APIRouter:
 
         token_to_check = csrf_token or request.headers.get("x-csrf-token", "")
         expected_csrf = session.get("csrf_token", "")
-        if not token_to_check or not secrets.compare_digest(token_to_check, expected_csrf):
-            return JSONResponse({"error": "invalid_csrf_token", "detail": "CSRF validation failed."}, status_code=403)
+        is_bearer_api = session.get("identity_source") == "shared_bearer_token"
+        if not is_bearer_api or token_to_check:
+            if not token_to_check or not secrets.compare_digest(token_to_check, expected_csrf):
+                return JSONResponse(
+                    {"error": "invalid_csrf_token", "detail": "CSRF validation failed."}, status_code=403
+                )
 
         client = _client(request)
         actor = session.get("identity")
@@ -555,8 +565,12 @@ def build_router() -> APIRouter:
 
         token_to_check = csrf_token or request.headers.get("x-csrf-token", "")
         expected_csrf = session.get("csrf_token", "")
-        if not token_to_check or not secrets.compare_digest(token_to_check, expected_csrf):
-            return JSONResponse({"error": "invalid_csrf_token", "detail": "CSRF validation failed."}, status_code=403)
+        is_bearer_api = session.get("identity_source") == "shared_bearer_token"
+        if not is_bearer_api or token_to_check:
+            if not token_to_check or not secrets.compare_digest(token_to_check, expected_csrf):
+                return JSONResponse(
+                    {"error": "invalid_csrf_token", "detail": "CSRF validation failed."}, status_code=403
+                )
 
         client = _client(request)
         actor = session.get("identity")
