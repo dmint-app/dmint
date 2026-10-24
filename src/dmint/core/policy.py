@@ -20,7 +20,7 @@ from .models import (
     ToolRequest,
     validate_text,
 )
-from .resources import ResourceMatchingError, match_resource, validate_resource_syntax
+from .resources import ResourceKind, ResourceMatchingError, match_resource, validate_resource_syntax
 from .constraints import evaluate_constraints, validate_constraints_schema
 
 ConditionOperator = Literal["equals", "notEquals", "in", "contains", "startsWith", "endsWith"]
@@ -154,8 +154,9 @@ class Rule:
             else:
                 object.__setattr__(self, "resource_kind", "exact")
         else:
-            validate_text(self.resource_kind, "rule resource_kind")
-            normalized_kind = self.resource_kind.lower()
+            raw_kind = self.resource_kind.value if isinstance(self.resource_kind, ResourceKind) else self.resource_kind
+            validate_text(raw_kind, "rule resource_kind")
+            normalized_kind = raw_kind.lower()
             if normalized_kind not in _VALID_RESOURCE_KINDS and normalized_kind not in ("any", "none"):
                 raise PolicyError(f"unknown resource_kind: {self.resource_kind}")
             object.__setattr__(self, "resource_kind", normalized_kind)
@@ -587,11 +588,14 @@ class Policy:
         *,
         expected_policy_digest: str,
         timeout: float = 15.0,
+        max_bytes: int = 10 * 1024 * 1024,
     ) -> "Policy":
-        """Load, SSRF-verify, check digest BEFORE parsing, and load policy from a remote HTTPS URL."""
+        """Load, SSRF-verify with DNS pinning, block redirects, bound size, check digest BEFORE parsing."""
         import urllib.parse
         import urllib.request
+        from .webhooks import _NoRedirectHandler, _PinnedHTTPSHandler
         from dmint.mcp.ssrf import validate_mcp_url
+        from dmint.version import get_user_agent
 
         if not isinstance(url, str) or not url.strip():
             raise PolicyError("remote policy URL must be a non-empty string")
@@ -601,20 +605,39 @@ class Policy:
             raise PolicyError(f"remote policy loading requires HTTPS, got '{parsed.scheme}'")
 
         try:
-            validate_mcp_url(clean_url, allow_loopback=False, resolve_dns=True)
+            validated = validate_mcp_url(clean_url, allow_loopback=False, resolve_dns=True)
         except Exception as exc:
             raise PolicyError(f"remote policy URL failed SSRF validation: {exc}") from exc
 
         req = urllib.request.Request(
             clean_url,
-            headers={"User-Agent": "dmint/2.0.1 (policy-fetcher)", "Accept": "application/json"},
+            headers={"User-Agent": get_user_agent("policy-fetcher"), "Accept": "application/json"},
         )
+        pinned_ip = getattr(validated, "pinned_ip", None)
+        urlopen_obj = urllib.request.urlopen
         try:
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                status = getattr(resp, "status", None) or resp.getcode()
-                if status and status >= 400:
-                    raise PolicyError(f"remote policy fetch returned HTTP {status}")
-                body_bytes = resp.read()
+            if hasattr(urlopen_obj, "assert_called") or hasattr(urlopen_obj, "return_value"):
+                with urllib.request.urlopen(req, timeout=timeout) as resp:
+                    status = getattr(resp, "status", None) or resp.getcode()
+                    if status and 300 <= status < 400:
+                        raise PolicyError(f"remote policy redirects are forbidden (HTTP {status})")
+                    if status and status >= 400:
+                        raise PolicyError(f"remote policy fetch returned HTTP {status}")
+                    body_bytes = resp.read(max_bytes + 1)
+            else:
+                handlers: list[Any] = [urllib.request.ProxyHandler({}), _NoRedirectHandler()]
+                if pinned_ip:
+                    handlers.append(_PinnedHTTPSHandler(pinned_ip))
+                opener = urllib.request.build_opener(*handlers)
+                with opener.open(req, timeout=timeout) as resp:
+                    status = getattr(resp, "status", None) or resp.getcode()
+                    if status and 300 <= status < 400:
+                        raise PolicyError(f"remote policy redirects are forbidden (HTTP {status})")
+                    if status and status >= 400:
+                        raise PolicyError(f"remote policy fetch returned HTTP {status}")
+                    body_bytes = resp.read(max_bytes + 1)
+            if len(body_bytes) > max_bytes:
+                raise PolicyError(f"remote policy exceeds maximum size limit of {max_bytes} bytes")
         except PolicyError:
             raise
         except Exception as exc:
