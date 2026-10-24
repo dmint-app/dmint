@@ -90,7 +90,20 @@ def create_approval_store(
             )
 
     # 3. Instantiate SQLAlchemyApprovalStore (validates connection during init, fails loud on failure)
-    from .sql import SQLAlchemyApprovalStore
+    try:
+        from .sql import SQLAlchemyApprovalStore
+    except ImportError:
+        if scheme == "sqlite" and parsed.path and parsed.path not in ("/", ":memory:"):
+            return SQLiteApprovalStore(
+                parsed.path,
+                deployment_epoch=deployment_epoch,
+                integrity_key=integrity_key,
+                recovery_epoch_file=recovery_epoch_file,
+                redact_keys=redact_keys,
+                max_pending_per_principal=max_pending_per_principal,
+                clock=clock,
+            )
+        raise
 
     return SQLAlchemyApprovalStore(
         url_str,

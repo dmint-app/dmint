@@ -265,11 +265,14 @@ class PinnedAsyncNetworkBackend:
     """Network backend that connects directly to a pinned IP while preserving host/SNI semantics."""
 
     def __init__(self, target_host: str, pinned_ip: str, base_backend: Any = None) -> None:
-        import httpcore2._backends.anyio
-
         self._target_host = canonicalize_hostname(target_host)
         self._pinned_ip = pinned_ip
-        self._base = base_backend or httpcore2._backends.anyio.AnyIOBackend()
+        if base_backend is None:
+            import httpcore2._backends.anyio
+
+            self._base = httpcore2._backends.anyio.AnyIOBackend()
+        else:
+            self._base = base_backend
 
     async def connect_tcp(
         self,

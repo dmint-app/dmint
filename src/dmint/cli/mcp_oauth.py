@@ -47,7 +47,9 @@ except ImportError:
     OAuthClientProvider = None  # type: ignore[assignment, misc]
 
     class _SDKPKCEParameters:  # type: ignore[no-redef]
-        pass
+        def __init__(self, code_verifier: str = "", code_challenge: str = "") -> None:
+            self.code_verifier = code_verifier
+            self.code_challenge = code_challenge
 
     class TokenStorage:  # type: ignore[no-redef]
         pass
