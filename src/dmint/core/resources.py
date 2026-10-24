@@ -662,6 +662,15 @@ def _match_resource_unchecked(rule: str, norm_resource: str, kind: str = "exact"
         return True
     elif kind_lower == "none":
         return False
+    elif kind_lower == "exact":
+        if "*" in rule and (rule.startswith("* ") or rule.endswith(" *") or rule.endswith("/*")):
+            if len(rule) <= MAX_PATTERN_LENGTH and rule.count("*") <= MAX_WILDCARDS and "\x00" not in rule:
+                pat = rule if case_sensitive else rule.lower()
+                cand = norm_resource if case_sensitive else norm_resource.lower()
+                return bool(_compile_single_segment_pattern(pat).fullmatch(cand))
+        if not case_sensitive:
+            return rule.lower() == norm_resource.lower()
+        return rule == norm_resource
     else:
         if not case_sensitive:
             return rule.lower() == norm_resource.lower()
