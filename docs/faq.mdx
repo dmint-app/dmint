@@ -52,3 +52,8 @@ In Python unit tests, you can instantiate `Policy.from_file()` and call `policy.
 
 ## What happens to existing approvals in the database after an upgrade?
 If the policy or database schema version increments (e.g. from schema v1 to v2), older pending records that cannot satisfy the current cryptographic format fail closed with `DMT_APPROVAL_DEPRECATED_FORMAT`. Operators should drain pending requests prior to upgrading.
+
+---
+
+## Does Dmint cover built-in coding-agent tools (like Claude Code `Bash` or Codex `exec_command`), or only MCP?
+**Both.** Running `dmint init --harness all` installs native `PreToolUse` / `tool.execute.before` hooks for **Claude Code**, **OpenAI Codex CLI**, **OpenCode**, **Cursor**, **Windsurf**, and **Cline / Roo Code**. Every built-in shell command, file read/write, and MCP tool call is intercepted and evaluated against `policy.json` before execution. See [Protecting Coding-Agent Hooks](/guides/coding-agent-hooks).

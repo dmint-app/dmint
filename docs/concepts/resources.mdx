@@ -21,7 +21,7 @@ If a resource string is malformed or attempts path traversal, Dmint rejects the 
 | `url` | Remote HTTP/HTTPS endpoints | `https://api.github.com/repos/org/repo` | `https://api.github.com/repos/*/*` |
 | `host` | Network hostnames and domains | `db.production.internal` | `*.production.internal` |
 | `identifier` | Entity names (tables, queues, users) | `users_v2` | `users_*` |
-| `exact` | Uncategorized strings | `my-opaque-token-123` | `my-opaque-token-123` (literal only) |
+| `exact` | Commands and opaque strings | `docker ps -a` | `docker *`, `* | sh`, or literal `git status` |
 
 ---
 
@@ -83,8 +83,8 @@ Used for database tables, topic names, queue names, and user identifiers:
 When protecting Python callables, specify a resource extractor:
 
 ```python
-# Fixed resource:
-@dmint.protect("database.query", resource="public.users")
+# Fixed resource (via callable resolver):
+@dmint.protect("database.query", resource=lambda _: "public.users")
 def query_users(): ...
 
 # Dynamic resource extracted from arguments:

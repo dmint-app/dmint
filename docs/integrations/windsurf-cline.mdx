@@ -1,0 +1,92 @@
+---
+title: "Windsurf & Cline / Roo Code"
+description: "How to protect native IDE tools and MCP servers in Windsurf, Cline, and Roo Code using dmint init, dmint hook, and dmint-mcp."
+icon: "laptop-code"
+---
+
+# Windsurf & Cline / Roo Code Integration
+
+Dmint supports pre-tool execution hooks and MCP gateway protection for **Windsurf** (Cascade) and **Cline / Roo Code** in VS Code.
+
+---
+
+## 1. Install Pre-Tool Hooks (`dmint init`)
+
+From your workspace root, run:
+
+```bash
+# Install hooks for both Windsurf and Cline / Roo Code:
+dmint init --harness windsurf,cline
+```
+
+This creates:
+- `.windsurf/hooks.json` — Pre-tool execution hook for Windsurf Cascade.
+- `.clinerules/hooks.json` — Pre-tool execution hook for Cline and Roo Code (`--harness roo-code` is also accepted as an alias).
+- `policy.json` — Starter policy combining the `shell` and `filesystem` templates.
+- `.dmint/` — Local Ed25519 signing key (`0600`), HMAC integrity key (`0600`), and `approvals.sqlite3` database.
+
+Verify installed hooks at any time:
+
+```bash
+dmint hook status
+```
+
+---
+
+## 2. Test Your Policy (`dmint check`)
+
+Test how your workspace `policy.json` evaluates terminal commands and file paths:
+
+```bash
+dmint check -t shell.execute -r "npm test"               # -> ALLOW (exit 0)
+dmint check -t filesystem.write_file -r "src/server.ts"  # -> APPROVAL_REQUIRED (exit 1)
+dmint check -t filesystem.read_file -r ".env.local"      # -> DENY (exit 2)
+```
+
+---
+
+## 3. Wrapping External MCP Servers (`dmint-mcp`)
+
+To protect external MCP servers (PostgreSQL, GitHub, Stripe) in Windsurf or Cline:
+
+1. Generate `policy.json` and `mcp_protection.json`:
+   ```bash
+   dmint create-mcp-policy \
+     --command npx \
+     --args "-y @modelcontextprotocol/server-postgres postgresql://localhost/mydb" \
+     --integration-id postgres \
+     -f access.md \
+     -o policy.json \
+     --config-output mcp_protection.json \
+     -y
+   ```
+2. Point Windsurf (`~/.codeium/windsurf/mcp_config.json`) or Cline (`cline_mcp_settings.json`) to `dmint-mcp`:
+   ```json
+   {
+     "mcpServers": {
+       "dmint-protected-postgres": {
+         "command": "dmint-mcp",
+         "args": ["run", "--config", "/absolute/path/to/mcp_protection.json"]
+       }
+     }
+   }
+   ```
+
+---
+
+## 4. Approving Paused Requests
+
+When Windsurf or Cline pauses on an `APPROVAL_REQUIRED` action:
+
+```bash
+# Review pending requests in terminal:
+dmint pending
+
+# Approve once:
+dmint approve apr_... --by dev@company.com
+
+# Or review in the web dashboard:
+dmint dashboard
+```
+
+When the agent retries the exact same tool call, Dmint verifies the Ed25519 assertion, marks it `CONSUMED`, and allows the action to proceed once.

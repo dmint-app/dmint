@@ -107,6 +107,10 @@ dmint policy-digest policy.json
 
 ## 3. Protect the Host Functions
 
+<Tip>
+**Fastest Local Setup (`Dmint.local`)**: If your agent and CLI run on the same development machine, you can skip `dmint init-keys` and replace the boilerplate setup below with a single line: `dmint = Dmint.local("policy.json", agent_id="support-agent-01")`. You can then retry with `dmint.retry(issue_large_refund, "cust_42", 250.0, "ticket-1204")` without passing `approval_credential`. The explicit setup below demonstrates the full split-key architecture for multi-host production deployments.
+</Tip>
+
 Create `app.py`. Replace `PASTE_PUBLIC_KEY_HEX` with the value printed by `dmint init-keys`.
 
 ```python title="app.py"

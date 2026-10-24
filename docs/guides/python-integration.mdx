@@ -27,7 +27,28 @@ Dmint supports the following callable types:
 
 ---
 
-## 2. Basic Synchronous Protection
+## 2. Zero-Config Local Setup (`Dmint.local`)
+
+For local development and single-host workflows, `Dmint.local()` automatically provisions `.dmint/signing.key` (`0600`), `.dmint/integrity.key` (`0600`), and `.dmint/approvals.sqlite3`:
+
+```python title="local_example.py"
+from dmint import ApprovalRequiredError, Dmint, Policy, Rule
+
+policy = Policy([
+    Rule.allow("payments", "get_status"),
+    Rule.approval_required("payments", "refund"),
+])
+
+dmint = Dmint.local(policy, agent_id="agent-01")
+
+@dmint.protect("payments.refund")
+def issue_refund(payment_id: str, amount: float) -> dict:
+    return {"id": payment_id, "refunded": amount}
+```
+
+### Explicit Production Setup (`Dmint`)
+
+For distributed or custom-configured production environments:
 
 ```python title="sync_example.py"
 from datetime import datetime, timezone, timedelta
@@ -116,7 +137,8 @@ class LedgerService:
     def __init__(self, tenant_id: str):
         self.tenant_id = tenant_id
 
-    # Instance method: Dmint extracts 'self' and normalizes explicit arguments
+    # Instance method: Dmint strips 'self' from arguments and scopes action as 'LedgerService.record_entry'
+    # (Matched by Rule.allow("ledger", "LedgerService.record_entry") or Rule.allow("ledger", "*"))
     @dmint.protect("ledger.record_entry")
     def record_entry(self, entry_id: str, amount: float) -> str:
         return f"Tenant {self.tenant_id}: Recorded entry {entry_id} for ${amount:.2f}"
@@ -181,6 +203,28 @@ dmint = Dmint(
 ```
 
 If the remote payload does not match the expected SHA-256 digest, Dmint refuses to start and raises `PolicyError`.
+
+---
+
+## 7. Handling Non-JSON Argument Types (`datetime`, `Decimal`, `UUID`, `Path`)
+
+Because Dmint computes deterministic RFC 8785 (JCS) fingerprints, protected functions accept **JSON-native argument types** (`str`, `int`, `float`, `bool`, `None`, `list`, `dict`). Passing non-JSON objects such as `datetime`, `Decimal`, `UUID`, or ` pathlib.Path` fails closed with `CanonicalizationError` (`code="DMT_CANONICALIZATION_ERROR"`).
+
+Convert rich types to canonical strings or numbers at the tool boundary before calling the protected function:
+
+```python
+from datetime import datetime
+from pathlib import Path
+from uuid import UUID
+
+@dmint.protect("audit.write_event")
+def write_event(event_id: str, path: str, occurred_at: str) -> dict:
+    return {"event_id": event_id, "path": path, "occurred_at": occurred_at}
+
+# Normalize rich Python objects to strings at the call site:
+def log_user_event(event_id: UUID, path: Path, occurred_at: datetime) -> dict:
+    return write_event(str(event_id), path.as_posix(), occurred_at.isoformat())
+```
 
 ---
 

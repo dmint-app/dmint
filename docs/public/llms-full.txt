@@ -7,81 +7,98 @@
 DOCUMENT: Overview
 URL: https://docs.dmint.app/
 SECTION: Get Started
-SUMMARY: Dmint is a deterministic authorization layer for AI agent tool calls with cryptographic request binding and single-use approvals.
+SUMMARY: Dmint is a deterministic authorization layer for AI agent tool calls with cryptographic request binding and single-use human approvals.
 ================================================================================
 
 # Deterministic Security for AI Agent Tool Calls
 
-Dmint places an unbypassable, code-governed authorization boundary between AI agents and privileged execution environments.
+Dmint places a deterministic, code-governed authorization boundary between AI agents and privileged execution environments—covering **native coding-agent hooks** (Claude Code, OpenAI Codex CLI, OpenCode, Cursor, Windsurf, Cline), **MCP servers**, and **Python functions**.
 
 ---
 
 ## The Problem
 
-Autonomous agents (Cursor, Claude Code, Antigravity, LangChain pipelines) frequently possess high-privilege access to execute commands, query databases, read files, and call external APIs.
+Autonomous agents frequently possess high-privilege access to execute shell commands, query databases, edit files, and call external APIs.
 
-Prompt-based guardrails ("Please do not run `DELETE` without asking") fail when an agent encounters prompt injection, jailbreaks, or hallucinations:
+Prompt-based guardrails (*"Please do not run `DELETE` or `git push` without asking"*) fail when an agent encounters prompt injection, jailbreaks, or context drift:
 
 ```text
-Without Dmint (Probabilistic & Vulnerable):
+Without Dmint (Probabilistic):
 AI Model ────[ System Prompt / Model Guardrail ]────► Executes DROP TABLE / RM -RF
 
 With Dmint (Deterministic & Fail-Closed):
 AI Model ────► Tool Call ────► [ Dmint Policy Engine ] ────► ALLOW: Executes tool
                                       │
                                       ├─► DENY: Fails closed immediately
-                                      └─► APPROVAL_REQUIRED: Halts until signed human approval
+                                      └─► APPROVAL_REQUIRED: Halts until signed, single-use human approval
 ```
 
 Dmint evaluates every tool request against deterministic, declarative policies before the protected capability runs. There is **zero LLM evaluation** in the runtime authorization decision path.
 
 ---
 
-## 10-Line Example
+## 30-Second Setup for Coding Agents (Claude Code, Codex, OpenCode, Cursor)
 
-Protect a sensitive tool with policy evaluation and human approval:
+Protect built-in shell and file tools in your coding agent with one command:
+
+```bash
+pip install dmint
+dmint init --harness all
+```
+
+Test how your generated `policy.json` evaluates commands right from the terminal:
+
+```bash
+dmint check -t shell.execute -r "git status"           # -> ALLOW (exit 0)
+dmint check -t shell.execute -r "git push origin main" # -> APPROVAL_REQUIRED (exit 1)
+dmint check -t shell.execute -r "rm -rf /"             # -> DENY (exit 2)
+```
+
+---
+
+## 10-Line Python SDK Example
+
+Protect a Python function with deterministic policy evaluation and single-use human approval using `Dmint.local()` (which automatically initializes `.dmint/` keys and local SQLite storage):
 
 ```python
-from dmint import Dmint, Policy, Rule, TrustedContext
+from dmint import ApprovalRequiredError, Dmint, Policy, Rule
 
-# 1. Define deterministic rules
+# 1. Define deterministic rules (default-deny)
 policy = Policy([
     Rule.allow("database", "query"),
     Rule.approval_required("database", "delete"),
 ])
 
-# 2. Initialize the engine
-dmint = Dmint(
-    policy=policy,
-    agent_id="agent-prod-01",
-    context=TrustedContext({"environment": "production"}),
-)
+# 2. Initialize zero-config local engine (.dmint/ keys + SQLite store)
+dmint = Dmint.local(policy)
 
 # 3. Guard the callable
 @dmint.protect("database.delete")
 def delete_records(table: str, condition: str) -> int:
     return 42
 
-# 4. Tool execution halts and persists a pending approval record
+# 4. Execution halts and persists a tamper-evident pending approval record
 try:
     delete_records("users", "inactive = true")
-except Exception as exc:
-    print(f"Intercepted: {exc.code} (Request ID: {exc.request_id})")
+except ApprovalRequiredError as exc:
+    print(f"Intercepted: {exc.code} (Approval ID: {exc.approval_id})")
 ```
 
 Output:
 ```text
-Intercepted: DMT_APPROVAL_REQUIRED (Request ID: req_9k2L...m4P1)
+Intercepted: DMT_APPROVAL_REQUIRED (Approval ID: apr_9k2L...m4P1)
 ```
 
-The tool was never called. To proceed, an authorized human signs an Ed25519 assertion via the local dashboard or CLI (`dmint approve`), and the host application retries.
+The tool was never called. To approve and execute once:
+1. Run `dmint approve apr_9k2L...m4P1` in your terminal (or approve in `dmint dashboard`).
+2. Call `dmint.retry(delete_records, "users", "inactive = true")`. Dmint verifies the Ed25519 signature against the exact RFC 8785 argument hash, atomically consumes the approval (`APPROVED -> CONSUMED`), and runs the function once.
 
 ---
 
 ## How It Works
 
 ```text
-   AI Agent Call
+   AI Agent Call (Python Function / PreToolUse Hook / MCP Tool)
          │
          ▼
  1. Parameter Canonicalization (RFC 8785 JSON Canonicalization Scheme)
@@ -101,56 +118,48 @@ Executes Callable          Halts execution; persists record in SQLite/Postgres;
                            emits webhook notification (Slack/Discord/Teams)
                                   │
                                   ▼
-                           Human Review (Dashboard or CLI)
+                           Human Review (CLI `dmint approve` or Web Dashboard)
                                   │
                                   ▼
-                           Host Retries with Ed25519 Signed Token
+                           Ed25519 Assertion Signed & Bound to Exact Arguments
                                   │
                                   ▼
-                           Atomic Single-Use Consumption & Execution
+                           Atomic Single-Use Consumption (`APPROVED -> CONSUMED`)
 ```
 
 ---
 
-## Who It Is For
+## Who It Is For (and When to Use Alternatives)
 
-- **AI application engineers** deploying agents with access to production databases, cloud APIs, or file systems.
-- **Enterprise teams** using Model Context Protocol (MCP) in Cursor, Claude Code, or Antigravity who require an audit trail and human-in-the-loop review for destructive actions.
-- **Security auditors** needing deterministic proof that an agent cannot exceed policy rules regardless of prompt manipulation.
-
-### Who Should Not Use It
-
-- If you want an LLM to judge whether text "looks suspicious" or perform content moderation, use an LLM input guardrail. Dmint evaluates strict mathematical rules against exact arguments and context.
-- If your agent runs as the same unisolated OS user as your application and has direct shell access, an in-process library cannot protect local files or signing keys. You need container or OS-level user isolation.
+| Your Use Case | Best Tool | Why |
+|---|---|---|
+| **Need self-hosted, Ed25519-signed, single-use human sign-off on sensitive actions in Python, MCP, or coding-agent hooks** | **Dmint** | Approvals are cryptographically bound to the exact RFC 8785 call arguments, usable once, and automatically voided if policy changes. |
+| Running entirely on AWS Bedrock AgentCore | AWS AgentCore Policy | Managed Cedar policy enforcement at the AWS gateway. |
+| Polyglot enterprise governance across Go, .NET, Java, and Rust | Microsoft Agent Governance Toolkit / Cerbos | Broad multi-language SDKs and centralized PDP infrastructure. |
+| Content moderation, PII redaction, or prompt-injection classification | LLM Guardrails (Llama Guard, NeMo) | Dmint is a deterministic capability/argument gate, not a text classifier. |
 
 ---
 
-## Project Status
+## Next Steps
 
-- **Version**: `2.0.3`
-- **Supported Python**: `3.10`, `3.11`, `3.12`, `3.13`
-- **Supported Transports**: Python decorator (`@dmint.protect`), MCP Stdio proxy, MCP Streamable HTTP proxy.
-- **Backends**: SQLite (default, with WAL mode and row HMAC integrity) or PostgreSQL via SQLAlchemy (`DMINT_DATABASE_URL`).
-- **Cryptographic Standard**: RFC 8785 (JCS) canonicalization, SHA-256 domain-separated hashing, Ed25519 public-key approval signatures.
+- **[5-Minute Quickstart](/quickstart)**: Initialize Dmint, test policies with `dmint check`, and run a complete approval + retry flow.
+- **[Claude Code, Codex & OpenCode Hooks](/integrations/claude-code)**: Enforce policies on built-in `Bash`, `Write`, `Edit`, and MCP tools.
+- **[Cursor, Windsurf & Cline Integration](/integrations/cursor)**: Protect IDE coding agents and MCP servers.
+- **[End-to-End Tutorial](/tutorials/protect-a-tool)**: Build a realistic refunds service requiring approval for amounts over $100.
 
----
-
-## Where to Go Next
-
-- **[5-Minute Quickstart](/quickstart)**: Install Dmint, define a 3-rule policy, and observe `ALLOW`, `DENY`, and `APPROVAL_REQUIRED` in action.
-- **[End-to-End Tutorial](/tutorials/protect-a-tool)**: Build a realistic refunds tool requiring approval for amounts over $100.
-- **[Core Architecture & Mental Model](/concepts/how-dmint-works)**: Understand the complete request lifecycle and execution gate.
 
 ================================================================================
 DOCUMENT: Quickstart
 URL: https://docs.dmint.app/quickstart
 SECTION: Get Started
-SUMMARY: Protect a Python function, stop unauthorized calls, approve a sensitive action, and consume a single-use retry credential.
+SUMMARY: Set up Dmint in 60 seconds: protect coding-agent hooks (Claude Code, Codex, OpenCode, Cursor) or Python functions with single-use human approvals.
 ================================================================================
 
 # 5-Minute Quickstart
 
-This walkthrough creates a protected ledger, blocks a denied action, pauses a sensitive transfer for human approval, and retries it with a single-use Ed25519 credential.
+This guide shows two ways to start using Dmint immediately:
+1. **Track A (CLI & Coding Agents)**: Protect shell and file tools in Claude Code, OpenAI Codex CLI, OpenCode, Cursor, Windsurf, or Cline with `dmint init`.
+2. **Track B (Python SDK)**: Protect Python functions with `Dmint.local()`, approve a paused call via `dmint approve`, and execute a single-use retry.
 
 ---
 
@@ -158,11 +167,6 @@ This walkthrough creates a protected ledger, blocks a denied action, pauses a se
 
 - **Python**: 3.10, 3.11, 3.12, or 3.13.
 - **Operating system**: Linux, macOS, or Windows WSL.
-- **Dmint**: installed in a clean virtual environment.
-
----
-
-## Step 1: Install and Initialize
 
 ```bash
 mkdir dmint-quickstart && cd dmint-quickstart
@@ -176,26 +180,41 @@ dmint --version
 dmint 2.0.3
 ```
 
-Generate the signing and storage-integrity keys:
+---
+
+## Track A: Coding Agent Hooks in 30 Seconds (`dmint init`)
+
+Run `dmint init` to generate local signing/integrity keys (`.dmint/`), a starter `policy.json` (`shell` and `filesystem` templates), and pre-tool execution hooks for your coding agents:
 
 ```bash
-dmint init-keys
+dmint init --harness all
 ```
 
-Actual default locations:
+Test how your policy evaluates commands from the terminal using `dmint check`:
 
-```text
-~/.config/dmint/signing.key
-~/.config/dmint/integrity.key
+```bash
+# 1. Allowed command (exit code 0)
+dmint check --tool shell.execute --resource "git status"
+
+# 2. Approval-required command (exit code 1)
+dmint check --tool shell.execute --resource "git push origin main"
+
+# 3. Denied command (exit code 2)
+dmint check --tool shell.execute --resource "rm -rf /"
 ```
 
-The command prints a `public_key_hex` value. Copy it for the verifier below. The private key stays with the approval process; do not ship it to the agent.
+When your coding agent triggers an `APPROVAL_REQUIRED` command, approve it from your terminal and tell the agent to retry:
+
+```bash
+dmint pending
+dmint approve apr_... --by alice@company.com
+```
 
 ---
 
-## Step 2: Create a Policy
+## Track B: Python SDK Quickstart (`Dmint.local`)
 
-Create `policy.json`:
+### Step 1: Create `policy.json`
 
 ```json title="policy.json"
 {
@@ -219,7 +238,7 @@ Create `policy.json`:
 }
 ```
 
-Validate and inspect it:
+Validate it offline:
 
 ```bash
 dmint verify-policy policy.json
@@ -232,180 +251,98 @@ dmint verify-policy policy.json
   [DENY] tool='ledger', action='delete_account', resource='NoResource'
 ```
 
-Rules with no `resource` match only requests with no resource. A global rule would use `"resource": "*"`.
-
-Precedence is fixed: **DENY > APPROVAL_REQUIRED > ALLOW**, regardless of JSON order. A request that matches no rule is denied with `DMT_DEFAULT_DENIED`.
-
 ---
 
-## Step 3: Protect the Functions
+### Step 2: Protect Functions in `app.py`
 
-Create `app.py`:
+`Dmint.local("policy.json")` automatically provisions `.dmint/signing.key`, `.dmint/integrity.key`, and `.dmint/approvals.sqlite3` with zero boilerplate:
 
 ```python title="app.py"
-from datetime import datetime, timedelta, timezone
-from pathlib import Path
 import sys
+from dmint import ApprovalRequiredError, AuthorizationError, Dmint
 
-from dmint import (
-    ApprovalRequiredError,
-    ApprovalVerifier,
-    AuthorizationError,
-    Dmint,
-    Policy,
-    PolicyProvenance,
-    SQLiteApprovalStore,
-    TrustedContext,
-    policy_digest,
-)
-from dmint.core import public_key_from_hex
+dmint = Dmint.local("policy.json", agent_id="ledger-agent-01")
 
-PUBLIC_KEY_HEX = "PASTE_PUBLIC_KEY_HEX"
-
-policy = Policy.from_file("policy.json")
-store = SQLiteApprovalStore("approvals.sqlite3", deployment_epoch="default")
-
-dmint = Dmint(
-    policy=policy,
-    agent_id="finance-agent-01",
-    context=TrustedContext({"tenant": "prod-us"}),
-    approval_store=store,
-    approval_verifier=ApprovalVerifier(
-        trusted_issuers={
-            "dmint-authority": public_key_from_hex(PUBLIC_KEY_HEX),
-        },
-        audience="dmint/dashboard/v1",
-    ),
-    policy_provenance=PolicyProvenance(
-        "quickstart-v1",
-        policy_digest(policy),
-        datetime.now(timezone.utc),
-    ),
-    approval_ttl=timedelta(minutes=5),
-)
 
 @dmint.protect("ledger.view_balance")
-def view_balance(account_id: str) -> str:
-    return f"Balance for {account_id}: $1,250.00"
+def view_balance(account_id: str) -> dict:
+    return {"account_id": account_id, "balance_usd": 12500}
+
 
 @dmint.protect("ledger.transfer_funds")
-def transfer_funds(account_id: str, amount: float) -> str:
-    return f"Transferred ${amount:.2f} from {account_id}"
+def transfer_funds(from_acct: str, to_acct: str, amount: int) -> dict:
+    return {"from": from_acct, "to": to_acct, "amount": amount, "status": "transferred"}
+
 
 @dmint.protect("ledger.delete_account")
-def delete_account(account_id: str) -> str:
-    return f"Account {account_id} deleted"
+def delete_account(account_id: str) -> dict:
+    return {"deleted": account_id}
+
 
 if __name__ == "__main__":
-    if len(sys.argv) == 2:
-        credential = Path(sys.argv[1]).read_bytes()
-        print(
-            dmint.retry(
-                transfer_funds,
-                "acc_100",
-                500.0,
-                approval_credential=credential,
-            )
-        )
-    else:
-        print(view_balance("acc_100"))
-        try:
-            delete_account("acc_100")
-        except AuthorizationError as exc:
-            print(f"Blocked: {exc.code}")
-        try:
-            transfer_funds("acc_100", 500.0)
-        except ApprovalRequiredError as exc:
-            print(f"Paused: {exc.code}")
-            print(f"Approval ID: {exc.approval_id}")
-            print(f"Request Fingerprint: {exc.request_fingerprint}")
+    if len(sys.argv) > 1 and sys.argv[1] == "--retry":
+        # Automatically verifies and consumes the single-use approval from .dmint/approvals.sqlite3
+        res = dmint.retry(transfer_funds, "acct_100", "acct_200", 500)
+        print(f"[✓] Approved retry succeeded: {res}")
+        sys.exit(0)
+
+    # 1. ALLOW: executes immediately
+    print("[✓] Balance:", view_balance("acct_100"))
+
+    # 2. DENY: fails closed immediately
+    try:
+        delete_account("acct_100")
+    except AuthorizationError as exc:
+        print(f"[✗] Denied as expected: {exc.code}")
+
+    # 3. APPROVAL_REQUIRED: pauses and writes pending record to .dmint/approvals.sqlite3
+    try:
+        transfer_funds("acct_100", "acct_200", 500)
+    except ApprovalRequiredError as exc:
+        print(f"[⏸] Paused for approval: {exc.approval_id}")
+        print(f"    Run: dmint approve {exc.approval_id}")
+        print("    Then run: python app.py --retry")
 ```
-
-Run it:
-
-```bash
-python app.py
-```
-
-```text
-Balance for acc_100: $1,250.00
-Blocked: DMT_POLICY_DENIED
-Paused: DMT_APPROVAL_REQUIRED
-Approval ID: apr_...
-Request Fingerprint: 4fb78bc8...
-```
-
-The transfer did not execute. Dmint persisted a `PENDING` approval bound to the exact request and raised `ApprovalRequiredError`.
-
-`deny` produces `DMT_POLICY_DENIED`; an unmatched request produces `DMT_DEFAULT_DENIED`. `DMT_AUTHORIZATION_ERROR` is reserved for evaluator/config failures, not an ordinary policy deny.
 
 ---
 
-## Step 4: Approve and Receive the Assertion
+### Step 3: Run, Approve, and Retry
 
-List pending requests:
+1. Run `app.py`:
+   ```bash
+   python app.py
+   ```
+   ```text
+   [✓] Balance: {'account_id': 'acct_100', 'balance_usd': 12500}
+   [✗] Denied as expected: DMT_POLICY_DENIED
+   [⏸] Paused for approval: apr_7x9K...
+       Run: dmint approve apr_7x9K...
+       Then run: python app.py --retry
+   ```
 
-```bash
-dmint pending --db-path approvals.sqlite3
-```
+2. Approve the pending request in your terminal:
+   ```bash
+   dmint approve apr_7x9K... --by finance@company.com --reason "Verified invoice #402"
+   ```
+   ```text
+   ✓ Approved 'apr_7x9K...' (ledger.transfer_funds) successfully.
+     Reason: Verified invoice #402
+   ```
 
-```text
-APPROVAL ID       TOOL/ACTION            RESOURCE/TARGET  PRINCIPAL         REQUESTED
-----------------  ---------------------  ---------------  ----------------  ---------
-apr_...           ledger.transfer_funds  (none)           finance-agent-01  0s ago
-```
+3. Run the approved retry:
+   ```bash
+   python app.py --retry
+   ```
+   ```text
+   [✓] Approved retry succeeded: {'from': 'acct_100', 'to': 'acct_200', 'amount': 500, 'status': 'transferred'}
+   ```
 
-Approve the exact request and write the retry credential:
+4. Try replaying the exact same retry a second time:
+   ```bash
+   python app.py --retry
+   ```
+   It fails closed with `DMT_APPROVAL_CONSUMED` because every Dmint approval assertion is single-use.
 
-```bash
-dmint approve apr_... \
-  --db-path approvals.sqlite3 \
-  --policy policy.json \
-  --approver-id alice@example.com \
-  --authority-issuer dmint-authority \
-  --reason "Verified quarterly audit transfer" \
-  --output-assertion approval.json
-```
-
-```text
-✓ Approved 'apr_...' (ledger.transfer_funds) successfully.
-  Reason: Verified quarterly audit transfer
-```
-
-The command updates the record to `APPROVED` and writes signed assertion bytes to `approval.json`. It does not execute the transfer.
-
-> `--authority-issuer` must match the issuer ID in the verifier’s `trusted_issuers` mapping. This example uses `dmint-authority`; `dmint approve` otherwise defaults to `dmint-cli`.
-
----
-
-## Step 5: Retry Exactly Once
-
-```bash
-python app.py approval.json
-```
-
-```text
-Transferred $500.00 from acc_100
-```
-
-Dmint verifies the signature, re-checks the current policy, matches the full request fingerprint, atomically consumes the approval, and only then runs the function.
-
-Replay the same file:
-
-```bash
-python app.py approval.json
-```
-
-It fails closed with `ApprovalConsumedError` (`DMT_APPROVAL_CONSUMED`). Changing an argument fails with `DMT_APPROVAL_REQUEST_MISMATCH`.
-
----
-
-## Next Steps
-
-- **[Protect a Tool End-to-End](/tutorials/protect-a-tool)**: argument constraints, host-side tiering, dashboard assertion download, and multi-step operational flow.
-- **[Policies and Rules](/concepts/policies)**: precedence, wildcard selectors, resources, and constraints.
-- **[Human Approvals](/guides/human-approvals)**: dashboard identity attribution, CI automation, and MCP retry payloads.
-- **[MCP Gateway](/guides/protecting-mcp)**: enforce policy for external MCP servers without changing agent code.
 
 ================================================================================
 DOCUMENT: Protect a Tool End-to-End
@@ -517,6 +454,10 @@ dmint policy-digest policy.json
 ---
 
 ## 3. Protect the Host Functions
+
+<Tip>
+**Fastest Local Setup (`Dmint.local`)**: If your agent and CLI run on the same development machine, you can skip `dmint init-keys` and replace the boilerplate setup below with a single line: `dmint = Dmint.local("policy.json", agent_id="support-agent-01")`. You can then retry with `dmint.retry(issue_large_refund, "cust_42", 250.0, "ticket-1204")` without passing `approval_credential`. The explicit setup below demonstrates the full split-key architecture for multi-host production deployments.
+</Tip>
 
 Create `app.py`. Replace `PASTE_PUBLIC_KEY_HEX` with the value printed by `dmint init-keys`.
 
@@ -728,6 +669,7 @@ The request fingerprint is a SHA-256 digest of the **full request envelope**, no
 - Read [Approval Lifecycle](/concepts/approvals) for state transitions and replay protection.
 - Read [Human Approvals](/guides/human-approvals) for dashboard identity attribution and CI automation.
 
+
 ================================================================================
 DOCUMENT: How Dmint Works
 URL: https://docs.dmint.app/concepts/how-dmint-works
@@ -815,7 +757,7 @@ There are no probabilistic decisions, confidence thresholds, or model calls in t
 ## Detailed Step-by-Step Breakdown
 
 ### 1. Interception and Argument Snapshotting
-Whether invoked via the `@dmint.protect` decorator or via the `dmint-mcp` gateway proxy, Dmint captures the exact arguments passed to the tool. Variadic positional (`*args`) and keyword arguments (`**kwargs`) are normalized into a frozen dictionary representation.
+Whether invoked via the `@dmint.protect` Python decorator, a coding-agent `PreToolUse` hook (`dmint hook run`), or the `dmint-mcp` gateway proxy, Dmint captures the exact arguments passed to the tool. Variadic positional (`*args`) and keyword arguments (`**kwargs`) are normalized into a frozen dictionary representation.
 
 ### 2. RFC 8785 Canonicalization
 JSON serialization is non-deterministic in standard libraries: dictionary keys can be ordered arbitrarily, whitespace varies, and numeric representations can differ. Dmint normalizes all request arguments using RFC 8785 JSON Canonicalization Scheme (JCS):
@@ -876,6 +818,7 @@ When an authorized human reviews and approves the request:
 - **[Request Binding & Cryptographic Invariants](/concepts/request-binding)**: Learn how RFC 8785 guarantees byte-level immutability.
 - **[Approval Lifecycle](/concepts/approvals)**: Review the 7-state lifecycle machine and replay defenses.
 
+
 ================================================================================
 DOCUMENT: Policies and Rules
 URL: https://docs.dmint.app/concepts/policies
@@ -909,7 +852,8 @@ A policy contains an array of `rules`. Every rule has a lowercase `effect`, an e
       "effect": "allow",
       "tool": "database",
       "action": "query",
-      "resource": "public.*"
+      "resource": "public.*",
+      "resource_kind": "identifier"
     },
     {
       "effect": "approval_required",
@@ -939,6 +883,7 @@ Validate the file before deploying it:
 
 ```bash
 dmint verify-policy policy.json
+dmint check -p policy.json -t database.query -r "public.users"
 dmint policy-digest policy.json
 ```
 
@@ -1090,6 +1035,22 @@ Use `policy-digest` in deployment tooling and pin the value with `expected_polic
 5. Remember that constraint failure is a deny, not an `else` branch.
 6. Keep `policy.json` under version control and rotate its digest deliberately.
 
+---
+
+## Production Policy Templates
+
+Instead of authoring policies from scratch, Dmint provides **7 verified production templates** for common operational domains:
+- **`shell`**: Safe terminal commands (`git`, `pytest`, `npm test`) allowed; service management (`systemctl`, `docker`) approval-gated; destructive commands (`rm -rf /`, `dd`, `mkfs`) denied.
+- **`filesystem`**: Path-scoped workspace reads allowed; write operations approval-gated; credentials (`.env*`, `*.key`, `*.pem`, `/etc/*`) denied.
+- **`postgres`**: `SELECT` and `EXPLAIN` allowed; mutations and DDL approval-gated; `DROP TABLE` and `TRUNCATE` denied.
+- **`github`**: Issues and PR reads allowed; PR and issue creation approval-gated; repo deletion and force push denied.
+- **`stripe`**: Customer/charge lookups allowed; billing transactions approval-gated; payouts and secret keys denied.
+- **`aws`**: Resource inspection allowed; provisioning approval-gated; deletion and termination denied.
+- **`kubernetes`**: Pod and log observation allowed; rollouts and scaling approval-gated; cluster deletion denied.
+
+Load templates programmatically via `from dmint.templates import get_template_policy, list_templates`. See the [Policy Templates Reference](/reference/policy-templates) for full JSON schemas and deduplication rules.
+
+
 ================================================================================
 DOCUMENT: Exact Request Binding
 URL: https://docs.dmint.app/concepts/request-binding
@@ -1198,6 +1159,7 @@ The prefix `b"dmint/request-fingerprint/v2\x00"` prevents cross-protocol signatu
 
 - **[Approval Lifecycle & State Machine](/concepts/approvals)**: See how approved assertions transition to single-use `CONSUMED`.
 - **[Resource Matching](/concepts/resources)**: How paths, hostnames, and URLs are validated and normalized.
+
 
 ================================================================================
 DOCUMENT: Approval Lifecycle and State Machine
@@ -1326,11 +1288,32 @@ If any database row has been altered without knowledge of the 0600-protected int
 
 ---
 
+## Key Management & Split-Trust Model
+
+How are signing keys managed, and why can't a compromised agent forge an approval?
+
+Dmint operates on a **split-trust model**:
+- **The Human Approver** holds the **Ed25519 Private Key** (`private.key`). This file lives strictly on the reviewer's laptop or inside the isolated `dmint-dashboard` service with strict `0600` POSIX permissions. It is never mounted into or accessible by the agent.
+- **The Enforcement Gateway** holds only the **Ed25519 Public Key** configured in `trusted_issuers`.
+
+```bash
+# 1. Generate the authority keys (Ed25519 private key + HMAC storage key)
+dmint init-keys
+
+# 2. Export the public key to configure the gateway
+dmint export-public-key --format json
+```
+
+When an agent retries an execution, the gateway verifies the Ed25519 signature against its configured `trusted_issuers`. Because the agent has no access to `private.key`, it cannot forge signatures, and replaying old signatures fails because approvals are single-use (`CONSUMED`).
+
+---
+
 ## Next Steps
 
 - **[Human Approvals Guide](/guides/human-approvals)**: Step-by-step instructions for reviewing and approving via Dashboard and CLI.
 - **[Deployment Model](/operations/deployment-model)**: Process boundaries, user isolation, and key storage permissions.
 - **[Error Reference](/reference/errors)**: Meaning and remediation for all `DMT_APPROVAL_*` errors.
+
 
 ================================================================================
 DOCUMENT: Resource Matching Engine
@@ -1357,7 +1340,7 @@ If a resource string is malformed or attempts path traversal, Dmint rejects the 
 | `url` | Remote HTTP/HTTPS endpoints | `https://api.github.com/repos/org/repo` | `https://api.github.com/repos/*/*` |
 | `host` | Network hostnames and domains | `db.production.internal` | `*.production.internal` |
 | `identifier` | Entity names (tables, queues, users) | `users_v2` | `users_*` |
-| `exact` | Uncategorized strings | `my-opaque-token-123` | `my-opaque-token-123` (literal only) |
+| `exact` | Commands and opaque strings | `docker ps -a` | `docker *`, `* | sh`, or literal `git status` |
 
 ---
 
@@ -1419,8 +1402,8 @@ Used for database tables, topic names, queue names, and user identifiers:
 When protecting Python callables, specify a resource extractor:
 
 ```python
-# Fixed resource:
-@dmint.protect("database.query", resource="public.users")
+# Fixed resource (via callable resolver):
+@dmint.protect("database.query", resource=lambda _: "public.users")
 def query_users(): ...
 
 # Dynamic resource extracted from arguments:
@@ -1437,6 +1420,115 @@ def read_file(filepath: str) -> str: ...
 
 - **[Policy Authoring Guide](/guides/authoring-policies)**: Learn how to author policies with path and domain wildcards.
 - **[MCP Gateway SSRF Defenses](/guides/protecting-mcp)**: Review connection-level IP pinning and private network blocking.
+
+
+================================================================================
+DOCUMENT: Protecting Coding-Agent Hooks
+URL: https://docs.dmint.app/guides/coding-agent-hooks
+SECTION: How-To Guides
+SUMMARY: How Dmint intercepts built-in shell, filesystem, and MCP tools in Claude Code, OpenAI Codex CLI, OpenCode, Cursor, Windsurf, and Cline via PreToolUse hooks.
+================================================================================
+
+# Protecting Coding-Agent Hooks (`dmint hook`)
+
+Modern AI coding agents execute their most dangerous operations—such as `Bash` commands, file edits (`Write`, `Edit`, `apply_patch`), and file deletions—through **built-in native tools** rather than external MCP servers.
+
+`dmint hook` places Dmint's deterministic policy evaluator and single-use Ed25519 human approval engine directly into the pre-execution hook lifecycle of popular coding harnesses.
+
+```text
+┌─────────────────────────────────────────────────────────────────────────┐
+│                    AI Coding Harness (Local / Container)                │
+│  (Claude Code · OpenAI Codex CLI · OpenCode · Cursor · Windsurf · Cline)│
+└───────────────────────────────────┬─────────────────────────────────────┘
+                                    │
+                                    │ 1. PreToolUse / tool.execute.before
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                          dmint hook run                                 │
+│  • Normalizes tool payload -> (tool, action, resource, arguments)       │
+│  • Canonicalizes via RFC 8785 (JCS) & computes SHA-256 fingerprint      │
+│  • Evaluates policy.json (DENY > APPROVAL_REQUIRED > ALLOW)             │
+└───────────┬───────────────────────┼───────────────────────┬─────────────┘
+            │                       │                       │
+            ▼                       ▼                       ▼
+        [ ALLOW ]          [ APPROVAL_REQUIRED ]        [ DENY ]
+            │                       │                       │
+     Exit 0 ("allow")        Persists PENDING apr_...   Exit 2 ("deny")
+     Tool executes           or consumes APPROVED       Tool blocked
+                             assertion once
+```
+
+---
+
+## 1. Supported Harnesses & Generated Files
+
+Run `dmint init --harness all` (or `dmint hook install --harness <name>`) to configure any or all supported harnesses:
+
+| Harness | Flag Value | Generated Configuration File(s) | Hook Mechanism |
+| :--- | :--- | :--- | :--- |
+| **Claude Code** | `claude-code` | `.claude/settings.json` | `hooks.PreToolUse` command hook matching `Bash\|Read\|Write\|Edit\|MultiEdit\|NotebookEdit\|WebFetch\|mcp__.*` |
+| **OpenAI Codex CLI** | `codex` | `.codex/hooks.json` & `.codex/dmint-hook.sh` | `pre_tool_use` command hook & executable shell wrapper |
+| **OpenCode** | `opencode` | `.opencode/plugin/dmint-guard.ts` | Native TypeScript plugin hooking `tool.execute.before` |
+| **Cursor** | `cursor` | `.cursor/hooks.json` | `hooks.preToolUse` command hook |
+| **Windsurf** | `windsurf` | `.windsurf/hooks.json` | `hooks.preToolUse` command hook |
+| **Cline / Roo Code** | `cline` | `.clinerules/hooks.json` | `hooks.preToolUse` command hook |
+
+---
+
+## 2. How Native Tool Names Map to Dmint Capabilities
+
+Each coding agent names its built-in tools differently (`Bash` in Claude Code, `exec_command` in Codex, `run_terminal_cmd` in Cursor). `dmint hook run` normalizes them into standard Dmint `<tool>.<action>` capabilities so a single `policy.json` works across every harness:
+
+| Harness Tool Names | Normalized Dmint Capability | Extracted `resource` | `resource_kind` in Template |
+| :--- | :--- | :--- | :--- |
+| `Bash`, `sh`, `exec_command`, `execute_command`, `run_terminal_cmd`, `terminal` | `shell.execute` | Command string (e.g. `"git status"`, `"docker ps"`) | `exact` (with prefix/suffix `*`) |
+| `Read`, `read_file`, `view_file`, `cat`, `get_file_contents` | `filesystem.read_file` | Relative workspace path or absolute POSIX path | `path` |
+| `Write`, `Edit`, `MultiEdit`, `NotebookEdit`, `write_file`, `apply_patch`, `replace_in_file` | `filesystem.write_file` | Relative workspace path or absolute POSIX path | `path` |
+| `Delete`, `delete_file`, `remove_file`, `rm`, `unlink` | `filesystem.delete_file` | Relative workspace path or absolute POSIX path | `path` |
+| `LS`, `Glob`, `Grep`, `list_dir`, `list_directory`, `search_files` | `filesystem.list_directory` | Directory path or `"*"` | `path` |
+| `mkdir`, `create_directory` | `filesystem.create_directory` | Directory path | `path` |
+| `mcp__<server>__<action>` | `<server>.<action>` (or `mcp.<server>.<action>`) | `resource` / `file_path` / `uri` argument if present | Per rule |
+
+---
+
+## 3. Single-Use Human Approvals in Hooks
+
+When a coding agent calls a tool that matches an `approval_required` rule (for example, `git push origin main` or editing `src/main.py`):
+
+1. **First Call Pauses**:
+   - `dmint hook run` creates a tamper-evident `PENDING` record (`apr_...`) in `.dmint/approvals.sqlite3`.
+   - If Slack, Discord, or Microsoft Teams webhooks are configured (`DMINT_SLACK_WEBHOOK_URL`, etc.), a real-time alert is dispatched.
+   - The hook outputs a clear message telling the user/agent how to approve:
+     ```text
+     Dmint APPROVAL_REQUIRED [apr_8k9P...]: shell.execute on 'git push origin main' requires human sign-off.
+     To approve, run: `dmint approve apr_8k9P...` (or use `dmint dashboard`), then retry.
+     ```
+2. **Human Approves**:
+   ```bash
+   dmint approve apr_8k9P... --by alice@company.com
+   ```
+3. **Agent Retries the Exact Tool Call**:
+   - When the agent re-runs `git push origin main`, `dmint hook run` computes the RFC 8785 request fingerprint, finds the matching `APPROVED` assertion in `.dmint/approvals.sqlite3`, verifies the Ed25519 signature, atomically transitions the record from `APPROVED` $\to$ `CONSUMED`, and returns `ALLOW`.
+   - **Tamper Resistance**: If the agent alters the command to `git push origin main --force`, the fingerprint does not match `apr_8k9P...` and execution is blocked.
+   - **Replay Protection**: If the agent tries to run `git push origin main` a second time, the consumed assertion cannot be reused.
+
+---
+
+## 4. Simulating Policies Offline (`dmint check`)
+
+Use `dmint check` (or `dmint test-policy`) to test how your `policy.json` evaluates any tool call before running an agent:
+
+```bash
+# Test an allowed command (exits 0)
+dmint check -p policy.json -t shell.execute -r "pytest"
+
+# Test an approval-gated command (exits 1)
+dmint check -p policy.json -t shell.execute -r "docker build ."
+
+# Test a denied file read (exits 2)
+dmint check -p policy.json -t filesystem.read_file -r ".env.production"
+```
+
 
 ================================================================================
 DOCUMENT: Python Decorator Integration
@@ -1469,7 +1561,28 @@ Dmint supports the following callable types:
 
 ---
 
-## 2. Basic Synchronous Protection
+## 2. Zero-Config Local Setup (`Dmint.local`)
+
+For local development and single-host workflows, `Dmint.local()` automatically provisions `.dmint/signing.key` (`0600`), `.dmint/integrity.key` (`0600`), and `.dmint/approvals.sqlite3`:
+
+```python title="local_example.py"
+from dmint import ApprovalRequiredError, Dmint, Policy, Rule
+
+policy = Policy([
+    Rule.allow("payments", "get_status"),
+    Rule.approval_required("payments", "refund"),
+])
+
+dmint = Dmint.local(policy, agent_id="agent-01")
+
+@dmint.protect("payments.refund")
+def issue_refund(payment_id: str, amount: float) -> dict:
+    return {"id": payment_id, "refunded": amount}
+```
+
+### Explicit Production Setup (`Dmint`)
+
+For distributed or custom-configured production environments:
 
 ```python title="sync_example.py"
 from datetime import datetime, timezone, timedelta
@@ -1558,7 +1671,8 @@ class LedgerService:
     def __init__(self, tenant_id: str):
         self.tenant_id = tenant_id
 
-    # Instance method: Dmint extracts 'self' and normalizes explicit arguments
+    # Instance method: Dmint strips 'self' from arguments and scopes action as 'LedgerService.record_entry'
+    # (Matched by Rule.allow("ledger", "LedgerService.record_entry") or Rule.allow("ledger", "*"))
     @dmint.protect("ledger.record_entry")
     def record_entry(self, entry_id: str, amount: float) -> str:
         return f"Tenant {self.tenant_id}: Recorded entry {entry_id} for ${amount:.2f}"
@@ -1626,11 +1740,34 @@ If the remote payload does not match the expected SHA-256 digest, Dmint refuses 
 
 ---
 
+## 7. Handling Non-JSON Argument Types (`datetime`, `Decimal`, `UUID`, `Path`)
+
+Because Dmint computes deterministic RFC 8785 (JCS) fingerprints, protected functions accept **JSON-native argument types** (`str`, `int`, `float`, `bool`, `None`, `list`, `dict`). Passing non-JSON objects such as `datetime`, `Decimal`, `UUID`, or ` pathlib.Path` fails closed with `CanonicalizationError` (`code="DMT_CANONICALIZATION_ERROR"`).
+
+Convert rich types to canonical strings or numbers at the tool boundary before calling the protected function:
+
+```python
+from datetime import datetime
+from pathlib import Path
+from uuid import UUID
+
+@dmint.protect("audit.write_event")
+def write_event(event_id: str, path: str, occurred_at: str) -> dict:
+    return {"event_id": event_id, "path": path, "occurred_at": occurred_at}
+
+# Normalize rich Python objects to strings at the call site:
+def log_user_event(event_id: UUID, path: Path, occurred_at: datetime) -> dict:
+    return write_event(str(event_id), path.as_posix(), occurred_at.isoformat())
+```
+
+---
+
 ## Next Steps
 
 - **[Human Approvals Guide](/guides/human-approvals)**: How to review pending calls and execute approved retries.
 - **[Notifications Guide](/guides/notifications)**: Receive instant webhook alerts in Slack, Discord, or Teams.
 - **[Core API Reference](/reference/core-api)**: Complete parameter reference for `Dmint` and `Policy`.
+
 
 ================================================================================
 DOCUMENT: Protecting MCP Servers
@@ -1723,6 +1860,55 @@ The policy and approval database are **inside this config**. There are no `dmint
 
 ---
 
+## Disclosure Modes: DOG vs GOD vs CAT
+
+When an AI agent calls a tool that is **denied** or **requires human approval**, how much information should be returned to the model?
+
+In an adversarial setting (e.g. indirect prompt injection), disclosing internal policy rules, policy hashes, or stack fingerprints helps attackers probe and reverse-engineer your security boundary. Dmint provides three distinct disclosure modes configured via `"disclosure_mode"` in `mcp_protection.json`:
+
+| Mode | Name | Verbosity | Internal Fingerprints | Recommended For |
+|---|---|---|---|---|
+| **`dog`** (Default) | Transparent | High | Included (`request_fingerprint`, `approval_id`) | Local development, trusted agent loops, debugging |
+| **`cat`** | Balanced | Medium | Omitted (workflow ID only) | Semi-trusted agents, multi-agent pipelines |
+| **`god`** | Zero-Knowledge | Minimal | Completely Redacted (`DMT_403`) | Hardened production, untrusted agents, high-risk tools |
+
+```text
+┌────────────────────────────────────────────────────────────────────────┐
+│                   Disclosure Mode Responses Compared                   │
+├─────────┬──────────────────────────────────────────────────────────────┤
+│ Mode    │ Response Payload returned to AI Agent on APPROVAL_REQUIRED    │
+├─────────┼──────────────────────────────────────────────────────────────┤
+│ dog     │ {                                                            │
+│         │   "status": "approval_required",                             │
+│         │   "code": "DMT_APPROVAL_REQUIRED",                           │
+│         │   "request_id": "7b8e1a2f-...",                              │
+│         │   "approval_id": "c4d3e2f1-...",                             │
+│         │   "request_fingerprint": "a3f5... (sha256 hex)",             │
+│         │   "message": "Trusted approval is required for this request."│
+│         │ }                                                            │
+├─────────┼──────────────────────────────────────────────────────────────┤
+│ cat     │ Dmint enforcement [DMT_APPROVAL_REQUIRED]: approval requested│
+│         │ (workflow 7b8e1a2f-...)                                      │
+├─────────┼──────────────────────────────────────────────────────────────┤
+│ god     │ Dmint enforcement [DMT_403]: access denied                   │
+└─────────┴──────────────────────────────────────────────────────────────┘
+```
+
+### 1. DOG Mode (`"disclosure_mode": "dog"`)
+Returns a structured JSON document. The AI agent can inspect the exact `approval_id` and `request_id`, pause execution, and present the reviewer with actionable metadata.
+
+### 2. CAT Mode (`"disclosure_mode": "cat"`)
+Returns a concise status message with the workflow reference (`request_id`), but omits the cryptographic SHA-256 `request_fingerprint`. This prevents the agent from attempting to tamper with or correlate internal hashes.
+
+### 3. GOD Mode (`"disclosure_mode": "god"`)
+Implements total information blackout. Whether an action requires approval, matches an explicit deny rule, or fails closed, the gateway returns:
+```text
+Dmint enforcement [DMT_403]: access denied
+```
+The adversarial agent receives zero telemetry about whether the tool exists, whether it is an approval pause or hard deny, or what condition caused the failure.
+
+---
+
 ## Step 2: Understand the Protections
 
 ### Tool schema hash pinning
@@ -1745,17 +1931,14 @@ An internal company MCP server must be reachable through an approved public/priv
 
 The parser rejects duplicate object keys with `DMT_MCP_PROTOCOL_ERROR`, preventing parser-differential attacks such as `{"id": 1, "id": 2}`.
 
-### Approval retry
+### Approval retry (Automatic Store-Backed or Explicit Credential)
 
-On `APPROVAL_REQUIRED`, the gateway persists a pending record and returns the approval ID. After approval, retry through `tools/call` by adding **one** of these reserved argument keys:
+On `APPROVAL_REQUIRED`, the gateway persists a pending record (`apr_...`) and returns the approval ID. Once a human approves the request via `dmint approve <approval_id>` or the web dashboard, there are **two ways** to retry:
 
-- `_dmint_approval` (preferred)
-- `dmint_approval`
-- `approval_credential`
-
-The value may be assertion JSON bytes as a string or a JSON object. The gateway removes the reserved key before forwarding arguments downstream. The assertion is bound to the exact original arguments and is consumed once.
-
-> Do not put assertions in agent-visible logs, prompts, or persistent memory. Treat them as single-use secrets.
+1. **Automatic Store-Backed Retry (Recommended for Cursor, Claude Code & Coding Agents)**:
+   Simply ask the agent to retry the exact same tool call with the **exact same arguments**. The gateway automatically looks up the unexpired `APPROVED` assertion matching the request's RFC 8785 fingerprint in the approval store, verifies the Ed25519 signature, atomically transitions the record from `APPROVED` to `CONSUMED`, and forwards the clean call downstream. The LLM never needs to see or copy-paste the cryptographic token.
+2. **Explicit In-Band Credential (For Stateless or Remote Orchestrators)**:
+   Pass the signed assertion JSON string or object under one of the reserved argument keys (`_dmint_approval`, `dmint_approval`, or `approval_credential`). The gateway strips the reserved key before forwarding arguments downstream and consumes the assertion once.
 
 ---
 
@@ -1826,6 +2009,7 @@ The MCP gateway dispatches Slack/Discord/Teams notifications when the configured
 - [Notifications](/guides/notifications) — webhook configuration and payloads.
 - [Policies and Rules](/concepts/policies) — wildcard, resource, and precedence semantics.
 
+
 ================================================================================
 DOCUMENT: Human Approvals
 URL: https://docs.dmint.app/guides/human-approvals
@@ -1837,7 +2021,7 @@ SUMMARY: Review pending requests and transfer a signed, single-use Ed25519 asser
 
 When a policy evaluates to `APPROVAL_REQUIRED`, Dmint persists one `PENDING` record and halts. A human reviews the exact request, approves or rejects it, and — if approved — gives the protected host a signed assertion for the retry.
 
-The approval itself does **not** execute the tool. Execution happens only when the host calls `dmint.retry(...)` (or MCP retries with an assertion argument) and Core verifies and consumes that assertion.
+The approval itself does **not** execute the tool. Execution happens only when the host calls `engine.retry(...)` (or MCP retries with an assertion argument) and Core verifies and consumes that assertion.
 
 ---
 
@@ -1998,7 +2182,7 @@ dmint approve apr_... \
   Reason: Verified ticket #1204
 ```
 
-`--policy` makes the CLI re-verify the current policy file and fail closed if it no longer allows the request. If omitted, the CLI first uses the store’s authoritative policy, then a local `policy.json` if present. `--output-assertion` writes the signed bytes; without it the approval still succeeds but no host credential is produced.
+`--policy` makes the CLI re-verify the current policy file and fail closed if it no longer allows the request. If omitted, the CLI first uses the store’s authoritative policy, then a local `policy.json` if present. `approve` automatically persists the signed Ed25519 assertion inside the approval store so local hosts (`Dmint.local()`, `dmint-mcp`, and `dmint hook run`) can consume it automatically on retry. Pass `--output-assertion ./approval.json` if you also want to export the signed assertion file to a separate host.
 
 The CLI never executes the protected tool. It only transitions the record and optionally writes the assertion.
 
@@ -2021,7 +2205,11 @@ Any retry after rejection fails closed. A rejected approval cannot be “un-reje
 ```python
 from pathlib import Path
 
-result = dmint.retry(
+# Option A: Automatic store lookup (when sharing the same SQLite/Postgres store):
+result = engine.retry(transfer_funds, "acc_100", 500.0)
+
+# Option B: Explicit assertion bytes (from --output-assertion or dashboard download):
+result = engine.retry(
     transfer_funds,
     "acc_100",
     500.0,
@@ -2029,7 +2217,7 @@ result = dmint.retry(
 )
 ```
 
-The callable and keyword/positional arguments must be the same as the original invocation. `dmint.retry` verifies the signature and binding, re-evaluates the current policy, atomically consumes the approval, and then executes the function once.
+The callable and keyword/positional arguments must be the same as the original invocation. `engine.retry` verifies the signature and binding, re-evaluates the current policy, atomically consumes the approval, and then executes the function once.
 
 ### MCP gateway
 
@@ -2077,6 +2265,7 @@ The runtime and approver must use the same deployment epoch. An assertion issued
 - [Protect a Tool End-to-End](/tutorials/protect-a-tool) — complete CLI and dashboard handoff.
 - [Notifications](/guides/notifications) — Slack/Discord/Teams alerts.
 - [CLI Reference](/reference/cli) — full command options.
+
 
 ================================================================================
 DOCUMENT: Approval Notifications and Webhooks
@@ -2232,6 +2421,7 @@ If notification delivery is a compliance requirement, run a durable event pipeli
 - [Protecting MCP Servers](/guides/protecting-mcp) — gateway setup and approval retry.
 - [Approval Lifecycle](/concepts/approvals) — states, expiry, and single-use consumption.
 
+
 ================================================================================
 DOCUMENT: Policy Authoring
 URL: https://docs.dmint.app/guides/authoring-policies
@@ -2340,6 +2530,7 @@ Export this value as `DMINT_EXPECTED_POLICY_DIGEST` in your deployment environme
 - **[Policy Schema Reference](/reference/policy-schema)**: Complete specification of all rule properties and operators.
 - **[MCP Protection Schema](/reference/mcp-protection-schema)**: Configuration options for `mcp_protection.json`.
 
+
 ================================================================================
 DOCUMENT: AI Coding Agent Skills
 URL: https://docs.dmint.app/guides/agent-skills
@@ -2430,24 +2621,337 @@ The `dmint install-skill` command includes strict path sanitization:
 - Rejects path traversal payloads (`../`, `..\\`, absolute root escapes).
 - Uses atomic file writes with file descriptor validation to prevent symlink hijacking.
 
+
 ================================================================================
-DOCUMENT: Cursor Integration
-URL: https://docs.dmint.app/integrations/cursor
+DOCUMENT: Claude Code, Codex & OpenCode Hooks
+URL: https://docs.dmint.app/integrations/claude-code
 SECTION: Integrations
-SUMMARY: How to protect MCP tools and enforce deterministic guardrails in Cursor using dmint-mcp.
+SUMMARY: How to enforce deterministic policy rules and single-use human approvals on native shell, file, and MCP tools in Claude Code, OpenAI Codex, and OpenCode.
 ================================================================================
 
-# Cursor Integration
+# Claude Code, Codex & OpenCode Integration
 
-[Cursor](https://cursor.com) supports the Model Context Protocol (MCP) natively. By default, Cursor executes any MCP tool call immediately.
+AI coding agents execute two kinds of tools:
+1. **Built-in native tools** (`Bash` / `exec_command`, `Read`, `Write`, `Edit`, `MultiEdit`) that run directly inside the agent harness.
+2. **Model Context Protocol (MCP) tools** (`mcp__postgres__query`, etc.) that run over stdio or Streamable HTTP.
 
-By wrapping your MCP servers with `dmint-mcp`, every tool call proposed by Cursor's AI model is intercepted and evaluated against your `policy.json`.
+Dmint protects **both** layers:
+- **`dmint hook`** intercepts built-in shell, filesystem, and MCP tool calls via the harness's native `PreToolUse` / `tool.execute.before` hook before a command ever runs.
+- **`dmint-mcp`** wraps downstream MCP servers in a fail-closed proxy.
 
 ---
 
-## 1. Generate Protection Configuration
+## 1. 30-Second Setup (`dmint init`)
 
-First, generate your `policy.json` and `mcp_protection.json` using the `dmint` CLI:
+In your project directory, run a single command to generate cryptographic keys (`.dmint/`), a starter `policy.json` (covering `shell` and `filesystem` tools), and pre-tool hooks for your coding agent:
+
+```bash
+# Install for Claude Code, Codex, OpenCode, Cursor, Windsurf, and Cline at once:
+dmint init --harness all
+
+# Or target a specific harness:
+dmint init --harness claude-code
+dmint init --harness codex
+dmint init --harness opencode
+```
+
+What this creates:
+- `policy.json` — Deterministic rules for `shell.execute` and `filesystem.*` (`read_file`, `write_file`, `delete_file`, `list_directory`).
+- `.dmint/signing.key` & `.dmint/integrity.key` (`0600` permissions) — Ed25519 approval signing key and HMAC store integrity key.
+- `.claude/settings.json` — Claude Code `PreToolUse` hook matching `Bash|Read|Write|Edit|MultiEdit|NotebookEdit|WebFetch|mcp__.*`.
+- `.codex/hooks.json` & `.codex/dmint-hook.sh` — OpenAI Codex CLI pre-execution hook.
+- `.opencode/plugin/dmint-guard.ts` — OpenCode `tool.execute.before` guard plugin.
+
+---
+
+## 2. Test Your Policy from the Terminal (`dmint check`)
+
+Before launching your agent, verify how your `policy.json` evaluates any tool call:
+
+```bash
+# Safe inspection command -> ALLOW (exit code 0)
+dmint check --tool shell.execute --resource "git status"
+
+# Sensitive command -> APPROVAL_REQUIRED (exit code 1)
+dmint check --tool shell.execute --resource "git push origin main"
+
+# Destructive command -> DENY (exit code 2)
+dmint check --tool shell.execute --resource "rm -rf /"
+```
+
+---
+
+## 3. How the Approval Loop Works in Practice
+
+When Claude Code, Codex, or OpenCode attempts an action marked `approval_required` (such as `git push origin main` or `docker run ...`):
+
+1. **Intercept & Pause**: `dmint hook run` halts the tool call, saves a tamper-evident `PENDING` record (`apr_...`) in `.dmint/approvals.sqlite3`, and returns the exact approval command to the agent/user:
+   ```text
+   Dmint APPROVAL_REQUIRED [apr_9k2L...]: shell.execute on 'git push origin main' requires human sign-off.
+   To approve, run: `dmint approve apr_9k2L...` (or use `dmint dashboard`), then retry.
+   ```
+2. **Human Sign-Off**: In another terminal (or via `dmint dashboard`), approve the exact request:
+   ```bash
+   dmint pending
+   dmint approve apr_9k2L... --by alice@company.com
+   ```
+3. **Single-Use Retry**: Tell the agent to retry the command. `dmint hook run` verifies the Ed25519 signature against the exact RFC 8785 canonicalized arguments, atomically transitions the record from `APPROVED` to `CONSUMED`, and lets the command execute **once**.
+4. **Tamper & Replay Protection**:
+   - If the agent changes any argument on retry (e.g., `git push origin main --force`), the request fingerprint does not match and the call is blocked.
+   - If the agent tries to run the same command a second time later, the consumed approval cannot be reused.
+
+---
+
+## 4. Managing Hooks (`dmint hook`)
+
+```bash
+# Check which harnesses have Dmint hooks installed in the current workspace:
+dmint hook status
+
+# Install hooks into your global home directory (~/.claude/settings.json, ~/.config/opencode/plugin/, etc.):
+dmint hook install --harness claude-code --global
+
+# Remove hooks cleanly:
+dmint hook uninstall --harness all
+```
+
+---
+
+## 5. Wrapping External MCP Servers with `dmint-mcp`
+
+If you also connect Claude Code to external MCP servers (PostgreSQL, GitHub, Stripe), wrap them with `dmint-mcp`:
+
+```bash
+claude mcp add dmint-gateway -- dmint-mcp run --config /absolute/path/to/mcp_protection.json
+```
+
+
+================================================================================
+DOCUMENT: OpenAI Codex CLI Integration
+URL: https://docs.dmint.app/integrations/codex
+SECTION: Integrations
+SUMMARY: How to protect shell commands, file patches, and MCP tools in OpenAI Codex CLI using dmint init, dmint hook, and dmint-mcp.
+================================================================================
+
+# OpenAI Codex CLI Integration
+
+[OpenAI Codex CLI](https://github.com/openai/codex) executes shell commands (`exec_command` / `shell`), file patches (`apply_patch`), and MCP tools locally. Dmint integrates with Codex CLI via both **pre-execution hooks** (`.codex/hooks.json` and `.codex/dmint-hook.sh`) and the **`dmint-mcp` gateway**.
+
+---
+
+## 1. One-Command Setup (`dmint init`)
+
+In your repository root, initialize Dmint for Codex CLI:
+
+```bash
+dmint init --harness codex
+```
+
+This creates:
+- `policy.json` — Built-in `shell` and `filesystem` rules (allowing safe commands like `git status`, `ls`, and `pytest`, requiring approval for `git push *` and `docker *`, and denying `rm -rf /` and `.env*` access).
+- `.dmint/signing.key` & `.dmint/integrity.key` (`0600`) — Local Ed25519 signing and HMAC integrity keys.
+- `.codex/hooks.json` & `.codex/dmint-hook.sh` — Pre-tool execution hook configuration for Codex CLI.
+
+```json title=".codex/hooks.json"
+{
+  "version": 1,
+  "hooks": {
+    "pre_tool_use": {
+      "command": "dmint",
+      "args": [
+        "hook",
+        "run",
+        "--harness",
+        "codex",
+        "--policy",
+        "/absolute/path/to/policy.json",
+        "--db-path",
+        "/absolute/path/to/.dmint/approvals.sqlite3"
+      ]
+    }
+  }
+}
+```
+
+---
+
+## 2. How Codex Tool Calls Are Evaluated
+
+`dmint hook run --harness codex` normalizes Codex CLI payloads automatically:
+- **Shell Arrays & Commands**: Codex often invokes shell commands as `["bash", "-lc", "git status"]` or `{"cmd": "ls -la"}`. Dmint extracts the inner command string (`"git status"`, `"ls -la"`) and evaluates it as capability `shell.execute`.
+- **File Reads & Patches**: `apply_patch` and `write_file` map to `filesystem.write_file`; `read_file` maps to `filesystem.read_file`.
+
+Test how your policy evaluates Codex calls from the terminal:
+
+```bash
+# Simulate a Codex exec_command call:
+dmint hook run --harness codex --input '{"tool": "exec_command", "arguments": {"cmd": ["bash", "-lc", "git status"]}}'
+```
+
+```json
+{
+  "decision": "allow",
+  "allow": true,
+  "permission": "allow",
+  "permissionDecision": "allow",
+  "code": "DMT_ALLOWED",
+  "tool": "shell",
+  "action": "execute",
+  "resource": "git status",
+  "reason": "Dmint ALLOW: shell.execute on 'git status'",
+  "dmint": {
+    "decision": "ALLOW",
+    "code": "DMT_ALLOWED",
+    "tool": "shell",
+    "action": "execute",
+    "resource": "git status",
+    "approval_id": null,
+    "consumed_approval": false
+  }
+}
+```
+
+---
+
+## 3. Approving Paused Commands
+
+When Codex attempts an action governed by `approval_required` (such as `git push origin main` or `docker compose up`):
+
+1. `dmint hook run` exits with code `2`, blocking execution, and records a `PENDING` request (`apr_...`) in `.dmint/approvals.sqlite3`.
+2. Review and approve the request from your terminal or web dashboard:
+   ```bash
+   dmint pending
+   dmint approve apr_... --by dev@company.com
+   ```
+3. Ask Codex to retry the exact command. Dmint verifies the Ed25519 signature against the RFC 8785 fingerprint, transitions the approval to `CONSUMED`, and lets the command run once.
+
+
+================================================================================
+DOCUMENT: OpenCode Integration
+URL: https://docs.dmint.app/integrations/opencode
+SECTION: Integrations
+SUMMARY: How to enforce deterministic Dmint policies and single-use human approvals in OpenCode using the generated tool.execute.before plugin.
+================================================================================
+
+# OpenCode Integration
+
+[OpenCode](https://opencode.ai) supports TypeScript plugins in `.opencode/plugin/` (workspace) and `~/.config/opencode/plugin/` (global) that intercept every tool call via the `tool.execute.before` lifecycle hook.
+
+Dmint generates a zero-dependency OpenCode guard plugin (`dmint-guard.ts`) that evaluates every shell command, file read/write, and MCP tool call against your `policy.json`.
+
+---
+
+## 1. One-Command Setup (`dmint init`)
+
+In your project directory, run:
+
+```bash
+# Install in current project (.opencode/plugin/dmint-guard.ts):
+dmint init --harness opencode
+
+# Or install globally (~/.config/opencode/plugin/dmint-guard.ts):
+dmint hook install --harness opencode --global
+```
+
+What this generates:
+- `policy.json` — Starter `shell` and `filesystem` policy rules.
+- `.dmint/signing.key`, `.dmint/integrity.key`, and `.dmint/approvals.sqlite3`.
+- `.opencode/plugin/dmint-guard.ts` — The OpenCode `tool.execute.before` plugin.
+
+---
+
+## 2. How the OpenCode Plugin Works
+
+Whenever OpenCode prepares to execute a tool (`bash`, `read_file`, `write_file`, `edit`, `glob`, `grep`, or an MCP tool), `.opencode/plugin/dmint-guard.ts` invokes `dmint hook run --harness opencode` synchronously over `stdin`:
+
+```typescript title=".opencode/plugin/dmint-guard.ts"
+import { spawnSync } from "node:child_process";
+
+export const DmintGuardPlugin = async (_ctx: any) => {
+  return {
+    "tool.execute.before": async (input: any, output: any) => {
+      const payload = JSON.stringify({
+        tool_name: input?.tool ?? "",
+        session_id: input?.sessionID ?? "opencode-session",
+        call_id: input?.callID ?? "",
+        tool_input: output?.args ?? {},
+      });
+      const res = spawnSync(
+        "dmint",
+        ["hook", "run", "--harness", "opencode", "--policy", "policy.json"],
+        { input: payload, encoding: "utf-8" }
+      );
+      if (res.status !== 0) {
+        let reason = (res.stderr || res.stdout || "Blocked by Dmint policy").trim();
+        try {
+          const parsed = JSON.parse(res.stdout);
+          if (parsed && parsed.reason) reason = parsed.reason;
+        } catch {}
+        throw new Error(reason);
+      }
+    },
+  };
+};
+```
+
+- **`ALLOW` (Exit `0`)**: The hook returns cleanly and OpenCode runs the tool immediately.
+- **`DENY` (Exit `2`)**: The plugin throws an `Error` with the exact Dmint policy code (`DMT_POLICY_DENIED` or `DMT_DEFAULT_DENIED`), halting execution before the tool runs.
+- **`APPROVAL_REQUIRED` (Exit `2` until approved)**: The plugin halts the tool and displays the approval ID (`apr_...`) and `dmint approve <id>` command directly in OpenCode.
+
+---
+
+## 3. Approving & Retrying in OpenCode
+
+1. When OpenCode pauses on an `approval_required` action (e.g., modifying `src/index.ts` or running `docker build`), run in your terminal:
+   ```bash
+   dmint pending
+   dmint approve apr_... --by dev@company.com
+   ```
+2. Ask OpenCode to retry the tool call. `dmint hook run` automatically verifies the Ed25519 signature for the matching RFC 8785 fingerprint, consumes the approval (`APPROVED -> CONSUMED`), and allows the tool to run once.
+
+
+================================================================================
+DOCUMENT: Cursor, Windsurf & Cline Integration
+URL: https://docs.dmint.app/integrations/cursor
+SECTION: Integrations
+SUMMARY: How to protect native agent tools and MCP servers in Cursor, Windsurf, and Cline using dmint hook and dmint-mcp.
+================================================================================
+
+# Cursor, Windsurf & Cline Integration
+
+Dmint integrates with IDE coding agents ([Cursor](https://cursor.com), Windsurf, and Cline / Roo Code) in two complementary ways:
+1. **Pre-Tool Execution Hooks (`dmint hook`)**: Intercepts native IDE terminal commands (`run_terminal_cmd`, `Bash`), file reads/edits (`Read`, `Write`, `Edit`), and MCP calls via `.cursor/hooks.json`, `.windsurf/hooks.json`, and `.clinerules/hooks.json`.
+2. **MCP Security Gateway (`dmint-mcp`)**: Wraps external Model Context Protocol servers (PostgreSQL, GitHub, Stripe, custom tools) in a fail-closed proxy.
+
+---
+
+## 1. Quick Setup for IDE Hooks (`dmint init`)
+
+Run `dmint init` in your repository root to generate keys, a starter `policy.json` (`shell` + `filesystem` templates), and IDE hook configs:
+
+```bash
+# Configure Cursor, Windsurf, and Cline hooks in one command:
+dmint init --harness cursor,windsurf,cline
+
+# Or configure all supported harnesses at once:
+dmint init --harness all
+```
+
+Test how your policy behaves before running the agent:
+
+```bash
+dmint check --tool filesystem.read_file --resource "src/app.py"      # -> ALLOW
+dmint check --tool filesystem.read_file --resource ".env"            # -> DENY
+dmint check --tool shell.execute --resource "git push origin main"   # -> APPROVAL_REQUIRED
+```
+
+---
+
+## 2. Protecting External MCP Servers (`dmint-mcp`)
+
+To wrap an MCP server (such as `@modelcontextprotocol/server-postgres`) inside Cursor:
+
+### Step A: Generate `policy.json` and `mcp_protection.json`
 
 ```bash
 dmint create-mcp-policy \
@@ -2460,20 +2964,16 @@ dmint create-mcp-policy \
   -y
 ```
 
----
+### Step B: Configure `.cursor/mcp.json`
 
-## 2. Configure `.cursor/mcp.json`
-
-In your project root, create or edit `.cursor/mcp.json`. Replace the raw tool command with the `dmint-mcp` gateway runner:
+In your project root, create or edit `.cursor/mcp.json`:
 
 ```json title=".cursor/mcp.json"
 {
   "mcpServers": {
     "dmint-protected-gateway": {
-      "command": "python",
+      "command": "dmint-mcp",
       "args": [
-        "-m",
-        "dmint.mcp",
         "run",
         "--config",
         "/absolute/path/to/mcp_protection.json"
@@ -2484,140 +2984,122 @@ In your project root, create or edit `.cursor/mcp.json`. Replace the raw tool co
 ```
 
 <Tip>
-Always use absolute paths in `.cursor/mcp.json` so Cursor can locate the configuration regardless of which subfolder is currently open. The policy file (`policy_file`), approval database (`approval_db`), and TTL (`approval_ttl`) are defined inside `mcp_protection.json`.
+Always use absolute paths in `.cursor/mcp.json` so Cursor can locate the configuration regardless of which subfolder is open.
 </Tip>
 
 ---
 
-## 3. Install the Policy Authoring Skill
+## 3. Approving Paused Tool Calls
 
-To let Cursor help you author or update rules directly in the Cursor chat:
+When an IDE agent triggers an `APPROVAL_REQUIRED` rule (via either `dmint hook` or `dmint-mcp`):
 
-```bash
-dmint install-skill -y
-```
+1. Execution pauses before the tool runs, and a `PENDING` record (`apr_...`) is written to `.dmint/approvals.sqlite3` (or your configured `approval_db`).
+2. Approve from your terminal or local web dashboard:
+   ```bash
+   # Option A: Terminal CLI
+   dmint pending
+   dmint approve apr_abc123... --by dev@company.com
 
-This installs the skill to `.agents/skills/dmint-policy-manager/`, which Cursor automatically recognizes.
-
----
-
-## 4. Review & Approve via Dashboard or CLI
-
-You can review and approve pending requests using the terminal or the web dashboard:
-
-```bash
-# Option A: Manage approvals via terminal:
-dmint pending
-dmint approve apr_abc123...
-
-# Option B: Launch the local web dashboard:
-dmint dashboard --db-path /absolute/path/to/approvals.sqlite3 --port 8080
-```
-
----
-
-## 5. Experience the Flow in Cursor
-
-1. Open Cursor and prompt the Agent:
-   ```text
-   "Please update the email address of user 42 in the database to test@example.com."
+   # Option B: Local Web Dashboard
+   dmint dashboard
    ```
-2. Cursor invokes the `postgres_update` tool through the gateway.
-3. The gateway evaluates `policy.json`. Seeing `APPROVAL_REQUIRED`, it halts execution and returns a message instructing the agent to await human review.
-4. Switch to **http://127.0.0.1:8080**, review the SQL update payload, and click **Approve**.
-5. Cursor automatically retries the call with the approved assertion. The query executes, and Cursor reports success!
+3. Ask the agent in Cursor/Windsurf/Cline to retry the exact tool call. Dmint automatically looks up the approved assertion matching the request's RFC 8785 fingerprint, consumes it atomically (`APPROVED -> CONSUMED`), and executes the call once.
+
 
 ================================================================================
-DOCUMENT: Claude Code Integration
-URL: https://docs.dmint.app/integrations/claude-code
+DOCUMENT: Windsurf & Cline / Roo Code
+URL: https://docs.dmint.app/integrations/windsurf-cline
 SECTION: Integrations
-SUMMARY: How to route Claude Code MCP tools through dmint-mcp with deterministic policy enforcement.
+SUMMARY: How to protect native IDE tools and MCP servers in Windsurf, Cline, and Roo Code using dmint init, dmint hook, and dmint-mcp.
 ================================================================================
 
-# Claude Code Integration
+# Windsurf & Cline / Roo Code Integration
 
-[Claude Code](https://docs.anthropic.com/en/docs/agents-and-tools/claude-code/overview) is Anthropic's agentic command-line tool. By routing Claude Code's tools through `dmint-mcp`, you ensure that autonomous file edits, database mutations, and external API requests follow deterministic security boundaries.
-
----
-
-## 1. Install the Policy Skill
-
-Install the official `dmint-policy-manager` skill into Claude Code's global configuration:
-
-```bash
-dmint install-skill --claude
-# Installs to ~/.claude/skills/dmint-policy-manager/
-```
-
-This gives Claude Code full understanding of Dmint's policy syntax, failure modes, and approval retries.
+Dmint supports pre-tool execution hooks and MCP gateway protection for **Windsurf** (Cascade) and **Cline / Roo Code** in VS Code.
 
 ---
 
-## 2. Configure Claude Code with `dmint-mcp`
+## 1. Install Pre-Tool Hooks (`dmint init`)
 
-Configure Claude Code to route downstream tools through the `dmint-mcp` gateway.
-
-Add the gateway to your Claude Code configuration:
+From your workspace root, run:
 
 ```bash
-claude mcp add dmint-gateway -- dmint-mcp run \
-  --config /path/to/mcp_protection.json
+# Install hooks for both Windsurf and Cline / Roo Code:
+dmint init --harness windsurf,cline
 ```
 
-<Note>
-The policy file (`policy_file`), approval database (`approval_db`), and TTL (`approval_ttl`) are configured inside `mcp_protection.json`.
-</Note>
+This creates:
+- `.windsurf/hooks.json` — Pre-tool execution hook for Windsurf Cascade.
+- `.clinerules/hooks.json` — Pre-tool execution hook for Cline and Roo Code (`--harness roo-code` is also accepted as an alias).
+- `policy.json` — Starter policy combining the `shell` and `filesystem` templates.
+- `.dmint/` — Local Ed25519 signing key (`0600`), HMAC integrity key (`0600`), and `approvals.sqlite3` database.
 
-Alternatively, configure `~/.claude/config.json`:
+Verify installed hooks at any time:
 
-```json title="~/.claude/config.json"
-{
-  "mcpServers": {
-    "dmint-gateway": {
-      "command": "python",
-      "args": [
-        "-m",
-        "dmint.mcp",
-        "run",
-        "--config",
-        "/path/to/mcp_protection.json"
-      ]
-    }
-  }
-}
+```bash
+dmint hook status
 ```
 
 ---
 
-## 3. Run Claude Code
+## 2. Test Your Policy (`dmint check`)
 
-Start your Claude Code session as usual:
+Test how your workspace `policy.json` evaluates terminal commands and file paths:
 
 ```bash
-claude
+dmint check -t shell.execute -r "npm test"               # -> ALLOW (exit 0)
+dmint check -t filesystem.write_file -r "src/server.ts"  # -> APPROVAL_REQUIRED (exit 1)
+dmint check -t filesystem.read_file -r ".env.local"      # -> DENY (exit 2)
 ```
-
-When Claude Code requests a tool call:
-1. `ALLOW` tools (e.g. reading logs, running tests) execute immediately.
-2. `DENY` tools (e.g. dropping production databases, deleting root files) fail closed immediately with a structured security error.
-3. `APPROVAL_REQUIRED` tools halt and wait for human review on your local dashboard.
 
 ---
 
-## 4. Approve via CLI or Dashboard
+## 3. Wrapping External MCP Servers (`dmint-mcp`)
 
-Run the approval dashboard alongside your terminal session:
+To protect external MCP servers (PostgreSQL, GitHub, Stripe) in Windsurf or Cline:
+
+1. Generate `policy.json` and `mcp_protection.json`:
+   ```bash
+   dmint create-mcp-policy \
+     --command npx \
+     --args "-y @modelcontextprotocol/server-postgres postgresql://localhost/mydb" \
+     --integration-id postgres \
+     -f access.md \
+     -o policy.json \
+     --config-output mcp_protection.json \
+     -y
+   ```
+2. Point Windsurf (`~/.codeium/windsurf/mcp_config.json`) or Cline (`cline_mcp_settings.json`) to `dmint-mcp`:
+   ```json
+   {
+     "mcpServers": {
+       "dmint-protected-postgres": {
+         "command": "dmint-mcp",
+         "args": ["run", "--config", "/absolute/path/to/mcp_protection.json"]
+       }
+     }
+   }
+   ```
+
+---
+
+## 4. Approving Paused Requests
+
+When Windsurf or Cline pauses on an `APPROVAL_REQUIRED` action:
 
 ```bash
-# Terminal approval:
+# Review pending requests in terminal:
 dmint pending
-dmint approve apr_abc123...
 
-# Or launch the approval dashboard web UI:
-dmint dashboard --db-path /path/to/approvals.sqlite3
+# Approve once:
+dmint approve apr_... --by dev@company.com
+
+# Or review in the web dashboard:
+dmint dashboard
 ```
 
-Review the request via `dmint approve` or in the browser at **http://127.0.0.1:8080**, inspect the parameters, and approve. Claude Code resumes execution immediately upon approval.
+When the agent retries the exact same tool call, Dmint verifies the Ed25519 assertion, marks it `CONSUMED`, and allows the action to proceed once.
+
 
 ================================================================================
 DOCUMENT: Google Antigravity & Gemini CLI
@@ -2682,6 +3164,7 @@ When running autonomous Antigravity subagents with external MCP tools:
 1. Configure your MCP server in `mcp_protection.json`.
 2. Launch `dmint-mcp` as the endpoint for your subagent tools.
 3. Review and approve sensitive actions as subagents execute via `dmint approve <id>` in your terminal or at **http://127.0.0.1:8080** via `dmint dashboard`.
+
 
 ================================================================================
 DOCUMENT: Custom Python Agents (LangChain, CrewAI, AutoGen)
@@ -2847,6 +3330,7 @@ Dmint enforces cryptographic tamper resistance. Every record in SQLite and Postg
 Executing direct SQL updates (e.g. `UPDATE approval_records SET state = 'CONSUMED'`) breaks the integrity checksum, causing subsequent operations to fail with `CorruptApprovalRecordError: stored approval integrity check failed`. Always transition state programmatically through `dmint.retry(...)` or `store.consume_approved(...)`.
 </Warning>
 
+
 ================================================================================
 DOCUMENT: Deployment Model and Process Isolation
 URL: https://docs.dmint.app/operations/deployment-model
@@ -2956,6 +3440,7 @@ The SQLite approval store requires an HMAC integrity key to detect direct file t
 - **[Known Limitations](/operations/known-limitations)**: Honest disclosure of non-goals and database rollback caveats.
 - **[Human Approvals Guide](/guides/human-approvals)**: Setting up the dashboard with secure token files.
 
+
 ================================================================================
 DOCUMENT: Security Model and Threat Guarantees
 URL: https://docs.dmint.app/operations/security-model
@@ -3044,6 +3529,7 @@ All Dmint subsystems preserve five non-negotiable invariants:
 - **[Deployment Model](/operations/deployment-model)**: Process and secret isolation architecture.
 - **[Known Limitations](/operations/known-limitations)**: Edge cases and non-goals.
 
+
 ================================================================================
 DOCUMENT: Known Limitations and Non-Goals
 URL: https://docs.dmint.app/operations/known-limitations
@@ -3074,13 +3560,11 @@ Dmint does not manage employee login sessions or organization-wide role hierarch
 
 ## 2. Storage Limitations and Edge Cases
 
-### Database Snapshot Rollback is Not Detected by Row HMACs
-Every record in SQLite or PostgreSQL includes a HMAC-SHA256 integrity tag over the canonical row contents. This detects row modification or insertion by an attacker who lacks the integrity key.
-
-However, if an attacker restores an **entire older snapshot of the database file** (a database rollback), the row HMACs in that older snapshot were valid when created.
-- **Mitigation 1: Short Assertion TTL**: Approvals expire after 5 minutes by default (`expires_at`), so old approvals in a restored database cannot be consumed if the system clock is accurate.
-- **Mitigation 2: Deployment Epochs**: Changing `DMINT_DEPLOYMENT_EPOCH` invalidates approvals from prior deployment lifecycles.
-- **Mitigation 3: Filesystem Permissions**: Restrict database file access to mode `0600` under a dedicated service user.
+### Database Snapshot Rollback & Monotonic Sidecar Counter
+Every record in SQLite or PostgreSQL includes an HMAC-SHA256 integrity tag over the canonical row contents. To defend against an attacker restoring an **older snapshot of the database file** (a full-file rollback), Dmint also maintains a monotonic `store_recovery` counter paired with a `0600` `.recovery` sidecar file protected by cross-process `flock` locking. If the database counter ever lags behind the sidecar counter, Dmint fails closed with `ApprovalRollbackDetectedError` (`DMT_APPROVAL_ROLLBACK_DETECTED`).
+- **Defense-in-Depth 1: Short Assertion TTL**: Configure a short `approval_ttl` (e.g. 5 minutes) so old approvals expire quickly.
+- **Defense-in-Depth 2: Deployment Epochs**: Rotating `DMINT_DEPLOYMENT_EPOCH` invalidates approvals from prior deployment lifecycles.
+- **Defense-in-Depth 3: Filesystem Isolation**: Keep `.dmint/` and `.recovery` sidecar files owned by a separate service user (`0600`).
 
 ### SQLite Concurrent Write Contention
 SQLite serializes write operations at the database level. Although Dmint enables WAL mode (`PRAGMA journal_mode=WAL`) and busy timeouts (`PRAGMA busy_timeout = 5000`), high-concurrency environments with dozens of simultaneous agents requesting approvals may experience lock contention.
@@ -3117,6 +3601,7 @@ Downstream MCP servers may update their tool definitions between restarts. If an
 | Agent modifying local `policy.json` | **Protected** (SHA-256 digest pinning $\to$ `PolicyError`) | Set `DMINT_EXPECTED_POLICY_DIGEST`. |
 | Agent reading private key file under same OS user | **Not Protected** (OS privilege boundary violation) | Run agent in separate container or user UID. |
 | Host restoring full database file backup | **Partially Protected** (Short TTL expires old tokens) | Secure filesystem permissions; short TTLs. |
+
 
 ================================================================================
 DOCUMENT: CLI Command Reference
@@ -3167,6 +3652,53 @@ dmint [command] [options]
 | `DMINT_DASHBOARD_IDENTITY_HEADER` | None | Trusted reverse-proxy header carrying the human identity. Requires `DMINT_DASHBOARD_TRUSTED_PROXY=1` or `--trusted-proxy`; startup fails otherwise. |
 | `DMINT_VERSION` | Package version | Optional environment override for the reported version string. |
 | `DMINT_USER_AGENT` | Dynamic | Optional environment override for outgoing HTTP User-Agent string. |
+
+---
+
+## `dmint init`
+
+One-command zero-config setup: generates `.dmint/signing.key` (`0600`), `.dmint/integrity.key` (`0600`), `.dmint/approvals.sqlite3`, a starter `policy.json` from built-in templates (`shell,filesystem`), and pre-tool execution hooks for AI coding harnesses.
+
+```bash
+dmint init [--harness all|claude-code|codex|opencode|cursor|windsurf|cline|none] [--templates shell,filesystem] [--policy policy.json] [--dir .] [--force]
+```
+
+---
+
+## `dmint check` (alias: `dmint test-policy`)
+
+Simulate and test how a `policy.json` evaluates a tool call directly from your terminal. Outputs structured JSON with `"verdict"` (`ALLOW`, `APPROVAL_REQUIRED`, or `DENY`), `"code"`, and `"matched_rules"`.
+
+```bash
+dmint check --policy policy.json --tool shell.execute --resource "git status"
+dmint check --policy policy.json --tool shell.execute --resource "git push origin main"
+dmint check --policy policy.json --tool shell.execute --resource "rm -rf /"
+```
+
+### Exit Codes
+- `0`: `ALLOW`
+- `1`: `APPROVAL_REQUIRED`
+- `2`: `DENY`
+
+---
+
+## `dmint hook` (alias: `dmint hooks`)
+
+Install, inspect, execute, or uninstall runtime `PreToolUse` / pre-execution hooks across AI coding harnesses (**Claude Code**, **OpenAI Codex CLI**, **OpenCode**, **Cursor**, **Windsurf**, **Cline / Roo Code**).
+
+```bash
+# Install pre-tool hooks for one or all harnesses
+dmint hook install --harness all [--global] [--policy policy.json] [--db-path .dmint/approvals.sqlite3]
+
+# Check installed hook status in workspace
+dmint hook status [--dir .]
+
+# Evaluate a hook payload (invoked automatically by the coding agent harness)
+dmint hook run --harness claude-code --policy policy.json --db-path .dmint/approvals.sqlite3
+
+# Remove installed Dmint hooks
+dmint hook uninstall --harness all
+```
 
 ---
 
@@ -3545,6 +4077,7 @@ dmint-mcp [action] [options]
 | `--log-level` | `info` | Logging verbosity: `critical`, `error`, `warning`, `info`, `debug`, `trace`. |
 | `--expected-policy-digest` | None | Pinned SHA-256 digest of `policy.json`. Fails closed if mismatched. |
 
+
 ================================================================================
 DOCUMENT: Python Core API Reference
 URL: https://docs.dmint.app/reference/core-api
@@ -3582,7 +4115,23 @@ class Dmint:
         policy_file: str | Path | None = None,
         expected_policy_digest: str | None = None,
     ) -> None: ...
+    @classmethod
+    def local(
+        cls,
+        policy: Policy | str | Path,
+        *,
+        db_path: str | Path | None = None,
+        state_dir: str | Path | None = None,
+        agent_id: str = "local-agent",
+        context: TrustedContext | Mapping[str, Any] | None = None,
+        approval_ttl: timedelta = timedelta(minutes=10),
+        deployment_epoch: str = "default",
+        integration_id: str = "local-runtime",
+        clock: Callable[[], datetime] | None = None,
+    ) -> Dmint: ...
 ```
+
+`Dmint.local(...)` is a zero-config constructor that automatically creates `.dmint/signing.key` (`0600`), `.dmint/integrity.key` (`0600`), and `.dmint/approvals.sqlite3`, and accepts a `Policy` object, a path to `policy.json`, or a built-in template name (e.g. `"shell"`).
 
 `Dmint` is the synchronous authorization and decorator engine. It evaluates the policy deterministically and never calls an LLM.
 
@@ -3610,15 +4159,15 @@ engine.protect(capability: str, *, resource: ResourceSpec = NO_RESOURCE) -> Call
 engine.protected(capability: str, *, resource: ResourceSpec = NO_RESOURCE) -> Callable
 engine.authorize(function: Callable, *args, capability: str, resource: ResourceSpec = NO_RESOURCE, **kwargs) -> AuthorizedRequest
 engine.execute(authorized: AuthorizedRequest) -> Any
-dmint.retry(
+engine.retry(
     protected_callable: Callable,
     *args,
-    approval_credential: ApprovalAssertion | bytes,
+    approval_credential: ApprovalAssertion | bytes | None = None,
     **kwargs,
 ) -> Any
 ```
 
-`protect` and `protected` are aliases. `resource` may be `NO_RESOURCE`, a resource string, or a callable that receives the bound arguments and returns a resource string.
+`protect` and `protected` are aliases. `resource` may be `NO_RESOURCE` or a callable (`lambda args: ...`) that receives the bound arguments and returns a resource string.
 
 The decorated function raises:
 
@@ -3670,7 +4219,7 @@ class Rule:
     ) -> Rule: ...
 ```
 
-`deny()` and `approval_required()` use the same keyword-only shape. `deny()` rejects `constraints`.
+`deny()` and `approval_required()` (also aliased as `require_approval()` and `approve()`) use the same keyword-only shape. `deny()` rejects `constraints`.
 
 `resource` defaults to `NO_RESOURCE`, which matches only requests with no resource. Use `resource="*"` (or `ANY_RESOURCE`) for a global rule. `tool` and `action` accept `"*"` as a whole-field wildcard; partial wildcards are not supported.
 
@@ -3909,6 +4458,7 @@ class CoreClient:
 
 `issue_assertion()` succeeds only for an `APPROVED` record. The assertion subject is the approver recorded on the approval, not the caller downloading the artifact. The dashboard uses it for the one-click assertion download; the returned assertion is still single-use and must be treated as a secret.
 
+
 ================================================================================
 DOCUMENT: Policy Schema Specification
 URL: https://docs.dmint.app/reference/policy-schema
@@ -3965,6 +4515,7 @@ The direct runtime schema requires `{"rules": [...]}`:
 |---|---|---|---|
 | `rules` | array | **Yes** | Non-empty array of rule objects evaluated sequentially using fail-closed semantics. |
 | `strict_arguments` | boolean | No | Optional policy-wide flag (default `false`). When `true`, argument constraints default `additionalProperties` to `false` across all rules. |
+| `tool_schemas` | object | No | Optional mapping of `<tool>.<action>` capability names to pinned SHA-256 JSON Schema digests. |
 
 ---
 
@@ -3988,7 +4539,7 @@ Each element in the `rules` array defines an authorization rule for an agent act
 ## Resource Matching & Kind Semantics
 
 - **Any Resource (`"resource": "*"`)**: Matches any resource specified in the tool request.
-- **Rules Without a Kind (Omitted `resource_kind`)**: When `resource_kind` is omitted or set to an unrecognized value, matching falls back strictly to an **exact string match** (`rule == request.resource`). Wildcards are not expanded.
+- **Exact & Command Prefix/Suffix Matching (`resource_kind: "exact"` or omitted)**: Matches the exact string (`rule == request.resource`), and also supports bounded command prefix/suffix wildcards (`"docker *"`, `"rm -rf /*"`, `"* | sh"`) for shell rules.
 - **Path Globs (`resource_kind: "path"`)**:
   - `*` matches characters within a single path segment (does not cross `/`).
   - `**` matches zero or more complete path segments across slashes (e.g. `/workspace/**/*.py`).
@@ -4005,7 +4556,7 @@ Each element in the `rules` array defines an authorization rule for an agent act
 ## RFC 8785 Numeric Canonicalization
 
 <Note>
-**Strict Numeric Representation**: Dmint uses deterministic RFC 8785 JSON canonicalization to compute cryptographic request fingerprints. Floating-point numbers that have an integer value (such as `5000.0` or `-0.0`) are strictly rejected with a `CanonicalizationError`. Numerical values representing whole integers must be passed as `int` (`5000`).
+**Strict Numeric Representation**: Dmint uses deterministic RFC 8785 (JCS) JSON canonicalization to compute cryptographic request fingerprints. Non-finite floats (`NaN`, `Infinity`, `-Infinity`) and integers outside the IEEE 754 safe integer range (`[-2^53 + 1, 2^53 - 1]`) are strictly rejected with `CanonicalizationError` (`DMT_CANONICALIZATION_ERROR`). In parameter constraints (`type: "integer"`), whole floats like `5000.0` are rejected so integer fields require exact Python `int` values.
 </Note>
 
 ---
@@ -4116,6 +4667,257 @@ Each element in the `rules` array defines an authorization rule for an agent act
 }
 ```
 
+
+================================================================================
+DOCUMENT: Policy Templates
+URL: https://docs.dmint.app/reference/policy-templates
+SECTION: Reference
+SUMMARY: Production-ready, schema-compliant security policies for shell, filesystem, Postgres, GitHub, Stripe, AWS, and Kubernetes
+================================================================================
+
+## Overview
+
+Writing least-privilege security policies from scratch can be challenging. Dmint provides **7 verified, production-ready policy templates** for common AI-agent integration domains.
+
+Every template adheres strictly to Dmint's non-negotiable security invariants:
+- **Deterministic Fail-Closed Default**: Anything not explicitly permitted is rejected (`DENY`).
+- **Deny-Overrides Precedence**: Explicit `DENY` rules take precedence over `ALLOW` and `APPROVAL_REQUIRED`.
+- **Exact Resource Binding**: Resource constraints use exact matching or path globs (`resource_kind: "path"`).
+- **Zero Redundant Rules**: Deduplicated and optimized for runtime evaluation.
+
+```text
+┌────────────────────────────────────────────────────────────────────────┐
+│                        Dmint Policy Templates                          │
+├───────────────┬───────────────────┬───────────────────┬────────────────┤
+│ Template      │ Allowed (Read)    │ Approval Required │ Denied (Risky) │
+├───────────────┼───────────────────┼───────────────────┼────────────────┤
+│ shell         │ git, tests, ls    │ systemctl, docker │ rm -rf /, dd   │
+│ filesystem    │ src/*, docs/*     │ write_file, mkdir │ .env*, /etc/*  │
+│ postgres      │ SELECT, EXPLAIN   │ INSERT, UPDATE    │ DROP, TRUNCATE │
+│ github        │ list_issues, PRs  │ create_pr, merge  │ delete_repo    │
+│ stripe        │ list_customers    │ charges, refunds  │ payouts, keys  │
+│ aws           │ describe, list    │ start/stop, s3:put│ delete_bucket  │
+│ kubernetes    │ get_pods, logs    │ scale, rollout    │ delete_cluster │
+└───────────────┴───────────────────┴───────────────────┴────────────────┘
+```
+
+---
+
+## The 7 Production Templates
+
+### 1. Shell (`shell`)
+Designed for AI coding assistants (e.g. Cursor, Claude Code, Antigravity) running terminal commands.
+
+- **`allow`**: Safe read-only inspection commands (`git status`, `git diff`, `git log`, `npm test`, `pytest`, `cargo test`, `ls`, `pwd`).
+- **`approval_required`**: System mutations and service changes (`systemctl *`, `docker *`, `kill *`, `npm install *`).
+- **`deny`**: Catastrophic and unconstrained commands (`rm -rf /*`, `mkfs *`, `dd *`, `* | sh`, `* | bash`).
+
+```json title="shell.json"
+{
+  "rules": [
+    { "effect": "allow", "tool": "shell", "action": "execute", "resource": "git status", "resource_kind": "exact" },
+    { "effect": "allow", "tool": "shell", "action": "execute", "resource": "git diff", "resource_kind": "exact" },
+    { "effect": "allow", "tool": "shell", "action": "execute", "resource": "git log", "resource_kind": "exact" },
+    { "effect": "allow", "tool": "shell", "action": "execute", "resource": "npm test", "resource_kind": "exact" },
+    { "effect": "allow", "tool": "shell", "action": "execute", "resource": "pytest", "resource_kind": "exact" },
+    { "effect": "allow", "tool": "shell", "action": "execute", "resource": "cargo test", "resource_kind": "exact" },
+    { "effect": "allow", "tool": "shell", "action": "execute", "resource": "ls", "resource_kind": "exact" },
+    { "effect": "allow", "tool": "shell", "action": "execute", "resource": "ls *", "resource_kind": "exact" },
+    { "effect": "allow", "tool": "shell", "action": "execute", "resource": "pwd", "resource_kind": "exact" },
+    { "effect": "approval_required", "tool": "shell", "action": "execute", "resource": "git push *", "resource_kind": "exact" },
+    { "effect": "approval_required", "tool": "shell", "action": "execute", "resource": "systemctl *", "resource_kind": "exact" },
+    { "effect": "approval_required", "tool": "shell", "action": "execute", "resource": "docker *", "resource_kind": "exact" },
+    { "effect": "approval_required", "tool": "shell", "action": "execute", "resource": "kill *", "resource_kind": "exact" },
+    { "effect": "approval_required", "tool": "shell", "action": "execute", "resource": "npm install *", "resource_kind": "exact" },
+    { "effect": "approval_required", "tool": "shell", "action": "execute", "resource": "pip install *", "resource_kind": "exact" },
+    { "effect": "deny", "tool": "shell", "action": "execute", "resource": "rm -rf /", "resource_kind": "exact" },
+    { "effect": "deny", "tool": "shell", "action": "execute", "resource": "rm -rf /*", "resource_kind": "exact" },
+    { "effect": "deny", "tool": "shell", "action": "execute", "resource": "mkfs *", "resource_kind": "exact" },
+    { "effect": "deny", "tool": "shell", "action": "execute", "resource": "dd *", "resource_kind": "exact" },
+    { "effect": "deny", "tool": "shell", "action": "execute", "resource": "* | sh", "resource_kind": "exact" },
+    { "effect": "deny", "tool": "shell", "action": "execute", "resource": "* | bash", "resource_kind": "exact" }
+  ],
+  "strict_arguments": false
+}
+```
+
+---
+
+### 2. File System (`filesystem`)
+Protects against source code destruction and credential exfiltration.
+
+- **`allow`**: Reading project code and documentation (`src/*`, `docs/*`, `tests/*`, `list_directory`).
+- **`approval_required`**: Writing code in `src/*`, creating directories, deleting files.
+- **`deny`**: Reading or writing secrets (`.env*`, `*.key`, `*.pem`, `/etc/*`).
+
+```json title="filesystem.json"
+{
+  "rules": [
+    { "effect": "allow", "tool": "filesystem", "action": "read_file", "resource": "src/*", "resource_kind": "path" },
+    { "effect": "allow", "tool": "filesystem", "action": "read_file", "resource": "docs/*", "resource_kind": "path" },
+    { "effect": "allow", "tool": "filesystem", "action": "read_file", "resource": "tests/*", "resource_kind": "path" },
+    { "effect": "allow", "tool": "filesystem", "action": "list_directory", "resource": "*", "resource_kind": "path" },
+    { "effect": "approval_required", "tool": "filesystem", "action": "write_file", "resource": "src/*", "resource_kind": "path" },
+    { "effect": "approval_required", "tool": "filesystem", "action": "create_directory", "resource": "*", "resource_kind": "path" },
+    { "effect": "approval_required", "tool": "filesystem", "action": "delete_file", "resource": "*", "resource_kind": "path" },
+    { "effect": "deny", "tool": "filesystem", "action": "read_file", "resource": ".env*", "resource_kind": "path" },
+    { "effect": "deny", "tool": "filesystem", "action": "read_file", "resource": "*/.env*", "resource_kind": "path" },
+    { "effect": "deny", "tool": "filesystem", "action": "read_file", "resource": "*.key", "resource_kind": "path" },
+    { "effect": "deny", "tool": "filesystem", "action": "read_file", "resource": "*.pem", "resource_kind": "path" },
+    { "effect": "deny", "tool": "filesystem", "action": "read_file", "resource": "/etc/*", "resource_kind": "path" },
+    { "effect": "deny", "tool": "filesystem", "action": "write_file", "resource": ".env*", "resource_kind": "path" },
+    { "effect": "deny", "tool": "filesystem", "action": "write_file", "resource": "*/.env*", "resource_kind": "path" },
+    { "effect": "deny", "tool": "filesystem", "action": "write_file", "resource": "/etc/*", "resource_kind": "path" }
+  ],
+  "strict_arguments": false
+}
+```
+
+---
+
+### 3. PostgreSQL (`postgres`)
+Enforces safe query analysis while requiring human sign-off on database mutations.
+
+- **`allow`**: Read-only queries (`select`, `explain`, `show`, `describe`).
+- **`approval_required`**: Data mutations (`insert`, `update`, `delete`) and schema changes (`create_table`, `alter_table`).
+- **`deny`**: Destructive and privilege-escalating commands (`drop_table`, `drop_database`, `truncate`, `grant`).
+
+```json title="postgres.json"
+{
+  "rules": [
+    { "effect": "allow", "tool": "postgres", "action": "select", "resource": "*" },
+    { "effect": "allow", "tool": "postgres", "action": "explain", "resource": "*" },
+    { "effect": "allow", "tool": "postgres", "action": "show", "resource": "*" },
+    { "effect": "allow", "tool": "postgres", "action": "describe", "resource": "*" },
+    { "effect": "approval_required", "tool": "postgres", "action": "insert", "resource": "*" },
+    { "effect": "approval_required", "tool": "postgres", "action": "update", "resource": "*" },
+    { "effect": "approval_required", "tool": "postgres", "action": "delete", "resource": "*" },
+    { "effect": "approval_required", "tool": "postgres", "action": "create_table", "resource": "*" },
+    { "effect": "approval_required", "tool": "postgres", "action": "alter_table", "resource": "*" },
+    { "effect": "deny", "tool": "postgres", "action": "drop_table", "resource": "*" },
+    { "effect": "deny", "tool": "postgres", "action": "drop_database", "resource": "*" },
+    { "effect": "deny", "tool": "postgres", "action": "truncate", "resource": "*" },
+    { "effect": "deny", "tool": "postgres", "action": "grant", "resource": "*" }
+  ],
+  "strict_arguments": false
+}
+```
+
+---
+
+### 4. GitHub (`github`)
+Prevents automated agent takeovers of source code repositories.
+
+- **`allow`**: Inspecting repos, issues, PRs, commits, and code search (`get_repository`, `list_issues`, `get_pull_request`, `search_code`, `list_commits`).
+- **`approval_required`**: Interacting with collaborators (`create_issue`, `create_pull_request`, `create_issue_comment`, `merge_pull_request`, `close_issue`).
+- **`deny`**: Irreversible administrative actions (`delete_repository`, `delete_branch`, `remove_branch_protection`, `force_push`, `delete_release`).
+
+```json title="github.json"
+{
+  "rules": [
+    { "effect": "allow", "tool": "github", "action": "get_repository", "resource": "*" },
+    { "effect": "allow", "tool": "github", "action": "list_issues", "resource": "*" },
+    { "effect": "allow", "tool": "github", "action": "get_issue", "resource": "*" },
+    { "effect": "allow", "tool": "github", "action": "list_pull_requests", "resource": "*" },
+    { "effect": "allow", "tool": "github", "action": "get_pull_request", "resource": "*" },
+    { "effect": "allow", "tool": "github", "action": "search_code", "resource": "*" },
+    { "effect": "allow", "tool": "github", "action": "list_commits", "resource": "*" },
+    { "effect": "approval_required", "tool": "github", "action": "create_issue", "resource": "*" },
+    { "effect": "approval_required", "tool": "github", "action": "create_issue_comment", "resource": "*" },
+    { "effect": "approval_required", "tool": "github", "action": "create_pull_request", "resource": "*" },
+    { "effect": "approval_required", "tool": "github", "action": "merge_pull_request", "resource": "*" },
+    { "effect": "approval_required", "tool": "github", "action": "close_issue", "resource": "*" },
+    { "effect": "deny", "tool": "github", "action": "delete_repository", "resource": "*" },
+    { "effect": "deny", "tool": "github", "action": "delete_branch", "resource": "*" },
+    { "effect": "deny", "tool": "github", "action": "remove_branch_protection", "resource": "*" },
+    { "effect": "deny", "tool": "github", "action": "force_push", "resource": "*" },
+    { "effect": "deny", "tool": "github", "action": "delete_release", "resource": "*" }
+  ],
+  "strict_arguments": false
+}
+```
+
+---
+
+### 5. Stripe (`stripe`)
+Guards financial APIs against unauthorized transactions and account drain.
+
+- **`allow`**: Safe customer, charge, invoice, and catalog queries (`list_customers`, `retrieve_customer`, `list_charges`, `list_invoices`, `list_products`).
+- **`approval_required`**: Billing actions (`create_customer`, `create_charge`, `create_refund`, `update_subscription`, `cancel_subscription`).
+- **`deny`**: Payout draining and API key generation (`create_payout`, `update_payout`, `delete_account`, `create_secret_key`, `expire_secret_key`).
+
+---
+
+### 6. Amazon Web Services (`aws`)
+Enforces least privilege on AWS CLI and SDK integrations.
+
+- **`allow`**: State inspections (`s3.list_buckets`, `s3.get_object`, `ec2.describe_instances`, `ec2.describe_security_groups`, `cloudwatch.get_metric_data`).
+- **`approval_required`**: Resource operations (`s3.put_object`, `ec2.start_instances`, `ec2.stop_instances`, `lambda.update_function_code`, `iam.create_role`).
+- **`deny`**: High-impact deletions (`s3.delete_bucket`, `ec2.terminate_instances`, `rds.delete_db_instance`, `iam.delete_role_policy`, `organizations.leave_organization`).
+
+---
+
+### 7. Kubernetes (`kubernetes`)
+Protects production clusters against rogue pod teardowns and cluster disruption.
+
+- **`allow`**: Cluster telemetry and diagnostics (`get_pods`, `list_pods`, `get_services`, `get_deployments`, `get_logs`, `describe_pod`).
+- **`approval_required`**: Workload updates (`scale_deployment`, `rollout_restart`, `apply_manifest`, `create_configmap`).
+- **`deny`**: Cluster-level destruction (`delete_namespace`, `delete_node`, `delete_cluster`, `delete_deployment`).
+
+---
+
+## Programmatic Usage (Python API)
+
+You can load and inspect templates programmatically using `dmint.templates`:
+
+```python
+from dmint.templates import list_templates, get_template_policy, get_template_dict
+
+# 1. Discover available templates
+templates = list_templates()
+print("Available templates:", templates)
+# Output: ['aws', 'filesystem', 'github', 'kubernetes', 'postgres', 'shell', 'stripe']
+
+# 2. Load as a validated Policy object
+policy = get_template_policy("postgres")
+print(f"Loaded {len(policy.rules)} rules")
+
+# 3. Use directly with Dmint engine
+from dmint import Dmint
+
+dmint = Dmint.local(policy)
+```
+
+---
+
+## Rule Deduplication Engine
+
+If a policy contains redundant or duplicate rules, Dmint provides deterministic deduplication:
+
+```python
+from dmint.templates import deduplicate_policy_dict, deduplicate_policy_rules
+
+# Deduplicate raw JSON dictionary:
+clean_dict = deduplicate_policy_dict(raw_policy_dict)
+
+# Or deduplicate an immutable Policy instance:
+clean_policy = deduplicate_policy_rules(policy)
+```
+
+### How Deduplication Works:
+1. Canonicalizes each rule's match selector (`tool`, `action`, `agent_id`, `resource`, `resource_kind`, `conditions`, `constraints`).
+2. Retains the **first occurrence** in the policy rules sequence.
+3. Drops all subsequent identical rules, maintaining predictable evaluation order with zero policy divergence.
+
+---
+
+## Next steps
+
+- Read the [Policy Schema Reference](/reference/policy-schema) for condition operators and field definitions.
+- Learn how [MCP Protection](/reference/mcp-protection-schema) binds policies to Cursor and Claude Desktop.
+- Check [Python Integration Guide](/guides/python-integration) to enforce policies directly on in-process functions.
+
+
 ================================================================================
 DOCUMENT: MCP Protection Schema
 URL: https://docs.dmint.app/reference/mcp-protection-schema
@@ -4203,11 +5005,12 @@ The file is parsed strictly: unknown duplicates are rejected, credentials must n
 | `integrations` | array | **Yes** | Non-empty array (maximum 50) of downstream MCP integrations. |
 | `approval_db` | string | No | SQLite path for pending approvals. `approval_store` is an accepted alias. Relative paths resolve against the config directory. If unset and `DMINT_DATABASE_URL` is set, the gateway uses the configured database. |
 | `approval_ttl` | number | No | Approval TTL in seconds; must be positive. Required for approval persistence/retry. |
+| `deployment_epoch` | string | No | Deployment epoch identifier (default `"default"`). Matches the default used by `dmint pending`, `dmint approve`, and `dmint dashboard`. |
 | `disclosure_mode` | string | No | `dog` (default; structured approval IDs/fingerprints), `cat` (structured code without internal fingerprints), or `god` (minimal opaque denial). |
 | `agent_id` | string | No | Principal for every request (default `mcp-agent`). |
 | `context` | object | No | Trusted context values available to policy conditions. Do not populate from model output. |
 | `server_name` | string | No | Agent-facing MCP server name (default `dmint-mcp-gateway`). |
-| `trusted_issuers` | array | No | Public issuers accepted for approval assertions. Required to process `APPROVAL_REQUIRED` retries. |
+| `trusted_issuers` | array | No | Public issuers accepted for approval assertions. When omitted in local setups, `dmint-mcp` automatically loads the public key from `.dmint/signing.key` or `~/.config/dmint/signing.key`. |
 | `approval_audience` | string | No | Expected assertion audience (default `dmint/dashboard/v1`). Must match the issuer’s audience. |
 | `expected_policy_digest` | string | No | Expected SHA-256 policy digest. Also settable through `--expected-policy-digest` or `DMINT_EXPECTED_POLICY_DIGEST`. |
 | `timeout` | number | No | Default operation timeout at the top level, overridable per integration or connection. |
@@ -4335,6 +5138,7 @@ For a global rule use `resource: "*"`; omitting `resource` matches only calls wi
 5. Use `$ENV_VAR` placeholders for HTTP headers.
 6. Re-pin tool schemas deliberately after reviewing a downstream schema change (`DMT_MCP_SCHEMA_MISMATCH`).
 
+
 ================================================================================
 DOCUMENT: Error Code Reference
 URL: https://docs.dmint.app/reference/errors
@@ -4452,6 +5256,7 @@ Both are valid fail-closed outcomes. Neither means the evaluator crashed. `DMT_A
 
 For approval failures, use the specific code to decide whether to request a new approval (`DMT_APPROVAL_EXPIRED`, `DMT_APPROVAL_POLICY_INVALID`), correct the retry (`DMT_APPROVAL_REQUEST_MISMATCH`), or stop entirely (`DMT_APPROVAL_CONSUMED`, `DMT_APPROVAL_SIGNATURE_INVALID`).
 
+
 ================================================================================
 DOCUMENT: Troubleshooting
 URL: https://docs.dmint.app/troubleshooting
@@ -4473,8 +5278,12 @@ Run these commands to verify your environment:
 # 1. Check installed CLI version:
 dmint --version
 
-# 2. Verify policy validity offline (LLM-free):
+# 2. Verify policy validity and simulate a command offline (LLM-free):
 dmint verify-policy policy.json
+dmint check -p policy.json -t shell.execute -r "git status"
+
+# 2b. Check installed coding-agent PreToolUse hooks:
+dmint hook status
 
 # 3. Check pending approvals in store:
 dmint pending --db-path approvals.sqlite3
@@ -4567,6 +5376,7 @@ dmint.core.errors.ApprovalStoreConfigurationError: Failed to connect to database
      ```
   2. To fall back to local SQLite for development, unset `DMINT_DATABASE_URL`.
 
+
 ================================================================================
 DOCUMENT: Frequently Asked Questions
 URL: https://docs.dmint.app/faq
@@ -4623,3 +5433,8 @@ In Python unit tests, you can instantiate `Policy.from_file()` and call `policy.
 
 ## What happens to existing approvals in the database after an upgrade?
 If the policy or database schema version increments (e.g. from schema v1 to v2), older pending records that cannot satisfy the current cryptographic format fail closed with `DMT_APPROVAL_DEPRECATED_FORMAT`. Operators should drain pending requests prior to upgrading.
+
+---
+
+## Does Dmint cover built-in coding-agent tools (like Claude Code `Bash` or Codex `exec_command`), or only MCP?
+**Both.** Running `dmint init --harness all` installs native `PreToolUse` / `tool.execute.before` hooks for **Claude Code**, **OpenAI Codex CLI**, **OpenCode**, **Cursor**, **Windsurf**, and **Cline / Roo Code**. Every built-in shell command, file read/write, and MCP tool call is intercepted and evaluated against `policy.json` before execution. See [Protecting Coding-Agent Hooks](/guides/coding-agent-hooks).

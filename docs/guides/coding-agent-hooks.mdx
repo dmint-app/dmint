@@ -1,0 +1,105 @@
+---
+title: "Protecting Coding-Agent Hooks"
+description: "How Dmint intercepts built-in shell, filesystem, and MCP tools in Claude Code, OpenAI Codex CLI, OpenCode, Cursor, Windsurf, and Cline via PreToolUse hooks."
+icon: "shield-halved"
+---
+
+# Protecting Coding-Agent Hooks (`dmint hook`)
+
+Modern AI coding agents execute their most dangerous operations—such as `Bash` commands, file edits (`Write`, `Edit`, `apply_patch`), and file deletions—through **built-in native tools** rather than external MCP servers.
+
+`dmint hook` places Dmint's deterministic policy evaluator and single-use Ed25519 human approval engine directly into the pre-execution hook lifecycle of popular coding harnesses.
+
+```text
+┌─────────────────────────────────────────────────────────────────────────┐
+│                    AI Coding Harness (Local / Container)                │
+│  (Claude Code · OpenAI Codex CLI · OpenCode · Cursor · Windsurf · Cline)│
+└───────────────────────────────────┬─────────────────────────────────────┘
+                                    │
+                                    │ 1. PreToolUse / tool.execute.before
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                          dmint hook run                                 │
+│  • Normalizes tool payload -> (tool, action, resource, arguments)       │
+│  • Canonicalizes via RFC 8785 (JCS) & computes SHA-256 fingerprint      │
+│  • Evaluates policy.json (DENY > APPROVAL_REQUIRED > ALLOW)             │
+└───────────┬───────────────────────┼───────────────────────┬─────────────┘
+            │                       │                       │
+            ▼                       ▼                       ▼
+        [ ALLOW ]          [ APPROVAL_REQUIRED ]        [ DENY ]
+            │                       │                       │
+     Exit 0 ("allow")        Persists PENDING apr_...   Exit 2 ("deny")
+     Tool executes           or consumes APPROVED       Tool blocked
+                             assertion once
+```
+
+---
+
+## 1. Supported Harnesses & Generated Files
+
+Run `dmint init --harness all` (or `dmint hook install --harness <name>`) to configure any or all supported harnesses:
+
+| Harness | Flag Value | Generated Configuration File(s) | Hook Mechanism |
+| :--- | :--- | :--- | :--- |
+| **Claude Code** | `claude-code` | `.claude/settings.json` | `hooks.PreToolUse` command hook matching `Bash\|Read\|Write\|Edit\|MultiEdit\|NotebookEdit\|WebFetch\|mcp__.*` |
+| **OpenAI Codex CLI** | `codex` | `.codex/hooks.json` & `.codex/dmint-hook.sh` | `pre_tool_use` command hook & executable shell wrapper |
+| **OpenCode** | `opencode` | `.opencode/plugin/dmint-guard.ts` | Native TypeScript plugin hooking `tool.execute.before` |
+| **Cursor** | `cursor` | `.cursor/hooks.json` | `hooks.preToolUse` command hook |
+| **Windsurf** | `windsurf` | `.windsurf/hooks.json` | `hooks.preToolUse` command hook |
+| **Cline / Roo Code** | `cline` | `.clinerules/hooks.json` | `hooks.preToolUse` command hook |
+
+---
+
+## 2. How Native Tool Names Map to Dmint Capabilities
+
+Each coding agent names its built-in tools differently (`Bash` in Claude Code, `exec_command` in Codex, `run_terminal_cmd` in Cursor). `dmint hook run` normalizes them into standard Dmint `<tool>.<action>` capabilities so a single `policy.json` works across every harness:
+
+| Harness Tool Names | Normalized Dmint Capability | Extracted `resource` | `resource_kind` in Template |
+| :--- | :--- | :--- | :--- |
+| `Bash`, `sh`, `exec_command`, `execute_command`, `run_terminal_cmd`, `terminal` | `shell.execute` | Command string (e.g. `"git status"`, `"docker ps"`) | `exact` (with prefix/suffix `*`) |
+| `Read`, `read_file`, `view_file`, `cat`, `get_file_contents` | `filesystem.read_file` | Relative workspace path or absolute POSIX path | `path` |
+| `Write`, `Edit`, `MultiEdit`, `NotebookEdit`, `write_file`, `apply_patch`, `replace_in_file` | `filesystem.write_file` | Relative workspace path or absolute POSIX path | `path` |
+| `Delete`, `delete_file`, `remove_file`, `rm`, `unlink` | `filesystem.delete_file` | Relative workspace path or absolute POSIX path | `path` |
+| `LS`, `Glob`, `Grep`, `list_dir`, `list_directory`, `search_files` | `filesystem.list_directory` | Directory path or `"*"` | `path` |
+| `mkdir`, `create_directory` | `filesystem.create_directory` | Directory path | `path` |
+| `mcp__<server>__<action>` | `<server>.<action>` (or `mcp.<server>.<action>`) | `resource` / `file_path` / `uri` argument if present | Per rule |
+
+---
+
+## 3. Single-Use Human Approvals in Hooks
+
+When a coding agent calls a tool that matches an `approval_required` rule (for example, `git push origin main` or editing `src/main.py`):
+
+1. **First Call Pauses**:
+   - `dmint hook run` creates a tamper-evident `PENDING` record (`apr_...`) in `.dmint/approvals.sqlite3`.
+   - If Slack, Discord, or Microsoft Teams webhooks are configured (`DMINT_SLACK_WEBHOOK_URL`, etc.), a real-time alert is dispatched.
+   - The hook outputs a clear message telling the user/agent how to approve:
+     ```text
+     Dmint APPROVAL_REQUIRED [apr_8k9P...]: shell.execute on 'git push origin main' requires human sign-off.
+     To approve, run: `dmint approve apr_8k9P...` (or use `dmint dashboard`), then retry.
+     ```
+2. **Human Approves**:
+   ```bash
+   dmint approve apr_8k9P... --by alice@company.com
+   ```
+3. **Agent Retries the Exact Tool Call**:
+   - When the agent re-runs `git push origin main`, `dmint hook run` computes the RFC 8785 request fingerprint, finds the matching `APPROVED` assertion in `.dmint/approvals.sqlite3`, verifies the Ed25519 signature, atomically transitions the record from `APPROVED` $\to$ `CONSUMED`, and returns `ALLOW`.
+   - **Tamper Resistance**: If the agent alters the command to `git push origin main --force`, the fingerprint does not match `apr_8k9P...` and execution is blocked.
+   - **Replay Protection**: If the agent tries to run `git push origin main` a second time, the consumed assertion cannot be reused.
+
+---
+
+## 4. Simulating Policies Offline (`dmint check`)
+
+Use `dmint check` (or `dmint test-policy`) to test how your `policy.json` evaluates any tool call before running an agent:
+
+```bash
+# Test an allowed command (exits 0)
+dmint check -p policy.json -t shell.execute -r "pytest"
+
+# Test an approval-gated command (exits 1)
+dmint check -p policy.json -t shell.execute -r "docker build ."
+
+# Test a denied file read (exits 2)
+dmint check -p policy.json -t filesystem.read_file -r ".env.production"
+```

@@ -133,6 +133,7 @@ docs/
 │   └── resources.mdx           # Resource engine: path, url, host, id matching & traversal defense
 │
 ├── guides/                     # Task-oriented, step-by-step how-to guides
+│   ├── coding-agent-hooks.mdx  # PreToolUse hooks for Claude Code, Codex, OpenCode, Cursor, Windsurf, Cline
 │   ├── python-integration.mdx  # @dmint.protect decorator for def, async def, class/static methods
 │   ├── protecting-mcp.mdx      # Wrapping MCP servers with dmint-mcp gateway & schema pinning
 │   ├── human-approvals.mdx     # Operating dashboard UI, CLI approvals, executing retries
@@ -141,8 +142,11 @@ docs/
 │   └── agent-skills.mdx        # Installing AI agent skills with dmint install-skill
 │
 ├── integrations/               # Host environment & AI tool copy-paste setup recipes
-│   ├── cursor.mdx              # .cursor/mcp.json integration
-│   ├── claude-code.mdx         # Claude Code gateway configuration
+│   ├── claude-code.mdx         # Claude Code, Codex & OpenCode PreToolUse hooks & gateway
+│   ├── codex.mdx               # OpenAI Codex CLI hooks & gateway configuration
+│   ├── opencode.mdx            # OpenCode tool.execute.before guard plugin & gateway
+│   ├── cursor.mdx              # Cursor, Windsurf & Cline hooks & .cursor/mcp.json
+│   ├── windsurf-cline.mdx      # Windsurf & Cline / Roo Code integration
 │   ├── antigravity.mdx         # Google Antigravity & Gemini CLI skill integration
 │   └── custom-agents.mdx       # LangChain, CrewAI, AutoGen, and custom Python loops
 │

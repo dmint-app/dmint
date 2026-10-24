@@ -158,17 +158,14 @@ An internal company MCP server must be reachable through an approved public/priv
 
 The parser rejects duplicate object keys with `DMT_MCP_PROTOCOL_ERROR`, preventing parser-differential attacks such as `{"id": 1, "id": 2}`.
 
-### Approval retry
+### Approval retry (Automatic Store-Backed or Explicit Credential)
 
-On `APPROVAL_REQUIRED`, the gateway persists a pending record and returns the approval ID. After approval, retry through `tools/call` by adding **one** of these reserved argument keys:
+On `APPROVAL_REQUIRED`, the gateway persists a pending record (`apr_...`) and returns the approval ID. Once a human approves the request via `dmint approve <approval_id>` or the web dashboard, there are **two ways** to retry:
 
-- `_dmint_approval` (preferred)
-- `dmint_approval`
-- `approval_credential`
-
-The value may be assertion JSON bytes as a string or a JSON object. The gateway removes the reserved key before forwarding arguments downstream. The assertion is bound to the exact original arguments and is consumed once.
-
-> Do not put assertions in agent-visible logs, prompts, or persistent memory. Treat them as single-use secrets.
+1. **Automatic Store-Backed Retry (Recommended for Cursor, Claude Code & Coding Agents)**:
+   Simply ask the agent to retry the exact same tool call with the **exact same arguments**. The gateway automatically looks up the unexpired `APPROVED` assertion matching the request's RFC 8785 fingerprint in the approval store, verifies the Ed25519 signature, atomically transitions the record from `APPROVED` to `CONSUMED`, and forwards the clean call downstream. The LLM never needs to see or copy-paste the cryptographic token.
+2. **Explicit In-Band Credential (For Stateless or Remote Orchestrators)**:
+   Pass the signed assertion JSON string or object under one of the reserved argument keys (`_dmint_approval`, `dmint_approval`, or `approval_credential`). The gateway strips the reserved key before forwarding arguments downstream and consumes the assertion once.
 
 ---
 

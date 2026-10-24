@@ -72,6 +72,7 @@
       {
         "group": "How-To Guides",
         "pages": [
+          "guides/coding-agent-hooks",
           "guides/python-integration",
           "guides/protecting-mcp",
           "guides/human-approvals",
@@ -83,8 +84,11 @@
       {
         "group": "Integrations",
         "pages": [
-          "integrations/cursor",
           "integrations/claude-code",
+          "integrations/codex",
+          "integrations/opencode",
+          "integrations/cursor",
+          "integrations/windsurf-cline",
           "integrations/antigravity",
           "integrations/custom-agents"
         ]

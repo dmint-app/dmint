@@ -83,7 +83,7 @@ There are no probabilistic decisions, confidence thresholds, or model calls in t
 ## Detailed Step-by-Step Breakdown
 
 ### 1. Interception and Argument Snapshotting
-Whether invoked via the `@dmint.protect` decorator or via the `dmint-mcp` gateway proxy, Dmint captures the exact arguments passed to the tool. Variadic positional (`*args`) and keyword arguments (`**kwargs`) are normalized into a frozen dictionary representation.
+Whether invoked via the `@dmint.protect` Python decorator, a coding-agent `PreToolUse` hook (`dmint hook run`), or the `dmint-mcp` gateway proxy, Dmint captures the exact arguments passed to the tool. Variadic positional (`*args`) and keyword arguments (`**kwargs`) are normalized into a frozen dictionary representation.
 
 ### 2. RFC 8785 Canonicalization
 JSON serialization is non-deterministic in standard libraries: dictionary keys can be ordered arbitrarily, whitespace varies, and numeric representations can differ. Dmint normalizes all request arguments using RFC 8785 JSON Canonicalization Scheme (JCS):

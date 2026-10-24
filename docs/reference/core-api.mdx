@@ -33,7 +33,23 @@ class Dmint:
         policy_file: str | Path | None = None,
         expected_policy_digest: str | None = None,
     ) -> None: ...
+    @classmethod
+    def local(
+        cls,
+        policy: Policy | str | Path,
+        *,
+        db_path: str | Path | None = None,
+        state_dir: str | Path | None = None,
+        agent_id: str = "local-agent",
+        context: TrustedContext | Mapping[str, Any] | None = None,
+        approval_ttl: timedelta = timedelta(minutes=10),
+        deployment_epoch: str = "default",
+        integration_id: str = "local-runtime",
+        clock: Callable[[], datetime] | None = None,
+    ) -> Dmint: ...
 ```
+
+`Dmint.local(...)` is a zero-config constructor that automatically creates `.dmint/signing.key` (`0600`), `.dmint/integrity.key` (`0600`), and `.dmint/approvals.sqlite3`, and accepts a `Policy` object, a path to `policy.json`, or a built-in template name (e.g. `"shell"`).
 
 `Dmint` is the synchronous authorization and decorator engine. It evaluates the policy deterministically and never calls an LLM.
 
@@ -64,12 +80,12 @@ engine.execute(authorized: AuthorizedRequest) -> Any
 engine.retry(
     protected_callable: Callable,
     *args,
-    approval_credential: ApprovalAssertion | bytes,
+    approval_credential: ApprovalAssertion | bytes | None = None,
     **kwargs,
 ) -> Any
 ```
 
-`protect` and `protected` are aliases. `resource` may be `NO_RESOURCE`, a resource string, or a callable that receives the bound arguments and returns a resource string.
+`protect` and `protected` are aliases. `resource` may be `NO_RESOURCE` or a callable (`lambda args: ...`) that receives the bound arguments and returns a resource string.
 
 The decorated function raises:
 
@@ -121,7 +137,7 @@ class Rule:
     ) -> Rule: ...
 ```
 
-`deny()` and `approval_required()` use the same keyword-only shape. `deny()` rejects `constraints`.
+`deny()` and `approval_required()` (also aliased as `require_approval()` and `approve()`) use the same keyword-only shape. `deny()` rejects `constraints`.
 
 `resource` defaults to `NO_RESOURCE`, which matches only requests with no resource. Use `resource="*"` (or `ANY_RESOURCE`) for a global rule. `tool` and `action` accept `"*"` as a whole-field wildcard; partial wildcards are not supported.
 

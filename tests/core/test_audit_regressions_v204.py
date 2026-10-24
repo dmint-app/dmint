@@ -36,7 +36,18 @@ from dmint.templates import get_template_policy
 
 class AuditRegressionTests(unittest.TestCase):
     def setUp(self) -> None:
+        import os
+        self._prev_ikey = os.environ.get("DMINT_INTEGRITY_KEY")
+        if not self._prev_ikey:
+            os.environ["DMINT_INTEGRITY_KEY"] = "01" * 32
         self.now = datetime.now(timezone.utc)
+
+    def tearDown(self) -> None:
+        import os
+        if self._prev_ikey is None:
+            os.environ.pop("DMINT_INTEGRITY_KEY", None)
+        else:
+            os.environ["DMINT_INTEGRITY_KEY"] = self._prev_ikey
 
     def test_f01_authoritative_policy_roundtrip_preserves_all_fields_and_digest(self) -> None:
         """set_authoritative_policy must preserve resource_kind, case_sensitive, constraints, schema_hash, strict_arguments, and tool_schemas."""

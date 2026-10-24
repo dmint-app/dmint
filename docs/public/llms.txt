@@ -125,33 +125,37 @@ dmint-mcp -c mcp_protection.json
 
 ## Complete Documentation Index
 
-For the full, single-file plain-text corpus of all 28 documentation pages, read [llms-full.txt](https://docs.dmint.app/llms-full.txt).
+For the full, single-file plain-text corpus of all 32 documentation pages, read [llms-full.txt](https://docs.dmint.app/llms-full.txt).
 
 ### Get Started
-- [Overview](https://docs.dmint.app/): Dmint is a deterministic authorization layer for AI agent tool calls with cryptographic request binding and single-use approvals.
-- [Quickstart](https://docs.dmint.app/quickstart): Protect a Python function, stop unauthorized calls, approve a sensitive action, and consume a single-use retry credential.
+- [Overview](https://docs.dmint.app/): Dmint is a deterministic authorization layer for AI agent tool calls with cryptographic request binding and single-use human approvals.
+- [Quickstart](https://docs.dmint.app/quickstart): Set up Dmint in 60 seconds: protect coding-agent hooks (Claude Code, Codex, OpenCode, Cursor) or Python functions with single-use human approvals.
 
 ### Tutorials
-- [Protect a Tool End-to-End](https://docs.dmint.app/tutorials/protect-a-tool): Build a complete customer refund service where amounts under $100 are automatically allowed, but amounts of $100 or higher require human approval.
+- [Protect a Tool End-to-End](https://docs.dmint.app/tutorials/protect-a-tool): Build a complete customer refund service where small refunds execute automatically and larger refunds require a human-approved, single-use credential.
 
 ### Core Concepts
 - [How Dmint Works](https://docs.dmint.app/concepts/how-dmint-works): The request execution boundary, the deterministic decision engine, and the cryptographic verification lifecycle.
-- [Policies and Rules](https://docs.dmint.app/concepts/policies): Declarative JSON policies, rule effects, deny-overrides precedence, context conditions, and argument constraints.
+- [Policies and Rules](https://docs.dmint.app/concepts/policies): Declarative JSON policies, rule effects, deny-overrides precedence, wildcard selectors, context conditions, and argument constraints.
 - [Exact Request Binding](https://docs.dmint.app/concepts/request-binding): How RFC 8785 JSON Canonicalization Scheme (JCS) and SHA-256 domain-separated hashing create immutable request fingerprints.
 - [Approval Lifecycle and State Machine](https://docs.dmint.app/concepts/approvals): The 7-state approval lifecycle, Ed25519 digital signatures, atomic single-use consumption, and the retry protocol.
 - [Resource Matching Engine](https://docs.dmint.app/concepts/resources): How Dmint normalizes, validates, and matches paths, URLs, hostnames, and identifiers without ReDoS or traversal vulnerabilities.
 
 ### How-To Guides
+- [Protecting Coding-Agent Hooks](https://docs.dmint.app/guides/coding-agent-hooks): How Dmint intercepts built-in shell, filesystem, and MCP tools in Claude Code, OpenAI Codex CLI, OpenCode, Cursor, Windsurf, and Cline via PreToolUse hooks.
 - [Python Decorator Integration](https://docs.dmint.app/guides/python-integration): How to protect Python functions, async coroutines, class methods, and static methods using the @dmint.protect decorator.
-- [Protecting MCP Servers](https://docs.dmint.app/guides/protecting-mcp): How to use dmint-mcp as a deterministic security gateway and proxy for Model Context Protocol tools with SSRF and schema pinning defenses.
-- [Human Approvals](https://docs.dmint.app/guides/human-approvals): Review, inspect parameter diffs, and sign Ed25519 approvals using the local web dashboard or terminal CLI.
-- [Approval Notifications and Webhooks](https://docs.dmint.app/guides/notifications): Configure real-time outgoing webhook alerts for Slack, Discord, and Microsoft Teams on approval events.
+- [Protecting MCP Servers](https://docs.dmint.app/guides/protecting-mcp): Use dmint-mcp as a deterministic enforcement gateway and proxy for Model Context Protocol tools, with schema pinning, SSRF defenses, and approval retry.
+- [Human Approvals](https://docs.dmint.app/guides/human-approvals): Review pending requests and transfer a signed, single-use Ed25519 assertion from the dashboard or CLI to the protected host.
+- [Approval Notifications and Webhooks](https://docs.dmint.app/guides/notifications): Configure Slack, Discord, and Microsoft Teams alerts for MCP approval and denial events, with DNS-pinned delivery and strict authorization isolation.
 - [Policy Authoring](https://docs.dmint.app/guides/authoring-policies): How to compile plain-language access requirements into verified, schema-compliant policies using dmint create-policy and create-mcp-policy.
 - [AI Coding Agent Skills](https://docs.dmint.app/guides/agent-skills): How to install the official dmint-policy-manager skill into AI coding assistants like Antigravity, Claude Code, and Cursor.
 
 ### Integrations
-- [Cursor Integration](https://docs.dmint.app/integrations/cursor): How to protect MCP tools and enforce deterministic guardrails in Cursor using dmint-mcp.
-- [Claude Code Integration](https://docs.dmint.app/integrations/claude-code): How to route Claude Code MCP tools through dmint-mcp with deterministic policy enforcement.
+- [Claude Code, Codex & OpenCode Hooks](https://docs.dmint.app/integrations/claude-code): How to enforce deterministic policy rules and single-use human approvals on native shell, file, and MCP tools in Claude Code, OpenAI Codex, and OpenCode.
+- [OpenAI Codex CLI Integration](https://docs.dmint.app/integrations/codex): How to protect shell commands, file patches, and MCP tools in OpenAI Codex CLI using dmint init, dmint hook, and dmint-mcp.
+- [OpenCode Integration](https://docs.dmint.app/integrations/opencode): How to enforce deterministic Dmint policies and single-use human approvals in OpenCode using the generated tool.execute.before plugin.
+- [Cursor, Windsurf & Cline Integration](https://docs.dmint.app/integrations/cursor): How to protect native agent tools and MCP servers in Cursor, Windsurf, and Cline using dmint hook and dmint-mcp.
+- [Windsurf & Cline / Roo Code](https://docs.dmint.app/integrations/windsurf-cline): How to protect native IDE tools and MCP servers in Windsurf, Cline, and Roo Code using dmint init, dmint hook, and dmint-mcp.
 - [Google Antigravity & Gemini CLI](https://docs.dmint.app/integrations/antigravity): How to enforce deterministic security in Google Antigravity (AGY) and Gemini CLI workflows.
 - [Custom Python Agents (LangChain, CrewAI, AutoGen)](https://docs.dmint.app/integrations/custom-agents): How to integrate Dmint authorization into LangChain, CrewAI, AutoGen, and custom agent loops.
 
@@ -162,10 +166,11 @@ For the full, single-file plain-text corpus of all 28 documentation pages, read 
 
 ### Reference
 - [CLI Command Reference](https://docs.dmint.app/reference/cli): Comprehensive command-line interface documentation for the dmint CLI.
-- [Python Core API Reference](https://docs.dmint.app/reference/core-api): Public classes, signatures, methods, and parameters in the dmint v2.0.3 package.
+- [Python Core API Reference](https://docs.dmint.app/reference/core-api): Public classes, signatures, methods, and parameters in the dmint 2.0.3 package.
 - [Policy Schema Specification](https://docs.dmint.app/reference/policy-schema): Formal specification and schema for Dmint Core policy.json mappings.
+- [Policy Templates](https://docs.dmint.app/reference/policy-templates): Production-ready, schema-compliant security policies for shell, filesystem, Postgres, GitHub, Stripe, AWS, and Kubernetes
 - [MCP Protection Schema](https://docs.dmint.app/reference/mcp-protection-schema): Configuration specification for mcp_protection.json used by the dmint-mcp gateway.
-- [Error Code Reference](https://docs.dmint.app/reference/errors): Complete reference for all DMT_* machine-readable error codes: meaning, causes, and remediation steps.
+- [Error Code Reference](https://docs.dmint.app/reference/errors): Machine-readable DMT_* error codes emitted by the Core, dashboard, and MCP gateway, with causes and remediation.
 
 ### Help & FAQ
 - [Troubleshooting](https://docs.dmint.app/troubleshooting): Diagnose and resolve common runtime errors, configuration issues, and permission failures in Dmint.

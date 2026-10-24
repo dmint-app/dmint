@@ -50,11 +50,15 @@ Designed for AI coding assistants (e.g. Cursor, Claude Code, Antigravity) runnin
     { "effect": "allow", "tool": "shell", "action": "execute", "resource": "pytest", "resource_kind": "exact" },
     { "effect": "allow", "tool": "shell", "action": "execute", "resource": "cargo test", "resource_kind": "exact" },
     { "effect": "allow", "tool": "shell", "action": "execute", "resource": "ls", "resource_kind": "exact" },
+    { "effect": "allow", "tool": "shell", "action": "execute", "resource": "ls *", "resource_kind": "exact" },
     { "effect": "allow", "tool": "shell", "action": "execute", "resource": "pwd", "resource_kind": "exact" },
+    { "effect": "approval_required", "tool": "shell", "action": "execute", "resource": "git push *", "resource_kind": "exact" },
     { "effect": "approval_required", "tool": "shell", "action": "execute", "resource": "systemctl *", "resource_kind": "exact" },
     { "effect": "approval_required", "tool": "shell", "action": "execute", "resource": "docker *", "resource_kind": "exact" },
     { "effect": "approval_required", "tool": "shell", "action": "execute", "resource": "kill *", "resource_kind": "exact" },
     { "effect": "approval_required", "tool": "shell", "action": "execute", "resource": "npm install *", "resource_kind": "exact" },
+    { "effect": "approval_required", "tool": "shell", "action": "execute", "resource": "pip install *", "resource_kind": "exact" },
+    { "effect": "deny", "tool": "shell", "action": "execute", "resource": "rm -rf /", "resource_kind": "exact" },
     { "effect": "deny", "tool": "shell", "action": "execute", "resource": "rm -rf /*", "resource_kind": "exact" },
     { "effect": "deny", "tool": "shell", "action": "execute", "resource": "mkfs *", "resource_kind": "exact" },
     { "effect": "deny", "tool": "shell", "action": "execute", "resource": "dd *", "resource_kind": "exact" },
@@ -85,10 +89,12 @@ Protects against source code destruction and credential exfiltration.
     { "effect": "approval_required", "tool": "filesystem", "action": "create_directory", "resource": "*", "resource_kind": "path" },
     { "effect": "approval_required", "tool": "filesystem", "action": "delete_file", "resource": "*", "resource_kind": "path" },
     { "effect": "deny", "tool": "filesystem", "action": "read_file", "resource": ".env*", "resource_kind": "path" },
+    { "effect": "deny", "tool": "filesystem", "action": "read_file", "resource": "*/.env*", "resource_kind": "path" },
     { "effect": "deny", "tool": "filesystem", "action": "read_file", "resource": "*.key", "resource_kind": "path" },
     { "effect": "deny", "tool": "filesystem", "action": "read_file", "resource": "*.pem", "resource_kind": "path" },
     { "effect": "deny", "tool": "filesystem", "action": "read_file", "resource": "/etc/*", "resource_kind": "path" },
     { "effect": "deny", "tool": "filesystem", "action": "write_file", "resource": ".env*", "resource_kind": "path" },
+    { "effect": "deny", "tool": "filesystem", "action": "write_file", "resource": "*/.env*", "resource_kind": "path" },
     { "effect": "deny", "tool": "filesystem", "action": "write_file", "resource": "/etc/*", "resource_kind": "path" }
   ],
   "strict_arguments": false
@@ -207,7 +213,7 @@ print(f"Loaded {len(policy.rules)} rules")
 # 3. Use directly with Dmint engine
 from dmint import Dmint
 
-dmint = Dmint(policy=policy)
+dmint = Dmint.local(policy)
 ```
 
 ---

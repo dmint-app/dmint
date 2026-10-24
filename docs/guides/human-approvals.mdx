@@ -168,7 +168,7 @@ dmint approve apr_... \
   Reason: Verified ticket #1204
 ```
 
-`--policy` makes the CLI re-verify the current policy file and fail closed if it no longer allows the request. If omitted, the CLI first uses the store’s authoritative policy, then a local `policy.json` if present. `--output-assertion` writes the signed bytes; without it the approval still succeeds but no host credential is produced.
+`--policy` makes the CLI re-verify the current policy file and fail closed if it no longer allows the request. If omitted, the CLI first uses the store’s authoritative policy, then a local `policy.json` if present. `approve` automatically persists the signed Ed25519 assertion inside the approval store so local hosts (`Dmint.local()`, `dmint-mcp`, and `dmint hook run`) can consume it automatically on retry. Pass `--output-assertion ./approval.json` if you also want to export the signed assertion file to a separate host.
 
 The CLI never executes the protected tool. It only transitions the record and optionally writes the assertion.
 
@@ -191,6 +191,10 @@ Any retry after rejection fails closed. A rejected approval cannot be “un-reje
 ```python
 from pathlib import Path
 
+# Option A: Automatic store lookup (when sharing the same SQLite/Postgres store):
+result = engine.retry(transfer_funds, "acc_100", 500.0)
+
+# Option B: Explicit assertion bytes (from --output-assertion or dashboard download):
 result = engine.retry(
     transfer_funds,
     "acc_100",

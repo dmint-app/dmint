@@ -53,6 +53,7 @@ The direct runtime schema requires `{"rules": [...]}`:
 |---|---|---|---|
 | `rules` | array | **Yes** | Non-empty array of rule objects evaluated sequentially using fail-closed semantics. |
 | `strict_arguments` | boolean | No | Optional policy-wide flag (default `false`). When `true`, argument constraints default `additionalProperties` to `false` across all rules. |
+| `tool_schemas` | object | No | Optional mapping of `<tool>.<action>` capability names to pinned SHA-256 JSON Schema digests. |
 
 ---
 
@@ -76,7 +77,7 @@ Each element in the `rules` array defines an authorization rule for an agent act
 ## Resource Matching & Kind Semantics
 
 - **Any Resource (`"resource": "*"`)**: Matches any resource specified in the tool request.
-- **Rules Without a Kind (Omitted `resource_kind`)**: When `resource_kind` is omitted or set to an unrecognized value, matching falls back strictly to an **exact string match** (`rule == request.resource`). Wildcards are not expanded.
+- **Exact & Command Prefix/Suffix Matching (`resource_kind: "exact"` or omitted)**: Matches the exact string (`rule == request.resource`), and also supports bounded command prefix/suffix wildcards (`"docker *"`, `"rm -rf /*"`, `"* | sh"`) for shell rules.
 - **Path Globs (`resource_kind: "path"`)**:
   - `*` matches characters within a single path segment (does not cross `/`).
   - `**` matches zero or more complete path segments across slashes (e.g. `/workspace/**/*.py`).

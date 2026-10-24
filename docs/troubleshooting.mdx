@@ -17,8 +17,12 @@ Run these commands to verify your environment:
 # 1. Check installed CLI version:
 dmint --version
 
-# 2. Verify policy validity offline (LLM-free):
+# 2. Verify policy validity and simulate a command offline (LLM-free):
 dmint verify-policy policy.json
+dmint check -p policy.json -t shell.execute -r "git status"
+
+# 2b. Check installed coding-agent PreToolUse hooks:
+dmint hook status
 
 # 3. Check pending approvals in store:
 dmint pending --db-path approvals.sqlite3

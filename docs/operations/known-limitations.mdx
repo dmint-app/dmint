@@ -26,13 +26,11 @@ Dmint does not manage employee login sessions or organization-wide role hierarch
 
 ## 2. Storage Limitations and Edge Cases
 
-### Database Snapshot Rollback is Not Detected by Row HMACs
-Every record in SQLite or PostgreSQL includes a HMAC-SHA256 integrity tag over the canonical row contents. This detects row modification or insertion by an attacker who lacks the integrity key.
-
-However, if an attacker restores an **entire older snapshot of the database file** (a database rollback), the row HMACs in that older snapshot were valid when created.
-- **Mitigation 1: Short Assertion TTL**: Approvals expire after 5 minutes by default (`expires_at`), so old approvals in a restored database cannot be consumed if the system clock is accurate.
-- **Mitigation 2: Deployment Epochs**: Changing `DMINT_DEPLOYMENT_EPOCH` invalidates approvals from prior deployment lifecycles.
-- **Mitigation 3: Filesystem Permissions**: Restrict database file access to mode `0600` under a dedicated service user.
+### Database Snapshot Rollback & Monotonic Sidecar Counter
+Every record in SQLite or PostgreSQL includes an HMAC-SHA256 integrity tag over the canonical row contents. To defend against an attacker restoring an **older snapshot of the database file** (a full-file rollback), Dmint also maintains a monotonic `store_recovery` counter paired with a `0600` `.recovery` sidecar file protected by cross-process `flock` locking. If the database counter ever lags behind the sidecar counter, Dmint fails closed with `ApprovalRollbackDetectedError` (`DMT_APPROVAL_ROLLBACK_DETECTED`).
+- **Defense-in-Depth 1: Short Assertion TTL**: Configure a short `approval_ttl` (e.g. 5 minutes) so old approvals expire quickly.
+- **Defense-in-Depth 2: Deployment Epochs**: Rotating `DMINT_DEPLOYMENT_EPOCH` invalidates approvals from prior deployment lifecycles.
+- **Defense-in-Depth 3: Filesystem Isolation**: Keep `.dmint/` and `.recovery` sidecar files owned by a separate service user (`0600`).
 
 ### SQLite Concurrent Write Contention
 SQLite serializes write operations at the database level. Although Dmint enables WAL mode (`PRAGMA journal_mode=WAL`) and busy timeouts (`PRAGMA busy_timeout = 5000`), high-concurrency environments with dozens of simultaneous agents requesting approvals may experience lock contention.

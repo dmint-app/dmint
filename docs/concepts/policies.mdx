@@ -29,7 +29,8 @@ A policy contains an array of `rules`. Every rule has a lowercase `effect`, an e
       "effect": "allow",
       "tool": "database",
       "action": "query",
-      "resource": "public.*"
+      "resource": "public.*",
+      "resource_kind": "identifier"
     },
     {
       "effect": "approval_required",
@@ -59,6 +60,7 @@ Validate the file before deploying it:
 
 ```bash
 dmint verify-policy policy.json
+dmint check -p policy.json -t database.query -r "public.users"
 dmint policy-digest policy.json
 ```
 

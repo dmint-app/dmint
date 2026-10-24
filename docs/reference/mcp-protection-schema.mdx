@@ -84,11 +84,12 @@ The file is parsed strictly: unknown duplicates are rejected, credentials must n
 | `integrations` | array | **Yes** | Non-empty array (maximum 50) of downstream MCP integrations. |
 | `approval_db` | string | No | SQLite path for pending approvals. `approval_store` is an accepted alias. Relative paths resolve against the config directory. If unset and `DMINT_DATABASE_URL` is set, the gateway uses the configured database. |
 | `approval_ttl` | number | No | Approval TTL in seconds; must be positive. Required for approval persistence/retry. |
+| `deployment_epoch` | string | No | Deployment epoch identifier (default `"default"`). Matches the default used by `dmint pending`, `dmint approve`, and `dmint dashboard`. |
 | `disclosure_mode` | string | No | `dog` (default; structured approval IDs/fingerprints), `cat` (structured code without internal fingerprints), or `god` (minimal opaque denial). |
 | `agent_id` | string | No | Principal for every request (default `mcp-agent`). |
 | `context` | object | No | Trusted context values available to policy conditions. Do not populate from model output. |
 | `server_name` | string | No | Agent-facing MCP server name (default `dmint-mcp-gateway`). |
-| `trusted_issuers` | array | No | Public issuers accepted for approval assertions. Required to process `APPROVAL_REQUIRED` retries. |
+| `trusted_issuers` | array | No | Public issuers accepted for approval assertions. When omitted in local setups, `dmint-mcp` automatically loads the public key from `.dmint/signing.key` or `~/.config/dmint/signing.key`. |
 | `approval_audience` | string | No | Expected assertion audience (default `dmint/dashboard/v1`). Must match the issuer’s audience. |
 | `expected_policy_digest` | string | No | Expected SHA-256 policy digest. Also settable through `--expected-policy-digest` or `DMINT_EXPECTED_POLICY_DIGEST`. |
 | `timeout` | number | No | Default operation timeout at the top level, overridable per integration or connection. |
