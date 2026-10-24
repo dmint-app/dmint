@@ -2,13 +2,24 @@
 
 from __future__ import annotations
 
+import contextlib
 import hmac
 import logging
 import os
-from collections.abc import Callable, Collection, Mapping
+from collections.abc import Callable, Collection, Iterator, Mapping
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+
+try:  # POSIX cross-process lock
+    import fcntl
+except ImportError:  # pragma: no cover - exercised on Windows
+    fcntl = None  # type: ignore[assignment]
+
+try:  # Windows cross-process lock
+    import msvcrt
+except ImportError:  # pragma: no cover - exercised on POSIX
+    msvcrt = None  # type: ignore[assignment]
 
 from sqlalchemy import (
     CheckConstraint,
@@ -292,35 +303,84 @@ class SQLAlchemyApprovalStore(ApprovalStore):
         except (SQLAlchemyError, ValueError) as exc:
             raise ApprovalStoreError("recovery epoch counter check failed") from exc
 
-    def _sync_recovery_counter_with_conn(self, conn: Connection, *, increment: bool = False) -> None:
-        now_str = _timestamp(self._clock())
-        inc = 1 if increment else 0
-        conn.execute(
-            text(
-                """
-                INSERT INTO store_recovery (id, recovery_token, counter, updated_at)
-                VALUES (1, 'default', 1, :now_str)
-                ON CONFLICT (id) DO UPDATE SET
-                    counter = store_recovery.counter + :inc,
-                    updated_at = excluded.updated_at
-                """
-            ),
-            {"now_str": now_str, "inc": inc},
-        )
+    @contextlib.contextmanager
+    def _recovery_lock(self) -> Iterator[None]:
+        if self._recovery_file is None:
+            yield
+            return
+        lock_path = self._recovery_file.with_name(self._recovery_file.name + ".lock")
+        try:
+            lock_path.parent.mkdir(parents=True, exist_ok=True)
+            fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR, 0o600)
+        except OSError as exc:
+            raise ApprovalStoreError("could not open recovery counter lock") from exc
+        try:
+            try:
+                if fcntl is not None:
+                    fcntl.flock(fd, fcntl.LOCK_EX)
+                elif msvcrt is not None:  # pragma: no cover - Windows-only branch
+                    os.lseek(fd, 0, os.SEEK_SET)
+                    msvcrt.locking(fd, msvcrt.LK_LOCK, 1)
+            except OSError as exc:
+                raise ApprovalStoreError("could not acquire recovery counter lock") from exc
+            yield
+        finally:
+            try:
+                if fcntl is not None:
+                    fcntl.flock(fd, fcntl.LOCK_UN)
+                elif msvcrt is not None:  # pragma: no cover - Windows-only branch
+                    os.lseek(fd, 0, os.SEEK_SET)
+                    msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+            except OSError:
+                pass
+            finally:
+                os.close(fd)
 
-        if self._recovery_file is not None:
+    def _write_recovery_sidecar(self, counter: int) -> None:
+        if self._recovery_file is None:
+            return
+        temp_file = self._recovery_file.with_name(self._recovery_file.name + ".tmp")
+        temp_file.write_text(str(counter), encoding="utf-8")
+        try:
+            os.chmod(str(temp_file), 0o600)
+        except OSError:
+            pass
+        temp_file.replace(self._recovery_file)
+
+    def _sync_recovery_counter_with_conn(self, conn: Connection, *, increment: bool = False) -> None:
+        with self._recovery_lock():
             row = conn.execute(select(self._recovery_table.c.counter).where(self._recovery_table.c.id == 1)).fetchone()
-            db_counter = row[0] if row else 1
+            db_counter = int(row[0]) if row is not None and row[0] is not None else 0
+
             sidecar_counter = 0
-            if self._recovery_file.exists():
+            if self._recovery_file is not None and self._recovery_file.exists():
                 content = self._recovery_file.read_text(encoding="utf-8").strip()
                 if content:
                     sidecar_counter = int(content)
-            if db_counter < sidecar_counter:
+
+            if self._recovery_file is not None and db_counter < sidecar_counter:
                 raise ApprovalStoreError("database rollback detected: storage recovery counter mismatch")
-            temp_file = self._recovery_file.with_suffix(".tmp")
-            temp_file.write_text(str(db_counter), encoding="utf-8")
-            temp_file.replace(self._recovery_file)
+
+            if increment or db_counter == 0:
+                new_counter = max(db_counter, sidecar_counter) + (1 if increment else 0)
+                if new_counter == 0:
+                    new_counter = 1
+                now_str = _timestamp(self._clock())
+                conn.execute(
+                    text(
+                        """
+                        INSERT INTO store_recovery (id, recovery_token, counter, updated_at)
+                        VALUES (1, 'default', :new_counter, :now_str)
+                        ON CONFLICT (id) DO UPDATE SET
+                            counter = :new_counter,
+                            updated_at = excluded.updated_at
+                        """
+                    ),
+                    {"new_counter": new_counter, "now_str": now_str},
+                )
+                self._write_recovery_sidecar(new_counter)
+            elif self._recovery_file is not None and db_counter > sidecar_counter:
+                self._write_recovery_sidecar(db_counter)
 
     def close(self) -> None:
         if self._owns_engine:
@@ -417,6 +477,7 @@ class SQLAlchemyApprovalStore(ApprovalStore):
 
         try:
             with self._engine.begin() as conn:
+                self._sync_recovery_counter_with_conn(conn, increment=False)
                 # Check duplicate approval_id or request_id
                 existing_by_id = conn.execute(
                     select(self._records_table.c.approval_id).where(
@@ -516,7 +577,8 @@ class SQLAlchemyApprovalStore(ApprovalStore):
             raise CorruptApprovalRecordError("invalid approval_id lookup")
 
         try:
-            with self._engine.connect() as conn:
+            with self._engine.begin() as conn:
+                self._sync_recovery_counter_with_conn(conn, increment=False)
                 return self._get_with_conn(conn, approval_id)
         except ApprovalStoreError:
             raise
