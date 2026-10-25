@@ -26,6 +26,11 @@ from dmint.cli.errors import (
     PolicyValidationError,
 )
 from dmint.cli.io_utils import atomic_write_json, atomic_write_policy_json, load_system_prompt
+from dmint.cli.ui import (
+    DmintHelpFormatter,
+    interactive_rule_builder,
+    parse_cli_rule_spec,
+)
 from dmint.cli.verify_policy import verify_policy_file
 
 
@@ -236,8 +241,30 @@ def run_create_policy_wizard(
     if is_tty and not tools_file:
         print("What are you protecting?\n")
         print("  1. External MCP server")
-        print("  2. Local tools/source\n")
-        mode_choice = input("Select mode [1/2, default 2]: ").strip()
+        print("  2. Local tools/source")
+        print("  3. Interactive rule builder (Offline, no API key required)")
+        print("  4. Built-in domain templates (Offline: shell, filesystem, postgres, github, stripe, aws, kubernetes)\n")
+        mode_choice = input("Select mode [1-4, default 2]: ").strip()
+        if mode_choice == "3":
+            built_rules = interactive_rule_builder()
+            verified_policy = Policy.from_mapping({"rules": built_rules})
+            atomic_write_policy_json(json_path, verified_policy)
+            verify_policy_file(json_path)
+            print(f"\n✓ Verified & saved: {json_path}\n")
+            return verified_policy
+        if mode_choice == "4":
+            from dmint.templates import AVAILABLE_TEMPLATES, deduplicate_policy_dict, get_template_dict
+            tpl_in = input(f"Enter comma-separated templates ({', '.join(AVAILABLE_TEMPLATES)}, or all) [default: shell,filesystem]: ").strip() or "shell,filesystem"
+            names = list(AVAILABLE_TEMPLATES) if tpl_in.lower() == "all" else [x.strip().lower() for x in tpl_in.split(",") if x.strip()]
+            combined: list[dict[str, Any]] = []
+            for n in names:
+                combined.extend(get_template_dict(n).get("rules", []))
+            merged = deduplicate_policy_dict({"rules": combined, "strict_arguments": False})
+            verified_policy = Policy.from_mapping({"rules": merged["rules"]})
+            atomic_write_policy_json(json_path, verified_policy)
+            verify_policy_file(json_path)
+            print(f"\n✓ Verified & saved: {json_path} ({len(verified_policy.rules)} rules)\n")
+            return verified_policy
         if mode_choice == "1":
             from dmint.cli.create_mcp_policy import run_create_mcp_policy_wizard
 
@@ -499,11 +526,53 @@ def run_create_policy_wizard(
 def main_create(args: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="dmint create-policy",
-        description="General policy authoring wizard: interactive multi-turn assistant to turn natural language requirements into verified Dmint policy files.",
+        formatter_class=DmintHelpFormatter,
+        description="Create and verify a Dmint policy.json file (via starter templates, inline CLI rules, interactive offline builder, or AI wizard).",
+        epilog="""Examples:
+  # 1. Instant offline policy from domain templates:
+  dmint create-policy --template shell,filesystem,postgres -o policy.json
+
+  # 2. Instant offline policy from inline rule flags:
+  dmint create-policy -r "allow:postgres.select:*" -r "approval_required:stripe.create_refund:*" -r "deny:shell.execute:rm -rf *" -o policy.json
+
+  # 3. Interactive step-by-step offline rule builder (no API key required):
+  dmint create-policy --interactive -o policy.json
+
+  # 4. AI-assisted policy generation from inline prompt or markdown file:
+  dmint create-policy --prompt "Allow reading src/**, require approval for git push, deny .env" -o policy.json
+  dmint create-policy -f access.md -o policy.json
+""",
     )
-    parser.add_argument("-f", "--file", required=True, help="Input developer intent markdown file (e.g. access.md)")
-    parser.add_argument("-o", "--output", required=True, help="Output verified policy JSON file (e.g. policy.json)")
-    parser.add_argument("--tools", help="Optional path to tool source file (for compatibility)")
+    parser.add_argument("-f", "--file", help="Input developer intent markdown file (e.g. access.md)")
+    parser.add_argument("-o", "--output", help="Output verified policy JSON file (default: policy.json)")
+    parser.add_argument("-p", "--prompt", help="Inline natural-language policy requirements (alternative to -f)")
+    parser.add_argument(
+        "-t",
+        "--template",
+        "--templates",
+        dest="templates",
+        help="Offline creation from comma-separated templates (shell,filesystem,postgres,github,stripe,aws,kubernetes,all)",
+    )
+    parser.add_argument(
+        "-r",
+        "--rule",
+        dest="rules",
+        action="append",
+        help="Offline rule spec '<effect>:<tool>.<action>[:<resource>[:<kind>]]' (repeatable)",
+    )
+    parser.add_argument(
+        "-i",
+        "--interactive",
+        action="store_true",
+        help="Launch interactive offline rule-by-rule policy builder (zero LLM required)",
+    )
+    parser.add_argument(
+        "--from-logs",
+        dest="from_logs",
+        default=None,
+        help="Auto-learn a verified least-privilege policy.json from an audit.jsonl file (offline, zero LLM required)",
+    )
+    parser.add_argument("--tools", help="Optional path to tool source file for static AST discovery")
     parser.add_argument("-provider", "--provider", help="LLM provider (e.g. openai, gemini, groq, openrouter, ollama)")
     parser.add_argument(
         "-base_url", "--base-url", help="OpenAI-compatible base URL (default: https://api.openai.com/v1)"
@@ -519,10 +588,107 @@ def main_create(args: list[str] | None = None) -> int:
     except SystemExit as exc:
         return exc.code if isinstance(exc.code, int) else 0
 
+    has_offline_mode = bool(parsed.templates or parsed.rules or parsed.interactive or parsed.from_logs)
+    has_prompt_mode = bool(parsed.prompt)
+
+    # Preserve strict argparse required-flag contract when neither -f, -o, nor any shorthand mode is provided
+    if not parsed.file and not has_offline_mode and not has_prompt_mode:
+        missing: list[str] = []
+        if not parsed.file:
+            missing.append("-f/--file")
+        if not parsed.output:
+            missing.append("-o/--output")
+        parser.print_usage(sys.stderr)
+        print(
+            f"dmint create-policy: error: the following arguments are required: {', '.join(missing)} "
+            "(or use --template, --rule, --interactive, or --prompt)",
+            file=sys.stderr,
+        )
+        return 2
+
+    if parsed.file and not parsed.output and not has_offline_mode and not has_prompt_mode:
+        parser.print_usage(sys.stderr)
+        print("dmint create-policy: error: the following arguments are required: -o/--output", file=sys.stderr)
+        return 2
+
+    out_path = Path(parsed.output or "policy.json").resolve()
+
     try:
+        if has_offline_mode:
+            from dmint.templates import AVAILABLE_TEMPLATES, deduplicate_policy_dict, get_template_dict
+
+            collected_rules: list[dict[str, Any]] = []
+            if parsed.templates:
+                raw_tpls = [x.strip().lower() for x in parsed.templates.split(",") if x.strip()]
+                chosen: list[str] = []
+                for t_name in raw_tpls:
+                    if t_name == "all":
+                        for a in AVAILABLE_TEMPLATES:
+                            if a not in chosen:
+                                chosen.append(a)
+                    elif t_name in AVAILABLE_TEMPLATES:
+                        if t_name not in chosen:
+                            chosen.append(t_name)
+                    else:
+                        raise CLIError(
+                            f"Unknown template '{t_name}'. Available templates: {', '.join(AVAILABLE_TEMPLATES)}, all",
+                            exit_code=2,
+                        )
+                for c_name in chosen:
+                    collected_rules.extend(get_template_dict(c_name).get("rules", []))
+
+            if parsed.rules:
+                for spec in parsed.rules:
+                    try:
+                        collected_rules.append(parse_cli_rule_spec(spec))
+                    except ValueError as ve:
+                        raise CLIError(str(ve), exit_code=2) from ve
+
+            if parsed.interactive:
+                collected_rules.extend(interactive_rule_builder())
+            if parsed.from_logs:
+                from dmint.core.audit import learn_policy_from_audit_logs
+                log_p = Path(parsed.from_logs).resolve()
+                if not log_p.exists():
+                    raise CLIError(f"Audit log file not found: {log_p}", exit_code=2)
+                collected_rules.extend(learn_policy_from_audit_logs(log_p))
+
+            merged = deduplicate_policy_dict({"rules": collected_rules, "strict_arguments": False})
+            verified_policy = Policy.from_mapping({"rules": merged["rules"]})
+            atomic_write_policy_json(out_path, verified_policy)
+            verify_policy_file(out_path)
+            print(f"✓ Verified & saved: {out_path} ({len(verified_policy.rules)} rule(s))")
+            return 0
+
+        if has_prompt_mode and not parsed.file:
+            import tempfile
+
+            with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False, encoding="utf-8") as tf:
+                tf.write(str(parsed.prompt).strip() + "\n")
+                tmp_md = Path(tf.name)
+            try:
+                run_create_policy_wizard(
+                    access_md_file=tmp_md,
+                    output_json_file=out_path,
+                    tools_file=parsed.tools,
+                    base_url=parsed.base_url,
+                    api_key=parsed.api_key,
+                    model=parsed.model,
+                    provider=parsed.provider,
+                    non_interactive=parsed.non_interactive,
+                    auto_confirm=parsed.yes,
+                    timeout=parsed.timeout,
+                )
+            finally:
+                try:
+                    tmp_md.unlink()
+                except OSError:
+                    pass
+            return 0
+
         run_create_policy_wizard(
             access_md_file=parsed.file,
-            output_json_file=parsed.output,
+            output_json_file=out_path,
             tools_file=parsed.tools,
             base_url=parsed.base_url,
             api_key=parsed.api_key,

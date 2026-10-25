@@ -15,6 +15,8 @@ Each harness automatically receives its own dedicated built-in policy file in
 
 from __future__ import annotations
 
+from dmint.cli.ui import DmintHelpFormatter
+
 import argparse
 from datetime import datetime, timedelta, timezone
 import json
@@ -808,8 +810,13 @@ def evaluate_hook_request(
     agent_id: str | None = None,
     deployment_epoch: str | None = None,
     workspace_dir: Path | None = None,
+    mode: str | None = None,
+    log_level: str | None = None,
+    audit_log_path: Path | str | None = None,
 ) -> dict[str, Any]:
     """Evaluate a pre-tool hook event deterministically against policy and approval store."""
+    import time as _time
+    _t0 = _time.perf_counter()
     norm_harness = normalize_harness_name(harness)
     raw_native_tool, unpacked_args, detected_ws = _unpack_harness_envelope(payload)
     base = (workspace_dir or detected_ws or Path.cwd()).resolve()
@@ -927,31 +934,87 @@ def evaluate_hook_request(
     capability_id = f"{tool}.{action}"
     hook_event_name = str(payload.get("hook_event_name") or payload.get("agent_action_name") or "PreToolUse")
 
-    if decision is Decision.ALLOW:
-        reason = f"Dmint ALLOW: {capability_id} on '{res_display}'"
+    eff_mode = (mode or os.environ.get("DMINT_MODE") or "enforce").strip().lower()
+    if eff_mode not in ("enforce", "shadow"):
+        eff_mode = "enforce"
+
+    def _finish_hook(
+        *,
+        final_dec: Decision,
+        final_code: str,
+        final_reason: str,
+        final_apr_id: str | None = None,
+        final_consumed: bool = False,
+        shadow_blocked: bool = False,
+        orig_dec: Decision | None = None,
+    ) -> dict[str, Any]:
+        from dmint.core.audit import AuditLogger
+        lat_ms = (_time.perf_counter() - _t0) * 1000.0
+        target_audit = Path(audit_log_path).resolve() if audit_log_path else (base / ".dmint" / "audit.jsonl")
+        try:
+            alog = AuditLogger(log_path=target_audit, min_level=log_level)
+            logged_dec = "CONSUMED" if final_consumed else (orig_dec.value if orig_dec is not None else final_dec.value)
+            alog.log_event(
+                decision=logged_dec,
+                tool=tool,
+                action=action,
+                resource=resource if isinstance(resource, str) else None,
+                code=final_code,
+                harness=norm_harness,
+                agent_id=effective_agent,
+                mode=eff_mode,
+                shadow_would_block=shadow_blocked,
+                approval_id=final_apr_id,
+                latency_ms=lat_ms,
+                arguments=arguments,
+                details={"native_tool": raw_native_tool, "policy_file": str(p_path.name)},
+            )
+        except Exception:
+            pass
         return _build_hook_result(
             harness=norm_harness,
-            decision=Decision.ALLOW,
-            code=code or "DMT_ALLOWED",
+            decision=final_dec,
+            code=final_code,
             tool=tool,
             action=action,
             resource=resource if isinstance(resource, str) else None,
-            reason=reason,
+            reason=final_reason,
+            approval_id=final_apr_id,
+            consumed_approval=final_consumed,
             hook_event_name=hook_event_name,
+            mode=eff_mode,
+            shadow_would_block=shadow_blocked,
+        )
+
+    if decision is Decision.ALLOW:
+        reason = f"Dmint ALLOW: {capability_id} on '{res_display}'"
+        return _finish_hook(
+            final_dec=Decision.ALLOW,
+            final_code=code or "DMT_ALLOWED",
+            final_reason=reason,
+        )
+
+    if eff_mode == "shadow":
+        orig_code = code or ("DMT_POLICY_DENIED" if decision is Decision.DENY else "DMT_APPROVAL_REQUIRED")
+        reason = (
+            f"Dmint SHADOW ALLOW (would {decision.value} [{orig_code}]): "
+            f"{capability_id} on '{res_display}' logged to audit.jsonl"
+        )
+        return _finish_hook(
+            final_dec=Decision.ALLOW,
+            final_code=orig_code,
+            final_reason=reason,
+            shadow_blocked=True,
+            orig_dec=decision,
         )
 
     if decision is Decision.DENY:
         err_code = code or "DMT_POLICY_DENIED"
         reason = f"Dmint DENY [{err_code}]: {capability_id} on '{res_display}' is blocked by policy."
-        return _build_hook_result(
-            harness=norm_harness,
-            decision=Decision.DENY,
-            code=err_code,
-            tool=tool,
-            action=action,
-            resource=resource if isinstance(resource, str) else None,
-            reason=reason,
-            hook_event_name=hook_event_name,
+        return _finish_hook(
+            final_dec=Decision.DENY,
+            final_code=err_code,
+            final_reason=reason,
         )
 
     # Decision.APPROVAL_REQUIRED: Check or persist in SQLiteApprovalStore
@@ -1039,32 +1102,22 @@ def evaluate_hook_request(
                         f"Dmint ALLOW (Approved retry consumed single-use credential {approved_rec.approval_id}): "
                         f"{capability_id} on '{res_display}'"
                     )
-                    return _build_hook_result(
-                        harness=norm_harness,
-                        decision=Decision.ALLOW,
-                        code="DMT_APPROVAL_CONSUMED_ALLOW",
-                        tool=tool,
-                        action=action,
-                        resource=resource if isinstance(resource, str) else None,
-                        reason=reason,
-                        approval_id=approved_rec.approval_id,
-                        consumed_approval=True,
-                        hook_event_name=hook_event_name,
+                    return _finish_hook(
+                        final_dec=Decision.ALLOW,
+                        final_code="DMT_APPROVAL_CONSUMED_ALLOW",
+                        final_reason=reason,
+                        final_apr_id=approved_rec.approval_id,
+                        final_consumed=True,
                     )
                 except ApprovalConsumedError:
                     pass
                 except ApprovalError as exc:
                     err_code = getattr(exc, "code", "DMT_APPROVAL_CREDENTIAL_INVALID")
-                    return _build_hook_result(
-                        harness=norm_harness,
-                        decision=Decision.DENY,
-                        code=err_code,
-                        tool=tool,
-                        action=action,
-                        resource=resource if isinstance(resource, str) else None,
-                        reason=f"Dmint DENY [{err_code}]: {exc}",
-                        approval_id=approved_rec.approval_id,
-                        hook_event_name=hook_event_name,
+                    return _finish_hook(
+                        final_dec=Decision.DENY,
+                        final_code=err_code,
+                        final_reason=f"Dmint DENY [{err_code}]: {exc}",
+                        final_apr_id=approved_rec.approval_id,
                     )
 
         # Otherwise persist pending approval record
@@ -1086,16 +1139,11 @@ def evaluate_hook_request(
             f"Dmint APPROVAL_REQUIRED [{persisted.approval_id}]: {capability_id} on '{res_display}' "
             f"requires human sign-off. To approve, run: `{approve_cmd}` (or use `dmint dashboard`), then retry."
         )
-        return _build_hook_result(
-            harness=norm_harness,
-            decision=Decision.APPROVAL_REQUIRED,
-            code="DMT_APPROVAL_REQUIRED",
-            tool=tool,
-            action=action,
-            resource=resource if isinstance(resource, str) else None,
-            reason=reason,
-            approval_id=persisted.approval_id,
-            hook_event_name=hook_event_name,
+        return _finish_hook(
+            final_dec=Decision.APPROVAL_REQUIRED,
+            final_code="DMT_APPROVAL_REQUIRED",
+            final_reason=reason,
+            final_apr_id=persisted.approval_id,
         )
     finally:
         store.close()
@@ -1113,6 +1161,8 @@ def _build_hook_result(
     approval_id: str | None = None,
     consumed_approval: bool = False,
     hook_event_name: str = "PreToolUse",
+    mode: str = "enforce",
+    shadow_would_block: bool = False,
 ) -> dict[str, Any]:
     dmint_meta: dict[str, Any] = {
         "decision": decision.value,
@@ -1122,6 +1172,8 @@ def _build_hook_result(
         "resource": resource,
         "approval_id": approval_id,
         "consumed_approval": consumed_approval,
+        "mode": mode,
+        "shadow_would_block": shadow_would_block,
     }
     perm_map = {
         Decision.ALLOW: "allow",
@@ -1226,6 +1278,8 @@ def _build_hook_result(
         "resource": resource,
         "approval_id": approval_id,
         "consumed_approval": consumed_approval,
+        "mode": mode,
+        "shadow_would_block": shadow_would_block,
         "reason": reason,
         "harness_output": harness_output,
     }
@@ -1642,14 +1696,28 @@ def get_harness_hook_status(workspace_dir: Path | None = None) -> dict[str, bool
 
 def main_hook(args: list[str] | None = None) -> int:
     """CLI entrypoint for `dmint hook <install|run|status|uninstall>`."""
+    if args and args[0] == "list":
+        args = ["status", *args[1:]]
     parser = argparse.ArgumentParser(
         prog="dmint hook",
+        formatter_class=DmintHelpFormatter,
         description="Manage and execute Dmint pre-tool hooks for Claude Code, Codex, OpenCode, Cursor, Windsurf, and Cline.",
+        epilog="""Examples:
+  dmint hook install --harness all
+  dmint hook install --harness claude-code,cursor --templates shell,filesystem,postgres
+  dmint hook status
+  dmint hook run --harness claude-code --input '{"tool_name":"Bash","tool_input":{"command":"git status"}}'
+  dmint hook uninstall --harness all
+""",
     )
     sub = parser.add_subparsers(dest="subcommand", help="Hook subcommand")
 
     # dmint hook install
-    p_install = sub.add_parser("install", help="Install pre-tool hooks for one or more AI coding harnesses")
+    p_install = sub.add_parser(
+        "install",
+        formatter_class=DmintHelpFormatter,
+        help="Install pre-tool hooks for one or more AI coding harnesses",
+    )
     p_install.add_argument(
         "--harness",
         "--agent",
@@ -1671,7 +1739,7 @@ def main_hook(args: list[str] | None = None) -> int:
     )
 
     # dmint hook run
-    p_run = sub.add_parser("run", help="Evaluate a pre-tool hook JSON payload from stdin or --input")
+    p_run = sub.add_parser("run", formatter_class=DmintHelpFormatter, help="Evaluate a pre-tool hook JSON payload from stdin or --input")
     p_run.add_argument(
         "--harness",
         "--agent",
@@ -1688,14 +1756,30 @@ def main_hook(args: list[str] | None = None) -> int:
         action="store_true",
         help="Exit with code 2 on APPROVAL_REQUIRED even for harnesses supporting interactive 'ask'",
     )
+    p_run.add_argument(
+        "--mode",
+        choices=["enforce", "shadow"],
+        default=None,
+        help="Enforcement mode: enforce (default) or shadow (log would-be blocks to audit.jsonl without blocking)",
+    )
+    p_run.add_argument(
+        "--log-level",
+        default=None,
+        help="Minimum audit log level: DEBUG, INFO, WARNING, ERROR, CRITICAL (or set DMINT_LOG_LEVEL)",
+    )
+    p_run.add_argument(
+        "--audit-log",
+        default=None,
+        help="Path to audit.jsonl file (default: .dmint/audit.jsonl)",
+    )
 
     # dmint hook status
-    p_status = sub.add_parser("status", help="Show installed harness hooks in the current workspace")
+    p_status = sub.add_parser("status", formatter_class=DmintHelpFormatter, help="Show installed harness hooks in the current workspace")
     p_status.add_argument("--dir", default=None, help="Target workspace directory (default: current directory)")
     p_status.add_argument("--json", dest="output_json", action="store_true", help="Output status as JSON")
 
     # dmint hook uninstall
-    p_un = sub.add_parser("uninstall", help="Remove Dmint hooks from harness configuration files")
+    p_un = sub.add_parser("uninstall", formatter_class=DmintHelpFormatter, help="Remove Dmint hooks from harness configuration files")
     p_un.add_argument("--harness", "--agent", default="all", help="Harness to uninstall (default: all)")
     p_un.add_argument("--global", dest="global_install", action="store_true", help="Uninstall from user home config")
     p_un.add_argument("--dir", default=None, help="Target workspace directory (default: current directory)")
@@ -1792,6 +1876,9 @@ def main_hook(args: list[str] | None = None) -> int:
                 db_path=parsed.db_path,
                 agent_id=parsed.agent_id,
                 deployment_epoch=parsed.deployment_epoch,
+                mode=parsed.mode,
+                log_level=parsed.log_level,
+                audit_log_path=parsed.audit_log,
             )
         except Exception as exc:
             # Fail closed on any malformed input or missing policy
@@ -1822,13 +1909,21 @@ def main_check(args: list[str] | None = None) -> int:
     """CLI entrypoint for `dmint check` / `dmint test-policy`."""
     parser = argparse.ArgumentParser(
         prog="dmint check",
+        formatter_class=DmintHelpFormatter,
         description="Simulate and test a tool call against a Dmint policy.json from the terminal.",
+        epilog="""Examples:
+  dmint check -t shell.execute -r "git status"
+  dmint check shell.execute -r "rm -rf /"
+  dmint check -t filesystem.read_file -r ".env"
+  dmint check -t postgres.select -a '{"sql":"SELECT * FROM users"}'
+""",
     )
+    parser.add_argument("capability_pos", nargs="?", default=None, help="Optional positional '<tool>.<action>' (alternative to --tool)")
     parser.add_argument("--policy", "-p", default="policy.json", help="Path to policy.json (default: policy.json)")
     parser.add_argument(
         "--tool",
         "-t",
-        required=True,
+        default=None,
         help="Tool and action (e.g. 'shell.execute' or 'filesystem') — if no dot, provide --action",
     )
     parser.add_argument("--action", "-a", default=None, help="Action name if --tool does not contain a dot")
@@ -1847,6 +1942,13 @@ def main_check(args: list[str] | None = None) -> int:
         parsed = parser.parse_args(args)
     except SystemExit as exc:
         return exc.code if isinstance(exc.code, int) else (0 if exc.code is None else 1)
+
+    if not parsed.tool and parsed.capability_pos:
+        parsed.tool = parsed.capability_pos
+    if not parsed.tool:
+        parser.print_usage(sys.stderr)
+        print("dmint check: error: the following arguments are required: --tool/-t (or positional <tool.action>)", file=sys.stderr)
+        return 2
 
     try:
         policy = Policy.from_file(parsed.policy)
@@ -1974,7 +2076,13 @@ def main_init(args: list[str] | None = None) -> int:
     """CLI entrypoint for `dmint init`: zero-config 1-command project bootstrap."""
     parser = argparse.ArgumentParser(
         prog="dmint init",
+        formatter_class=DmintHelpFormatter,
         description="Initialize Dmint in the current project (keys, per-harness policies, starter policy.json, and agent harness hooks).",
+        epilog="""Examples:
+  dmint init
+  dmint init --harness all --templates all
+  dmint init --harness claude-code,cursor --templates shell,filesystem,postgres
+""",
     )
     parser.add_argument("--policy", "-o", default="policy.json", help="Output policy file (default: policy.json)")
     parser.add_argument(
@@ -2063,7 +2171,13 @@ def main_doctor(args: list[str] | None = None) -> int:
     """CLI entrypoint for `dmint doctor`: end-to-end workspace diagnostic and security self-test."""
     parser = argparse.ArgumentParser(
         prog="dmint doctor",
+        formatter_class=DmintHelpFormatter,
         description="Verify Dmint keys, SQLite approval store, per-harness policies, hooks, and run a live 4-vector security self-test.",
+        epilog="""Examples:
+  dmint doctor
+  dmint doctor --harness claude-code
+  dmint doctor --json
+""",
     )
     parser.add_argument("--dir", default=None, help="Target workspace directory (default: current directory)")
     parser.add_argument("--policy", default="policy.json", help="Path to policy.json (default: policy.json)")

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+from dmint.cli.ui import DmintHelpFormatter
+
 import argparse
 import getpass
 import os
@@ -86,8 +89,6 @@ def _get_store(
     if integrity_key is None and not os.environ.get("DMINT_INTEGRITY_KEY") and not os.environ.get("DMINT_INTEGRITY_KEY_FILE"):
         if target_sqlite and (Path(target_sqlite).parent / "integrity.key").exists():
             integrity_key = Path(target_sqlite).parent / "integrity.key"
-        elif Path(".dmint/integrity.key").exists():
-            integrity_key = Path(".dmint/integrity.key")
 
     return create_approval_store(
         database_url=target_url,
@@ -172,9 +173,10 @@ def _resolve_current_policy(
 
 def _resolve_approval_id(store: ApprovalStore, raw_id: str) -> str:
     """Resolve either an approval_id (apr_...) or request_id (req_...) to approval_id."""
-    if raw_id.startswith("req_") and hasattr(store, "_connection"):
+    raw_conn = getattr(store, "_connection", None)
+    if raw_id.startswith("req_") and raw_conn is not None:
         try:
-            row = store._connection.execute(
+            row = raw_conn.execute(
                 "SELECT approval_id FROM approval_records WHERE request_id = ?",
                 (raw_id,),
             ).fetchone()
@@ -189,8 +191,15 @@ def main_pending(args: list[str] | None = None) -> int:
     """List all approvals currently in PENDING state."""
     parser = argparse.ArgumentParser(
         prog="dmint pending",
+        formatter_class=DmintHelpFormatter,
         description="List all approvals currently in PENDING state.",
+        epilog="""Examples:
+  dmint pending
+  dmint pending --json
+  dmint pending --db .dmint/approvals.sqlite3
+""",
     )
+    parser.add_argument("--json", dest="output_json", action="store_true", help="Output pending records as JSON")
     parser.add_argument(
         "--db-path",
         default=None,
@@ -236,6 +245,25 @@ def main_pending(args: list[str] | None = None) -> int:
             pending_records = store.list_pending(limit=parsed.limit)
 
             active_epoch = parsed.deployment_epoch or os.environ.get("DMINT_DEPLOYMENT_EPOCH", "default")
+            if getattr(parsed, "output_json", False):
+                print(
+                    json.dumps(
+                        [
+                            {
+                                "approval_id": r.approval_id,
+                                "request_id": r.request_id,
+                                "capability_id": r.capability_id,
+                                "resource": r.request.resource if isinstance(r.request.resource, str) else None,
+                                "agent_id": r.request.agent_id,
+                                "created_at": r.created_at.isoformat(),
+                                "expires_at": r.expires_at.isoformat(),
+                            }
+                            for r in pending_records
+                        ],
+                        indent=2,
+                    )
+                )
+                return 0
             if not pending_records:
                 print(
                     f"No pending approvals found. (epoch: {active_epoch}) — "
@@ -281,7 +309,12 @@ def main_approve(args: list[str] | None = None) -> int:
     """Approve a pending approval request."""
     parser = argparse.ArgumentParser(
         prog="dmint approve",
+        formatter_class=DmintHelpFormatter,
         description="Approve a pending tool execution request.",
+        epilog="""Examples:
+  dmint approve apr_... --by alice@company.com
+  dmint approve req_... --by secops@company.com --reason "Verified release tag"
+""",
     )
     parser.add_argument("approval_id", help="The unique approval ID (apr_...) to approve")
     parser.add_argument("--reason", default=None, help="Optional audit note/reason for approval")
@@ -404,6 +437,23 @@ def main_approve(args: list[str] | None = None) -> int:
                 assertion = authority.issue(record, approver)
                 Path(parsed.output_assertion).write_bytes(assertion.to_bytes())
 
+            try:
+                from dmint.core.audit import AuditLogger
+                if Path(".dmint").is_dir() or os.environ.get("DMINT_AUDIT_LOG"):
+                    AuditLogger().log_event(
+                        decision="APPROVED",
+                        tool=record.request.tool,
+                        action=record.request.action,
+                        resource=record.request.resource if isinstance(record.request.resource, str) else None,
+                        code="DMT_APPROVED",
+                        harness=record.integration_id,
+                        agent_id=record.request.agent_id,
+                        event_type="approval_lifecycle",
+                        approval_id=target_id,
+                        details={"approved_by": approver_id, "reason": parsed.reason or ""},
+                    )
+            except Exception:
+                pass
             print(f"✓ Approved '{parsed.approval_id}' ({record.capability_id}) successfully.")
             if parsed.reason:
                 print(f"  Reason: {parsed.reason}")
@@ -437,7 +487,11 @@ def main_reject(args: list[str] | None = None) -> int:
     """Reject a pending approval request."""
     parser = argparse.ArgumentParser(
         prog="dmint reject",
+        formatter_class=DmintHelpFormatter,
         description="Reject a pending tool execution request.",
+        epilog="""Examples:
+  dmint reject apr_... --by secops@company.com --reason "Unauthorized production change"
+""",
     )
     parser.add_argument("approval_id", help="The unique approval ID (apr_...) to reject")
     parser.add_argument("--reason", default=None, help="Optional audit note/reason for rejection")
@@ -518,6 +572,23 @@ def main_reject(args: list[str] | None = None) -> int:
                 reason=parsed.reason,
             )
 
+            try:
+                from dmint.core.audit import AuditLogger
+                if Path(".dmint").is_dir() or os.environ.get("DMINT_AUDIT_LOG"):
+                    AuditLogger().log_event(
+                        decision="REJECTED",
+                        tool=record.request.tool,
+                        action=record.request.action,
+                        resource=record.request.resource if isinstance(record.request.resource, str) else None,
+                        code="DMT_REJECTED",
+                        harness=record.integration_id,
+                        agent_id=record.request.agent_id,
+                        event_type="approval_lifecycle",
+                        approval_id=target_id,
+                        details={"rejected_by": approver_id, "reason": parsed.reason or ""},
+                    )
+            except Exception:
+                pass
             print(f"✓ Rejected '{parsed.approval_id}' ({record.capability_id}) successfully.")
             if parsed.reason:
                 print(f"  Reason: {parsed.reason}")
