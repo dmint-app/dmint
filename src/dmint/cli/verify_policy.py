@@ -7,9 +7,10 @@ import json
 import sys
 from pathlib import Path
 
-from dmint.policy import Policy, PolicyError
 from dmint.cli.errors import CLIError, InputFileError, JSONExtractionError, PolicyValidationError
 from dmint.cli.limits import MAX_POLICY_FILE_SIZE_BYTES
+from dmint.cli.ui import DmintHelpFormatter
+from dmint.policy import Policy, PolicyError, policy_digest
 
 
 def verify_policy_file(policy_file: str | Path) -> Policy:
@@ -56,7 +57,13 @@ def print_policy_summary(policy: Policy, policy_file: str | Path) -> None:
 def main_verify(args: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="dmint verify-policy",
+        formatter_class=DmintHelpFormatter,
         description="Verify a policy.json file against Dmint schema and semantic invariants (100% offline, zero network, LLM-free).",
+        epilog="""Examples:
+  dmint verify-policy policy.json
+  dmint verify-policy -f .dmint/policies/claude-code.policy.json
+  dmint verify-policy policy.json --json
+""",
     )
     parser.add_argument(
         "file",
@@ -66,8 +73,15 @@ def main_verify(args: list[str] | None = None) -> int:
     parser.add_argument(
         "-f",
         "--file",
+        "-p",
+        "--policy",
         dest="file_option",
         help="Path to policy.json file to verify",
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Output verification summary as JSON",
     )
 
     try:
@@ -86,7 +100,20 @@ def main_verify(args: list[str] | None = None) -> int:
 
     try:
         policy = verify_policy_file(target_file)
-        print_policy_summary(policy, target_file)
+        if parsed.json:
+            print(
+                json.dumps(
+                    {
+                        "valid": True,
+                        "file": str(target_file),
+                        "rules_count": len(policy.rules),
+                        "policy_digest": policy_digest(policy),
+                    },
+                    indent=2,
+                )
+            )
+        else:
+            print_policy_summary(policy, target_file)
         return 0
     except CLIError as exc:
         print(f"✗ Verification failed: {exc}", file=sys.stderr)

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dmint.cli.ui import DmintHelpFormatter
+
 import argparse
 import os
 from pathlib import Path
@@ -179,7 +181,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="dmint install-skill",
         description="Install the Dmint AI agent skill into your project workspace or global agent configuration.",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
+        formatter_class=DmintHelpFormatter,
         epilog="""Examples:
   dmint install-skill                         # Interactive wizard or installs to .agents/skills/
   dmint install-skill -y                      # Non-interactive, installs to default .agents/skills/
@@ -243,7 +245,10 @@ def build_parser() -> argparse.ArgumentParser:
 def main_install_skill(argv: list[str] | None = None) -> int:
     """Main entry point for dmint install-skill subcommand."""
     parser = build_parser()
-    args = parser.parse_args(argv)
+    try:
+        args = parser.parse_args(argv)
+    except SystemExit as exc:
+        return exc.code if isinstance(exc.code, int) else 0
 
     if args.list_skills:
         print("Available Dmint Agent Skills:")

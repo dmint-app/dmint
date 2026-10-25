@@ -917,3 +917,132 @@ def test_uncharted_real_world_and_adversarial_edges(tmp_path: Path) -> None:
     )
     assert forgery_retry["decision"] == "DENY"
     assert "SIGNATURE_INVALID" in forgery_retry["code"]
+
+
+class TestModernCLIUX(unittest.TestCase):
+    """Verify v2.0.4 CLI modernization: help screens, offline policy authoring, positional check, --dir, and --json."""
+
+    def setUp(self) -> None:
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.tmp_path = Path(self._tmpdir.name)
+        self._orig_cwd = os.getcwd()
+        os.chdir(self.tmp_path)
+
+    def tearDown(self) -> None:
+        os.chdir(self._orig_cwd)
+        self._tmpdir.cleanup()
+
+    def test_all_help_screens_and_hook_install_bugfix(self) -> None:
+        """Verify all 25 CLI --help / -h / help screens exit 0 including hook install --help and hook list --help."""
+        help_cmds = [
+            ["--help"], ["-h"], ["help", "create-policy"], ["help", "hook"],
+            ["init", "--help"], ["check", "--help"], ["status", "--help"], ["doctor", "--help"],
+            ["hook", "--help"], ["hook", "install", "--help"], ["hook", "uninstall", "--help"],
+            ["hook", "status", "--help"], ["hook", "list", "--help"], ["hook", "run", "--help"],
+            ["create-policy", "--help"], ["compile-policy", "--help"], ["create-mcp-policy", "--help"],
+            ["verify-policy", "--help"], ["policy-digest", "--help"],
+            ["approve", "--help"], ["deny", "--help"], ["pending", "--help"], ["dashboard", "--help"],
+            ["init-keys", "--help"], ["export-public-key", "--help"], ["install-skill", "--help"],
+        ]
+        for cmd in help_cmds:
+            rc, out, err = _run_cli(cmd)
+            self.assertEqual(rc, 0, f"Help failed for {cmd}: rc={rc}, out={out}, err={err}")
+            self.assertIn("usage:", out.lower() + err.lower(), f"Missing usage in {cmd}")
+
+    def test_create_policy_offline_templates_and_rules(self) -> None:
+        """Verify dmint create-policy --template and --rule work 100% offline without -f or LLM API key."""
+        out_tpl = self.tmp_path / "tpl_policy.json"
+        rc1, out1, err1 = _run_cli(["create-policy", "--template", "postgres,stripe", "-o", str(out_tpl)])
+        self.assertEqual(rc1, 0, f"create-policy --template failed: {out1}\n{err1}")
+        self.assertTrue(out_tpl.exists())
+        data1 = json.loads(out_tpl.read_text())
+        self.assertGreaterEqual(len(data1["rules"]), 4)
+
+        out_rules = self.tmp_path / "rules_policy.json"
+        rc2, out2, err2 = _run_cli([
+            "create-policy",
+            "-r", "allow:postgres.select:users",
+            "-r", "approval_required:stripe.refund:*",
+            "-r", "deny:shell.exec:*:prefix",
+            "-o", str(out_rules),
+        ])
+        self.assertEqual(rc2, 0, f"create-policy -r failed: {out2}\n{err2}")
+        data2 = json.loads(out_rules.read_text())
+        self.assertEqual(len(data2["rules"]), 3)
+        self.assertEqual(data2["rules"][0]["effect"], "allow")
+        self.assertEqual(data2["rules"][1]["effect"], "approval_required")
+        self.assertEqual(data2["rules"][2]["effect"], "deny")
+
+    def test_create_policy_interactive_offline_builder(self) -> None:
+        """Verify dmint create-policy --interactive builds a valid policy offline from prompted rules."""
+        from unittest.mock import patch
+        out_int = self.tmp_path / "interactive_policy.json"
+        # Inputs: tool=postgres, action=select, resource=users, effect=1 (allow), more=n, confirm_save=y
+        inputs = iter(["postgres", "select", "users", "1", "n", "y"])
+        with patch("builtins.input", side_effect=lambda *a: next(inputs)):
+            rc, out, err = _run_cli(["create-policy", "--interactive", "-o", str(out_int)])
+        self.assertEqual(rc, 0, f"create-policy --interactive failed: {out}\n{err}")
+        data = json.loads(out_int.read_text())
+        self.assertEqual(len(data["rules"]), 1)
+        self.assertEqual(data["rules"][0]["tool"], "postgres")
+        self.assertEqual(data["rules"][0]["action"], "select")
+
+    def test_create_mcp_policy_offline_auto_classify(self) -> None:
+        import sys
+        """Verify dmint create-mcp-policy --offline auto-classifies MCP tools and pins schema hashes without an LLM API key."""
+        mock_srv = Path(__file__).resolve().parent.parent / "mcp" / "mock_server.py"
+        pol_out = self.tmp_path / "mcp_policy.json"
+        cfg_out = self.tmp_path / "mcp_protection.json"
+        rc, out, err = _run_cli([
+            "create-mcp-policy",
+            "--command", sys.executable,
+            "--args", str(mock_srv),
+            "--integration-id", "mockdb",
+            "--offline",
+            "-y",
+            "-o", str(pol_out),
+            "--config-output", str(cfg_out),
+        ])
+        self.assertEqual(rc, 0, f"create-mcp-policy --offline failed: {out}\n{err}")
+        pol_data = json.loads(pol_out.read_text())
+        cfg_data = json.loads(cfg_out.read_text())
+        self.assertEqual(len(pol_data["rules"]), 2)
+        effects = {f"{r['tool']}.{r['action']}": r["effect"] for r in pol_data["rules"]}
+        # echo -> allow, delete_database -> approval_required
+        self.assertEqual(effects["mockdb.echo"], "allow")
+        self.assertEqual(effects["mockdb.delete_database"], "approval_required")
+        self.assertIn("echo", pol_data["tool_schemas"])
+        self.assertEqual(len(pol_data["tool_schemas"]["echo"]), 64)
+        self.assertEqual(cfg_data["integrations"][0]["integration_id"], "mockdb")
+
+    def test_check_positional_and_json_outputs_and_keys_dir(self) -> None:
+        """Verify positional dmint check, init-keys --dir, export-public-key --dir --json, verify-policy --json, and policy-digest --json."""
+        pol_path = self.tmp_path / "policy.json"
+        _run_cli(["create-policy", "-r", "allow:postgres.select:users", "-o", str(pol_path)])
+
+        # 1. Positional dmint check <tool.action>
+        rc_chk, out_chk, err_chk = _run_cli(["check", "postgres.select", "-r", "users", "-p", str(pol_path), "--json"])
+        self.assertEqual(rc_chk, 0, f"positional check failed: {out_chk}\n{err_chk}")
+        self.assertEqual(json.loads(out_chk)["decision"], "ALLOW")
+
+        # 2. verify-policy --json
+        rc_ver, out_ver, _ = _run_cli(["verify-policy", str(pol_path), "--json"])
+        self.assertEqual(rc_ver, 0)
+        self.assertTrue(json.loads(out_ver)["valid"])
+
+        # 3. policy-digest --json
+        rc_dig, out_dig, _ = _run_cli(["policy-digest", "-p", str(pol_path), "--json"])
+        self.assertEqual(rc_dig, 0)
+        self.assertEqual(len(json.loads(out_dig)["policy_digest"]), 64)
+
+        # 4. init-keys --dir and export-public-key --dir --json
+        kdir = self.tmp_path / "custom_keys"
+        rc_ik, out_ik, err_ik = _run_cli(["init-keys", "--dir", str(kdir)])
+        self.assertEqual(rc_ik, 0, f"init-keys --dir failed: {out_ik}\n{err_ik}")
+        self.assertTrue((kdir / "signing.key").exists())
+        self.assertTrue((kdir / "integrity.key").exists())
+
+        rc_ek, out_ek, err_ek = _run_cli(["export-public-key", "--dir", str(kdir), "--json"])
+        self.assertEqual(rc_ek, 0, f"export-public-key --dir --json failed: {out_ek}\n{err_ek}")
+        ek_data = json.loads(out_ek)
+        self.assertEqual(len(ek_data["public_key_hex"]), 64)

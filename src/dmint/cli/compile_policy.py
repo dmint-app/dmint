@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dmint.cli.ui import DmintHelpFormatter
+
 import argparse
 import sys
 from pathlib import Path
@@ -47,6 +49,7 @@ def compile_policy_file(
 def main_compile(args: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="dmint compile-policy",
+        formatter_class=DmintHelpFormatter,
         description="[Compatibility] Compile natural language policy requirements into a validated Dmint policy.json file.\n"
         "Note: For modern interactive policy authoring or MCP tool discovery, prefer 'dmint create-policy' or 'dmint create-mcp-policy'.",
     )

@@ -3,43 +3,50 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import secrets
 import sys
 from pathlib import Path
 
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+from dmint.cli.ui import DmintHelpFormatter
 from dmint.core.keys import (
-    DEFAULT_KEY_FILE,
     DEFAULT_INTEGRITY_KEY_FILE,
+    DEFAULT_KEY_FILE,
     KeyExistsError,
     KeyLoadError,
     load_private_key_from_file,
     public_key_hex,
     public_key_pem,
-    write_private_key_atomic,
     write_integrity_key_atomic,
+    write_private_key_atomic,
 )
 
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-# ─── dmint init-keys ───────────────────────────────────────────────────────────
-
-
-def main_init_keys(args: list[str]) -> int:
+def main_init_keys(args: list[str] | None = None) -> int:
     """Generate and persist a new Ed25519 signing key and HMAC integrity key."""
     parser = argparse.ArgumentParser(
         prog="dmint init-keys",
-        description="Generate and persist new signing and HMAC storage integrity keys.",
+        formatter_class=DmintHelpFormatter,
+        description="Generate and persist new Ed25519 signing and HMAC storage integrity keys (0600, atomic).",
+        epilog="""Examples:
+  dmint init-keys
+  dmint init-keys --dir .dmint
+  dmint init-keys --key-file .dmint/signing.key --integrity-key-file .dmint/integrity.key --force
+""",
     )
     parser.add_argument(
         "--dir",
+        "-d",
         dest="key_dir",
         default=None,
         help="Directory in which to generate signing.key and integrity.key",
     )
     parser.add_argument(
         "--key-file",
-        default=str(DEFAULT_KEY_FILE),
+        default=None,
         help=f"Destination for the signing key file (default: {DEFAULT_KEY_FILE})",
     )
     parser.add_argument(
@@ -50,84 +57,108 @@ def main_init_keys(args: list[str]) -> int:
     parser.add_argument(
         "--issuer-id",
         default=os.environ.get("DMINT_ISSUER_ID", "dmint-authority"),
-        help="Issuer ID to associate with this key (informational only; printed on success)",
+        help="Issuer ID to associate with this key (default: dmint-authority)",
     )
     parser.add_argument(
         "--force",
+        "-f",
         action="store_true",
-        help=("Overwrite existing key files. WARNING: invalidates pending approvals signed with the old key."),
+        help="Overwrite existing key files. WARNING: invalidates pending approvals signed with the old key.",
     )
-    opts = parser.parse_args(args)
+    try:
+        opts = parser.parse_args(args)
+    except SystemExit as exc:
+        return exc.code if isinstance(exc.code, int) else 0
 
-    key_path = Path(opts.key_file)
-    integrity_path = Path(opts.integrity_key_file) if opts.integrity_key_file else key_path.parent / "integrity.key"
+    if opts.key_dir:
+        base_dir = Path(opts.key_dir).expanduser()
+        key_path = Path(opts.key_file).expanduser() if opts.key_file else (base_dir / "signing.key")
+        integrity_path = (
+            Path(opts.integrity_key_file).expanduser() if opts.integrity_key_file else (base_dir / "integrity.key")
+        )
+    else:
+        from dmint.core import keys as _keys_mod_def
+        default_k = _keys_mod_def.DEFAULT_KEY_FILE
+        key_path = Path(opts.key_file).expanduser() if opts.key_file else default_k
+        integrity_path = (
+            Path(opts.integrity_key_file).expanduser() if opts.integrity_key_file else (key_path.parent / "integrity.key")
+        )
 
+    from dmint.core import keys as _keys_mod
     try:
         private_key = Ed25519PrivateKey.generate()
         write_private_key_atomic(key_path, private_key, force=opts.force)
         integrity_bytes = secrets.token_bytes(32)
         write_integrity_key_atomic(integrity_path, integrity_bytes, force=opts.force)
+        if (
+            not opts.key_dir
+            and not opts.integrity_key_file
+            and _keys_mod.DEFAULT_INTEGRITY_KEY_FILE != integrity_path
+            and _keys_mod.DEFAULT_INTEGRITY_KEY_FILE != (Path.home() / ".config" / "dmint" / "integrity.key")
+        ):
+            write_integrity_key_atomic(_keys_mod.DEFAULT_INTEGRITY_KEY_FILE, integrity_bytes, force=True)
     except KeyExistsError as exc:
         print(f"error: {exc}", file=sys.stderr)
         print(
-            "Hint: use --force to overwrite (WARNING: invalidates pending approvals).",
+            "Hint: use --force to overwrite (WARNING: invalidates pending approvals) "
+            "or --key-file / --integrity-key-file to write to different paths.",
             file=sys.stderr,
         )
         return 1
-    except OSError:
-        # Do NOT include exc in output — it may contain path details.
-        print(
-            "error: could not write key files (check directory permissions).",
-            file=sys.stderr,
-        )
+    except Exception as exc:
+        print(f"error: failed to generate key files: {exc}", file=sys.stderr)
         return 1
 
-    pub_hex = public_key_hex(private_key.public_key())
-    pub_pem = public_key_pem(private_key.public_key())
+    pub = private_key.public_key()
+    hex_str = public_key_hex(pub)
+    pem_str = public_key_pem(pub)
 
-    print("Ed25519 signing key and HMAC integrity key generated successfully.", file=sys.stderr)
-    print(f"  Signing key file:   {key_path}", file=sys.stderr)
-    print(f"  Integrity key file: {integrity_path}", file=sys.stderr)
-    print(f"  Issuer ID:          {opts.issuer_id}", file=sys.stderr)
-    print(file=sys.stderr)
-    print("Public key (paste into gateway trusted_issuers):", file=sys.stderr)
-    print(f'  public_key_hex: "{pub_hex}"', file=sys.stderr)
-    print(f'  issuer_id: "{opts.issuer_id}"', file=sys.stderr)
-    print(file=sys.stderr)
-    print("PEM format:", file=sys.stderr)
-    print(pub_pem, file=sys.stderr)
-    print(
-        "Keep the key file readable ONLY by the approver process. "
-        "The private key must NEVER be shared with the agent process.",
-        file=sys.stderr,
-    )
+    for _line in (
+        "Ed25519 signing key and HMAC integrity key generated successfully.",
+        f"  Signing key file:   {key_path}",
+        f"  Integrity key file: {integrity_path}",
+        f"  Issuer ID:          {opts.issuer_id}",
+        "",
+        "Public key (paste into gateway trusted_issuers):",
+        f'  public_key_hex: "{hex_str}"',
+        f'  issuer_id: "{opts.issuer_id}"',
+        "",
+        "PEM format:",
+        pem_str,
+        "Keep the key file readable ONLY by the approver process. The private key must NEVER be shared with the agent process.",
+    ):
+        print(_line, file=sys.stderr)
     return 0
 
 
-# ─── dmint export-public-key ───────────────────────────────────────────────────
-
-
-def main_export_public_key(args: list[str]) -> int:
-    """Print the public key and issuer ID for pasting into the gateway config.
-
-    Usage:
-        dmint export-public-key [--key-file PATH] [--issuer-id ID]
-
-    Only the PUBLIC key is ever printed — the private key stays on disk.
-    """
+def main_export_public_key(args: list[str] | None = None) -> int:
+    """Print the public key and issuer ID for gateway configuration."""
     parser = argparse.ArgumentParser(
         prog="dmint export-public-key",
-        description="Print the public key and issuer ID for the gateway trusted_issuers.",
+        formatter_class=DmintHelpFormatter,
+        description="Print the Ed25519 public key and issuer ID for gateway trusted_issuers.",
+        epilog="""Examples:
+  dmint export-public-key
+  dmint export-public-key --dir .dmint --format json
+  dmint export-public-key --key-file .dmint/signing.key --format hex
+""",
+    )
+    parser.add_argument(
+        "--dir",
+        "-d",
+        dest="key_dir",
+        default=None,
+        help="Directory containing signing.key (e.g. .dmint)",
     )
     parser.add_argument(
         "--key-file",
-        default=str(DEFAULT_KEY_FILE),
-        help=f"Path to the private key file (default: {DEFAULT_KEY_FILE})",
+        default=None,
+        help=f"Path to the private key file (default: .dmint/signing.key or {DEFAULT_KEY_FILE})",
     )
     parser.add_argument(
         "--issuer-id",
         default=os.environ.get("DMINT_ISSUER_ID", "dmint-authority"),
-        help="Issuer ID label to display (should match what was used at init-keys time)",
+        help="Issuer ID label to display (default: dmint-authority)",
     )
     parser.add_argument(
         "--format",
@@ -135,36 +166,62 @@ def main_export_public_key(args: list[str]) -> int:
         default="both",
         help="Output format (default: both)",
     )
-    opts = parser.parse_args(args)
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Shortcut for --format json",
+    )
+    try:
+        opts = parser.parse_args(args)
+    except SystemExit as exc:
+        return exc.code if isinstance(exc.code, int) else 0
 
-    key_path = Path(opts.key_file)
+    if opts.json:
+        opts.format = "json"
+
+    if opts.key_file:
+        key_path = Path(opts.key_file).expanduser()
+    elif opts.key_dir:
+        key_path = Path(opts.key_dir).expanduser() / "signing.key"
+    elif Path(".dmint/signing.key").exists() and not (Path.home() / ".config/dmint/signing.key").exists():
+        key_path = Path(".dmint/signing.key")
+    else:
+        key_path = DEFAULT_KEY_FILE
+
     try:
         private_key = load_private_key_from_file(key_path)
     except KeyLoadError as exc:
         print(f"error: {exc}", file=sys.stderr)
+        print(
+            "Hint: run 'dmint init-keys' first to generate a signing key, or pass --key-file.",
+            file=sys.stderr,
+        )
         return 1
 
     pub = private_key.public_key()
-    pub_hex_str = public_key_hex(pub)
-    pub_pem_str = public_key_pem(pub)
+    hex_str = public_key_hex(pub)
+    pem_str = public_key_pem(pub)
 
-    fmt = opts.format
-    if fmt == "json":
-        import json
-
-        entry = {
-            "issuer_id": opts.issuer_id,
-            "public_key_hex": pub_hex_str,
-        }
-        print(json.dumps(entry, indent=2))
-    elif fmt == "hex":
-        print(pub_hex_str)
-    elif fmt == "pem":
-        print(pub_pem_str, end="")
-    else:  # both
+    if opts.format == "hex":
+        print(hex_str)
+    elif opts.format == "pem":
+        print(pem_str, end="")
+    elif opts.format == "json":
+        print(
+            json.dumps(
+                {
+                    "issuer_id": opts.issuer_id,
+                    "public_key_hex": hex_str,
+                    "public_key_pem": pem_str.strip(),
+                },
+                indent=2,
+            )
+        )
+    else:
         print(f"issuer_id:      {opts.issuer_id}")
-        print(f"public_key_hex: {pub_hex_str}")
+        print(f"public_key_hex: {hex_str}")
         print()
-        print(pub_pem_str, end="")
+        print("PEM format:")
+        print(pem_str, end="")
 
     return 0

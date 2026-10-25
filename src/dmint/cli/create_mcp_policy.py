@@ -35,6 +35,7 @@ from dmint.cli.limits import (
 from dmint.cli.mcp_auth import discover_mcp_auth_requirements
 from dmint.cli.mcp_connections import MCPIntegration, MCPTransport, discover_mcp_tools_generic
 from dmint.cli.mcp_oauth import perform_oauth_flow
+from dmint.cli.ui import DmintHelpFormatter, auto_classify_mcp_tool_effect
 from dmint.cli.verify_policy import verify_policy_file
 
 
@@ -458,6 +459,7 @@ def run_create_mcp_policy_wizard(
     non_interactive: bool = False,
     auto_confirm: bool = False,
     timeout: float = 60.0,
+    offline: bool = False,
 ) -> tuple[Policy, dict[str, Any]]:
     """Wizard to discover tools from one or more existing MCP servers, create policy, and output MCP protection config."""
     md_path = Path(access_md_file).resolve()
@@ -654,6 +656,48 @@ def run_create_mcp_policy_wizard(
             print("  (no tools exposed)")
 
     # 3. Requirements file handling
+    if offline or (provider or "").strip().lower() == "offline":
+        tool_schema_hashes: dict[str, str] = {}
+        rules: list[dict[str, Any]] = []
+        for integ in integrations:
+            for t in integ.discovered_tools:
+                shash = compute_tool_schema_hash(t.get("description"), t.get("input_schema") or {})
+                tool_schema_hashes[t["name"]] = shash
+                tool_schema_hashes[f"{integ.integration_id}.{t['name']}"] = shash
+                tool_schema_hashes[f"mcp.{integ.integration_id}.{t['name']}"] = shash
+                eff = auto_classify_mcp_tool_effect(t["name"], t.get("description", ""))
+                rules.append({
+                    "effect": eff,
+                    "tool": integ.integration_id,
+                    "action": t["name"],
+                    "resource": "*",
+                    "schema_hash": shash,
+                })
+        policy_mapping = {"rules": rules, "tool_schemas": tool_schema_hashes}
+        _validate_rule_completeness(rules)
+        _assert_no_secrets_in_policy(policy_mapping)
+        validate_policy_against_discovered_capabilities(policy_mapping, all_discovered_tools)
+        verified_policy = Policy.from_mapping(policy_mapping)
+        print("✓ Policy validated (offline auto-classification)")
+        print("\n--- Candidate Policy Review ---")
+        print(f"Verified {len(verified_policy.rules)} rules:")
+        for r in verified_policy.rules:
+            res_str = r.resource if isinstance(r.resource, str) else type(r.resource).__name__
+            pin_hash = r.schema_hash or verified_policy.get_tool_schema_hash(r.action, r.tool)
+            print(f"  [{r.effect.value.upper()}] tool='{r.tool}', action='{r.action}', resource='{res_str}' [PINNED: {(pin_hash or '')[:12]}...]")
+        atomic_write_policy_json(json_path, verified_policy)
+        verify_policy_file(json_path)
+        sorted_integrations = _sort_integrations_deterministically(integrations)
+        protection_config = {
+            "policy_file": json_path.name,
+            "integrations": [integ.to_dict() for integ in sorted_integrations],
+        }
+        validate_mcp_protection_config(protection_config)
+        atomic_write_json(config_path, protection_config)
+        print("✓ Protection config validated")
+        print(f"\n✓ Saved {json_path.name} + {config_path.name}\n")
+        return verified_policy, protection_config
+
     if not md_path.exists():
         if is_tty:
             print(f"\nRequirements file '{md_path.name}' not found. Please enter security rules for discovered tools:")
@@ -986,13 +1030,24 @@ def run_create_mcp_policy_wizard(
 def main_create_mcp(args: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="dmint create-mcp-policy",
-        description="Specialized wizard to discover tools from existing MCP servers, create Dmint policy, and generate protection artifacts.",
+        formatter_class=DmintHelpFormatter,
+        description="Discover tools from live MCP servers (stdio or Streamable HTTP), pin SHA-256 tool schemas, and generate policy.json + mcp_protection.json.",
+        epilog="""Examples:
+  # 1. Offline discovery + automatic least-privilege classification (no LLM API key needed):
+  dmint create-mcp-policy --command npx --args -y @modelcontextprotocol/server-postgres --offline -y
+
+  # 2. Discover tools from a remote Streamable HTTP MCP server:
+  dmint create-mcp-policy --transport streamable-http --url http://127.0.0.1:9000/mcp --offline -y
+
+  # 3. AI-assisted MCP policy generation from access.md:
+  dmint create-mcp-policy --command python3 --args my_mcp_server.py -f access.md -o policy.json
+""",
     )
     parser.add_argument("--command", help="MCP server executable command (e.g. npx, mcp-server-postgres)")
     parser.add_argument("--args", nargs="*", help="Arguments for MCP server executable")
     parser.add_argument("--integration-id", help="Unique integration ID for this MCP server")
-    parser.add_argument("--transport", default="stdio", help="MCP transport type (default: stdio)")
-    parser.add_argument("--url", help="Remote MCP server URL (if transport is remote)")
+    parser.add_argument("--transport", default="stdio", help="MCP transport type: stdio or streamable-http (default: stdio)")
+    parser.add_argument("--url", help="Remote MCP server URL (when transport is streamable-http)")
     parser.add_argument(
         "-f", "--file", default="access.md", help="Input requirements markdown file (default: access.md)"
     )
@@ -1004,7 +1059,14 @@ def main_create_mcp(args: list[str] | None = None) -> int:
         default="mcp_protection.json",
         help="Output MCP protection configuration JSON file (default: mcp_protection.json)",
     )
-    parser.add_argument("-provider", "--provider", help="LLM provider (e.g. openai, gemini, groq, openrouter, ollama)")
+    parser.add_argument(
+        "--offline",
+        "--auto-classify",
+        dest="offline",
+        action="store_true",
+        help="Generate schema-pinned MCP policy offline without LLM API calls",
+    )
+    parser.add_argument("-provider", "--provider", help="LLM provider (openai, gemini, groq, openrouter, ollama, offline)")
     parser.add_argument("-base_url", "--base-url", help="OpenAI-compatible base URL")
     parser.add_argument("-api_key", "--api-key", help="API key")
     parser.add_argument("-model", "--model", help="Model name")
@@ -1034,6 +1096,7 @@ def main_create_mcp(args: list[str] | None = None) -> int:
             non_interactive=parsed.non_interactive,
             auto_confirm=parsed.yes,
             timeout=parsed.timeout,
+            offline=parsed.offline,
         )
         return 0
     except CLIError as exc:
