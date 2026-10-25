@@ -27,13 +27,114 @@ try:
     )
     from mcp.shared.auth import OAuthMetadata, ProtectedResourceMetadata
 except ImportError:
-    check_resource_allowed = None  # type: ignore[assignment]
-    resource_url_from_server_url = None  # type: ignore[assignment]
-    build_oauth_authorization_server_metadata_discovery_urls = None  # type: ignore[assignment]
-    build_protected_resource_metadata_discovery_urls = None  # type: ignore[assignment]
-    issuers_match = None  # type: ignore[assignment]
-    OAuthMetadata = None  # type: ignore[assignment, misc]
-    ProtectedResourceMetadata = None  # type: ignore[assignment, misc]
+    def resource_url_from_server_url(server_url: str) -> str:  # type: ignore[misc]
+        p = urllib.parse.urlsplit(str(server_url).strip())
+        scheme = p.scheme.lower()
+        netloc = p.netloc.lower()
+        return urllib.parse.urlunsplit((scheme, netloc, p.path or "", "", ""))
+
+    def check_resource_allowed(*, requested_resource: str, configured_resource: str) -> bool:  # type: ignore[misc]
+        req_p = urllib.parse.urlsplit(str(requested_resource).strip())
+        cfg_p = urllib.parse.urlsplit(str(configured_resource).strip())
+        if req_p.scheme.lower() != cfg_p.scheme.lower() or req_p.netloc.lower() != cfg_p.netloc.lower():
+            return False
+        req_path = req_p.path.rstrip("/")
+        cfg_path = cfg_p.path.rstrip("/")
+        if not cfg_path:
+            return True
+        return req_path == cfg_path or req_path.startswith(cfg_path + "/")
+
+    def issuers_match(actual: str, expected: str) -> bool:  # type: ignore[misc]
+        def _norm_iss(u: str) -> str:
+            p = urllib.parse.urlsplit(str(u).strip())
+            path = p.path[:-1] if p.path.endswith("/") else p.path
+            return urllib.parse.urlunsplit((p.scheme.lower(), p.netloc.lower(), path, p.query, p.fragment))
+        return _norm_iss(actual) == _norm_iss(expected)
+
+    def build_protected_resource_metadata_discovery_urls(
+        resource_metadata_url: str | None,
+        server_url: str,
+    ) -> list[str]:  # type: ignore[misc]
+        urls: list[str] = []
+        if resource_metadata_url:
+            urls.append(str(resource_metadata_url))
+        p = urllib.parse.urlsplit(str(server_url).strip())
+        origin = f"{p.scheme}://{p.netloc}"
+        path = p.path.rstrip("/")
+        if path:
+            u_path = f"{origin}/.well-known/oauth-protected-resource{path}"
+            if u_path not in urls:
+                urls.append(u_path)
+        u_root = f"{origin}/.well-known/oauth-protected-resource"
+        if u_root not in urls:
+            urls.append(u_root)
+        return urls
+
+    def build_oauth_authorization_server_metadata_discovery_urls(
+        auth_server_url: str | None,
+        server_url: str,
+    ) -> list[str]:  # type: ignore[misc]
+        target = str(auth_server_url or server_url).strip()
+        p = urllib.parse.urlsplit(target)
+        origin = f"{p.scheme}://{p.netloc}"
+        path = p.path.rstrip("/")
+        urls: list[str] = []
+        if path:
+            for candidate in (
+                f"{origin}/.well-known/oauth-authorization-server{path}",
+                f"{origin}/.well-known/openid-configuration{path}",
+                f"{origin}{path}/.well-known/openid-configuration",
+            ):
+                if candidate not in urls:
+                    urls.append(candidate)
+        for root_cand in (
+            f"{origin}/.well-known/oauth-authorization-server",
+            f"{origin}/.well-known/openid-configuration",
+        ):
+            if root_cand not in urls:
+                urls.append(root_cand)
+        return urls
+
+    class ProtectedResourceMetadata:  # type: ignore[no-redef]
+        def __init__(self, data: dict[str, Any]) -> None:
+            self._data = dict(data)
+            self.resource = data.get("resource")
+            self.authorization_servers = data.get("authorization_servers")
+            self.scopes_supported = data.get("scopes_supported")
+
+        @classmethod
+        def model_validate(cls, data: Any) -> "ProtectedResourceMetadata":
+            if not isinstance(data, dict):
+                raise ValueError("ProtectedResourceMetadata must be a JSON object")
+            if "authorization_servers" in data and not isinstance(data["authorization_servers"], list):
+                raise ValueError("authorization_servers must be a list")
+            return cls(data)
+
+        def model_dump(self, mode: str = "json") -> dict[str, Any]:
+            return dict(self._data)
+
+    class OAuthMetadata:  # type: ignore[no-redef]
+        def __init__(self, data: dict[str, Any]) -> None:
+            self._data = dict(data)
+            self.issuer = data.get("issuer")
+            self.authorization_endpoint = data.get("authorization_endpoint")
+            self.token_endpoint = data.get("token_endpoint")
+            self.registration_endpoint = data.get("registration_endpoint")
+            self.scopes_supported = data.get("scopes_supported")
+            self.code_challenge_methods_supported = data.get("code_challenge_methods_supported")
+
+        @classmethod
+        def model_validate(cls, data: Any) -> "OAuthMetadata":
+            if not isinstance(data, dict):
+                raise ValueError("OAuthMetadata must be a JSON object")
+            for req_field in ("issuer", "authorization_endpoint", "token_endpoint"):
+                val = data.get(req_field)
+                if not val or not isinstance(val, str):
+                    raise ValueError(f"Missing required field '{req_field}' in OAuthMetadata")
+            return cls(data)
+
+        def model_dump(self, mode: str = "json") -> dict[str, Any]:
+            return dict(self._data)
 
 from dmint.cli.errors import CLIError
 from dmint.cli.limits import (

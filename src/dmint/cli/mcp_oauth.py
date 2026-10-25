@@ -42,9 +42,16 @@ try:
     from mcp.client.auth.utils import issuers_match
 except ImportError:
     httpx2 = None  # type: ignore[assignment]
-    AnyUrl = None  # type: ignore[assignment, misc]
-    AuthorizationCodeResult = None  # type: ignore[assignment, misc]
-    OAuthClientProvider = None  # type: ignore[assignment, misc]
+
+    class AnyUrl(str):  # type: ignore[no-redef]
+        def __new__(cls, url: str) -> "AnyUrl":
+            return super().__new__(cls, str(url))
+
+    @dataclass
+    class AuthorizationCodeResult:  # type: ignore[no-redef]
+        code: str
+        state: str | None = None
+        iss: str | None = None
 
     class _SDKPKCEParameters:  # type: ignore[no-redef]
         def __init__(self, code_verifier: str = "", code_challenge: str = "") -> None:
@@ -54,15 +61,123 @@ except ImportError:
     class TokenStorage:  # type: ignore[no-redef]
         pass
 
-    OAuthClientInformationFull = None  # type: ignore[assignment, misc]
-    OAuthClientMetadata = None  # type: ignore[assignment, misc]
+    @dataclass
+    class OAuthClientMetadata:  # type: ignore[no-redef]
+        client_name: str = "dmint-cli"
+        software_version: str = ""
+        redirect_uris: list[Any] = field(default_factory=list)
+        token_endpoint_auth_method: str = "none"
+        grant_types: list[str] = field(default_factory=list)
+        application_type: str = "native"
+        scope: str | None = None
+
+        def model_dump(self, mode: str = "json", exclude_none: bool = False) -> dict[str, Any]:
+            d: dict[str, Any] = {
+                "client_name": self.client_name,
+                "software_version": self.software_version,
+                "redirect_uris": [str(u) for u in self.redirect_uris],
+                "token_endpoint_auth_method": self.token_endpoint_auth_method,
+                "grant_types": list(self.grant_types),
+                "application_type": self.application_type,
+            }
+            if self.scope is not None or not exclude_none:
+                d["scope"] = self.scope
+            return d
+
+    @dataclass
+    class OAuthClientInformationFull:  # type: ignore[no-redef]
+        client_id: str
+        client_secret: str | None = None
+        client_id_issued_at: int | None = None
+        client_secret_expires_at: int | None = None
+        redirect_uris: list[Any] = field(default_factory=list)
+
+        @classmethod
+        def model_validate(cls, data: dict[str, Any]) -> "OAuthClientInformationFull":
+            if not isinstance(data, dict) or not data.get("client_id"):
+                raise ValueError("Missing client_id in OAuthClientInformationFull")
+            return cls(
+                client_id=str(data["client_id"]),
+                client_secret=data.get("client_secret"),
+                client_id_issued_at=data.get("client_id_issued_at"),
+                client_secret_expires_at=data.get("client_secret_expires_at"),
+                redirect_uris=data.get("redirect_uris") or [],
+            )
+
+        def model_dump(self, mode: str = "json") -> dict[str, Any]:
+            return {
+                "client_id": self.client_id,
+                "client_secret": self.client_secret,
+                "client_id_issued_at": self.client_id_issued_at,
+                "client_secret_expires_at": self.client_secret_expires_at,
+                "redirect_uris": [str(u) for u in self.redirect_uris],
+            }
+
+    @dataclass
+    class OAuthToken:  # type: ignore[no-redef]
+        access_token: str
+        token_type: str = "Bearer"
+        expires_in: int | None = None
+        scope: str | None = None
+        refresh_token: str | None = None
+
+        @classmethod
+        def model_validate(cls, data: dict[str, Any]) -> "OAuthToken":
+            if not isinstance(data, dict) or not data.get("access_token"):
+                raise ValueError("Missing access_token in OAuthToken")
+            return cls(
+                access_token=str(data["access_token"]),
+                token_type=str(data.get("token_type") or "Bearer"),
+                expires_in=data.get("expires_in"),
+                scope=data.get("scope"),
+                refresh_token=data.get("refresh_token"),
+            )
+
+        def model_dump(self, mode: str = "json", exclude_none: bool = False) -> dict[str, Any]:
+            res: dict[str, Any] = {
+                "access_token": self.access_token,
+                "token_type": self.token_type,
+                "expires_in": self.expires_in,
+                "scope": self.scope,
+                "refresh_token": self.refresh_token,
+            }
+            if exclude_none:
+                return {k: v for k, v in res.items() if v is not None}
+            return res
+
+    class OAuthClientProvider:  # type: ignore[no-redef]
+        def __init__(
+            self,
+            *,
+            server_url: str,
+            client_metadata: OAuthClientMetadata,
+            storage: Any,
+            redirect_handler: Any = None,
+            callback_handler: Any = None,
+            client_metadata_url: str | None = None,
+            timeout: float = 300.0,
+        ) -> None:
+            self.server_url = server_url
+            self.client_metadata = client_metadata
+            self.storage = storage
+            self.redirect_handler = redirect_handler
+            self.callback_handler = callback_handler
+            self.client_metadata_url = client_metadata_url
+            self.timeout = timeout
+            self.context = type('_OAuthContext', (), {'client_metadata': client_metadata, 'storage': storage, 'server_url': server_url})()
+
     OAuthFlowError = Exception  # type: ignore[assignment, misc]
     OAuthRegistrationError = Exception  # type: ignore[assignment, misc]
-    OAuthToken = None  # type: ignore[assignment, misc]
     OAuthTokenError = Exception  # type: ignore[assignment, misc]
     validate_authorization_response_iss = None  # type: ignore[assignment]
     validate_metadata_issuer = None  # type: ignore[assignment]
-    issuers_match = None  # type: ignore[assignment]
+
+    def issuers_match(actual: str, expected: str) -> bool:  # type: ignore[misc]
+        def _norm_iss(u: str) -> str:
+            p = urllib.parse.urlsplit(str(u).strip())
+            path = p.path[:-1] if p.path.endswith("/") else p.path
+            return urllib.parse.urlunsplit((p.scheme.lower(), p.netloc.lower(), path, p.query, p.fragment))
+        return _norm_iss(actual) == _norm_iss(expected)
 
 from dmint.cli.errors import CLIError
 from dmint.cli.limits import (

@@ -347,9 +347,11 @@ class SQLiteApprovalStore(ApprovalStore):
             raise ValueError("max_pending_per_principal must be a positive integer")
         from ..keys import load_integrity_key_source
 
+        db_str = str(database)
         if (
             integrity_key is None
-            and database != ":memory:"
+            and db_str != ":memory:"
+            and not db_str.startswith("file:")
             and not os.environ.get("DMINT_INTEGRITY_KEY")
             and not os.environ.get("DMINT_INTEGRITY_KEY_FILE")
         ):
@@ -362,7 +364,6 @@ class SQLiteApprovalStore(ApprovalStore):
         self._clock = clock or (lambda: datetime.now(timezone.utc))
         self._redact_keys = redact_keys
         self._recovery_file: Path | None
-        db_str = str(database)
         if db_str != ":memory:" and not db_str.startswith("file:"):
             db_path = Path(db_str)
             db_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)

@@ -7,9 +7,17 @@ import os
 from contextlib import AsyncExitStack
 from typing import Any, Iterable
 
-import mcp.types as types
-from mcp import ClientSession, StdioServerParameters, stdio_client
-from mcp.client.streamable_http import httpx2, streamable_http_client
+try:
+    import mcp.types as types
+    from mcp import ClientSession, StdioServerParameters, stdio_client
+    from mcp.client.streamable_http import httpx2, streamable_http_client
+except ImportError:
+    types = None  # type: ignore[assignment]
+    ClientSession = None  # type: ignore[assignment, misc]
+    StdioServerParameters = None  # type: ignore[assignment, misc]
+    stdio_client = None  # type: ignore[assignment]
+    httpx2 = None  # type: ignore[assignment]
+    streamable_http_client = None  # type: ignore[assignment]
 
 from .errors import MCPConnectionError, MCPError, MCPProtocolError, MCPTimeoutError
 from .config import MCPIntegrationConfig, MCPTransportType

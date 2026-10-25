@@ -12,14 +12,34 @@ import threading
 from collections.abc import Callable, Collection, Mapping
 from typing import Any
 
-import mcp.types as types
-from mcp.server import Server
-from mcp.server.context import ServerRequestContext
-from mcp.server.stdio import stdio_server
-from mcp.shared.exceptions import MCPError as SDKMCPError, ErrorData
-from mcp.server.transport_security import TransportSecuritySettings
-from starlette.applications import Starlette
-import uvicorn
+try:
+    import mcp.types as types
+    from mcp.server import Server
+    from mcp.server.context import ServerRequestContext
+    from mcp.server.stdio import stdio_server
+    from mcp.shared.exceptions import MCPError as SDKMCPError, ErrorData
+    from mcp.server.transport_security import TransportSecuritySettings
+except ImportError:
+    types = None  # type: ignore[assignment]
+    class Server:  # type: ignore[no-redef]
+        def __init__(self, name: str) -> None:
+            self.name = name
+        def list_tools(self) -> Any:
+            return lambda fn: fn
+        def call_tool(self) -> Any:
+            return lambda fn: fn
+    ServerRequestContext = Any  # type: ignore[assignment, misc]
+    stdio_server = None  # type: ignore[assignment]
+    SDKMCPError = Exception  # type: ignore[assignment, misc]
+    ErrorData = None  # type: ignore[assignment, misc]
+    TransportSecuritySettings = None  # type: ignore[assignment, misc]
+
+try:
+    from starlette.applications import Starlette
+    import uvicorn
+except ImportError:
+    Starlette = None  # type: ignore[assignment, misc]
+    uvicorn = None  # type: ignore[assignment]
 
 from dmint.core.canonicalize import canonicalize_bytes
 

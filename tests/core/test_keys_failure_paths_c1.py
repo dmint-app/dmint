@@ -19,6 +19,7 @@ from dmint.core.keys import (
     load_integrity_key_source,
     load_private_key,
     load_private_key_from_file,
+    public_key_hex,
     write_integrity_key_atomic,
     write_private_key_atomic,
 )
@@ -292,18 +293,18 @@ class KeysFailurePathsC1Tests(unittest.TestCase):
 
         # 1. Direct file path
         loaded = load_private_key(key_file)
-        self.assertEqual(loaded.public_key().public_bytes_raw(), priv.public_key().public_bytes_raw())
+        self.assertEqual(public_key_hex(loaded.public_key()), public_key_hex(priv.public_key()))
 
         # 2. DMINT_KEY_FILE env var
         with patch.dict(os.environ, {"DMINT_KEY_FILE": str(key_file)}):
             loaded_env = load_private_key(None)
-            self.assertEqual(loaded_env.public_key().public_bytes_raw(), priv.public_key().public_bytes_raw())
+            self.assertEqual(public_key_hex(loaded_env.public_key()), public_key_hex(priv.public_key()))
 
         # 3. DEFAULT_KEY_FILE fallback
         with patch.dict(os.environ, {"DMINT_KEY_FILE": ""}):
             with patch("dmint.core.keys.DEFAULT_KEY_FILE", key_file):
                 loaded_def = load_private_key(None)
-                self.assertEqual(loaded_def.public_key().public_bytes_raw(), priv.public_key().public_bytes_raw())
+                self.assertEqual(public_key_hex(loaded_def.public_key()), public_key_hex(priv.public_key()))
 
         # 4. DMINT_PRIVATE_KEY inline env var without opt-in -> KeyLoadError
         with patch.dict(
@@ -321,7 +322,7 @@ class KeysFailurePathsC1Tests(unittest.TestCase):
             with patch("dmint.core.keys.DEFAULT_KEY_FILE", self.tmp_path / "absent.key"):
                 with self.assertWarns(UserWarning):
                     loaded_inline = load_private_key(None)
-                self.assertEqual(loaded_inline.public_key().public_bytes_raw(), priv.public_key().public_bytes_raw())
+                self.assertEqual(public_key_hex(loaded_inline.public_key()), public_key_hex(priv.public_key()))
 
         # 6. Missing all sources -> KeyLoadError
         with patch.dict(os.environ, {"DMINT_KEY_FILE": "", "DMINT_PRIVATE_KEY": ""}):

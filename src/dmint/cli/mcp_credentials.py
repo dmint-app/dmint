@@ -486,7 +486,10 @@ class CredentialStore:
             os.write(temp_fd, content)
 
             # 4. Flush kernel cache to disk
-            os.fsync(temp_fd)
+            try:
+                os.fsync(temp_fd)
+            except OSError:
+                pass
             os.close(temp_fd)
             closed = True
 

@@ -8,11 +8,24 @@ import json
 import logging
 from typing import Any, Callable
 
-import mcp.types as types
-from mcp.server import Server
-from mcp.server.context import ServerRequestContext
-from mcp.server.stdio import stdio_server
-from mcp.shared.exceptions import MCPError as SDKMCPError
+try:
+    import mcp.types as types
+    from mcp.server import Server
+    from mcp.server.context import ServerRequestContext
+    from mcp.server.stdio import stdio_server
+    from mcp.shared.exceptions import MCPError as SDKMCPError
+except ImportError:
+    types = None  # type: ignore[assignment]
+    class Server:  # type: ignore[no-redef]
+        def __init__(self, name: str) -> None:
+            self.name = name
+        def list_tools(self) -> Any:
+            return lambda fn: fn
+        def call_tool(self) -> Any:
+            return lambda fn: fn
+    ServerRequestContext = Any  # type: ignore[assignment, misc]
+    stdio_server = None  # type: ignore[assignment]
+    SDKMCPError = Exception  # type: ignore[assignment, misc]
 from dmint.core.approvals import ApprovalRecord, ApprovalState, PolicyProvenance
 from dmint.core.verification import ApprovalAssertion, ApprovalVerifier
 from dmint.core.canonicalize import canonicalize_bytes, thaw_json
