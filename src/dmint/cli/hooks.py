@@ -315,26 +315,82 @@ def _dejson(val: Any) -> Any:
 
 
 def _normalize_workspace_path(raw_path: str, workspace_dir: Path | None = None) -> str:
-    """Convert absolute workspace paths to relative POSIX paths when inside workspace_dir."""
+    """Convert workspace paths (including relative symlinks and '..' segments) to canonical relative POSIX paths."""
     clean = raw_path.strip()
     if not clean:
         return clean
     base = (workspace_dir or Path.cwd()).resolve()
-    try:
-        p = Path(clean)
-        if p.is_absolute():
-            resolved = p.resolve()
+    # Resolve both absolute paths and concrete relative paths (without glob wildcards) via os.path.realpath / Path.resolve()
+    if "*" not in clean and "?" not in clean:
+        try:
+            p = Path(clean)
+            candidate = p if p.is_absolute() else (base / p)
+            resolved = candidate.resolve()
             try:
                 rel = resolved.relative_to(base)
                 rel_str = rel.as_posix()
                 return rel_str if rel_str != "." else "*"
             except ValueError:
                 return resolved.as_posix()
-    except Exception:
-        pass
+        except Exception:
+            pass
     while clean.startswith("./"):
         clean = clean[2:]
     return clean or "*"
+
+
+def _split_compound_shell_commands(cmd: str) -> list[str]:
+    """Split a compound shell command on unquoted &&, ||, ;, |, or newline operators."""
+    segments: list[str] = []
+    buf: list[str] = []
+    in_single = False
+    in_double = False
+    escaped = False
+    i = 0
+    n = len(cmd)
+    while i < n:
+        ch = cmd[i]
+        if escaped:
+            buf.append(ch)
+            escaped = False
+            i += 1
+            continue
+        if ch == "\\" and not in_single:
+            escaped = True
+            buf.append(ch)
+            i += 1
+            continue
+        if ch == "'" and not in_double:
+            in_single = not in_single
+            buf.append(ch)
+            i += 1
+            continue
+        if ch == '"' and not in_single:
+            in_double = not in_double
+            buf.append(ch)
+            i += 1
+            continue
+        if not in_single and not in_double:
+            if cmd[i : i + 2] in ("&&", "||", "|&"):
+                seg = "".join(buf).strip()
+                if seg:
+                    segments.append(seg)
+                buf = []
+                i += 2
+                continue
+            if ch in (";", "|", "\n", "\r"):
+                seg = "".join(buf).strip()
+                if seg:
+                    segments.append(seg)
+                buf = []
+                i += 1
+                continue
+        buf.append(ch)
+        i += 1
+    tail = "".join(buf).strip()
+    if tail:
+        segments.append(tail)
+    return segments if segments else ([cmd.strip()] if cmd.strip() else [])
 
 
 def _extract_patch_paths(patch_text: str, workspace_dir: Path | None = None) -> list[str]:
@@ -748,12 +804,22 @@ def evaluate_hook_request(
         workspace_dir=base,
     )
 
-    # Multi-resource / batch command inspection (prevents smuggling a denied file/command inside a batch)
+    # Multi-resource / batch & compound shell command inspection (prevents smuggling a denied file/command)
     candidate_resources: list[str | NoResource] = [resource]
+    full_shell_lines: list[str] = []
     if tool == "shell":
-        all_cmds = _extract_all_commands_from_args(unpacked_args, payload)
-        if len(all_cmds) > 1:
-            candidate_resources = list(all_cmds)
+        raw_cmds = _extract_all_commands_from_args(unpacked_args, payload)
+        if not raw_cmds and isinstance(resource, str) and resource:
+            raw_cmds = [resource]
+        expanded_cmds: list[str | NoResource] = []
+        for rc in raw_cmds:
+            full_shell_lines.append(rc)
+            sub_segs = _split_compound_shell_commands(rc)
+            for seg in sub_segs:
+                if seg not in expanded_cmds:
+                    expanded_cmds.append(seg)
+        if expanded_cmds:
+            candidate_resources = expanded_cmds
     elif tool == "filesystem" and action in ("read_file", "write_file", "delete_file"):
         all_paths = _extract_all_paths_from_args(unpacked_args, base)
         if len(all_paths) > 1:
@@ -768,35 +834,69 @@ def evaluate_hook_request(
     decision = Decision.ALLOW
     code = "DMT_ALLOWED"
 
-    for res_item in candidate_resources:
-        req_item = ToolRequest(
+    # First check full unsplit shell lines against explicit DENY rules (e.g. "* | sh", "* | bash", "* *.env*")
+    for full_line in full_shell_lines:
+        full_req = ToolRequest(
             request_id=new_request_id(),
             agent_id=effective_agent,
             tool=tool,
             action=action,
-            resource=res_item,
+            resource=full_line,
             arguments=thaw_json(arguments),
             context=TrustedContext({}),
         )
-        item_dec, item_code = _evaluate_dual_policy(
+        f_dec, f_code = _evaluate_dual_policy(
             policy,
-            norm_req=req_item,
+            norm_req=full_req,
             native_tool_name=raw_native_tool,
         )
-        if chosen_req is None:
-            chosen_req = req_item
-            decision, code = item_dec, item_code
-        elif item_dec is Decision.DENY:
-            chosen_req = req_item
-            decision, code = item_dec, item_code
+        if f_dec is Decision.DENY and f_code == "DMT_POLICY_DENIED":
+            chosen_req = full_req
+            decision, code = f_dec, f_code
             break
-        elif item_dec is Decision.APPROVAL_REQUIRED and decision is Decision.ALLOW:
-            chosen_req = req_item
-            decision, code = item_dec, item_code
+
+    if chosen_req is None:
+        for res_item in candidate_resources:
+            req_item = ToolRequest(
+                request_id=new_request_id(),
+                agent_id=effective_agent,
+                tool=tool,
+                action=action,
+                resource=res_item,
+                arguments=thaw_json(arguments),
+                context=TrustedContext({}),
+            )
+            item_dec, item_code = _evaluate_dual_policy(
+                policy,
+                norm_req=req_item,
+                native_tool_name=raw_native_tool,
+            )
+            if chosen_req is None:
+                chosen_req = req_item
+                decision, code = item_dec, item_code
+            elif item_dec is Decision.DENY:
+                chosen_req = req_item
+                decision, code = item_dec, item_code
+                break
+            elif item_dec is Decision.APPROVAL_REQUIRED and decision is Decision.ALLOW:
+                chosen_req = req_item
+                decision, code = item_dec, item_code
 
     assert chosen_req is not None
-    req = chosen_req
-    resource = req.resource
+    # Preserve the full original resource string on APPROVAL_REQUIRED so retry fingerprints match 1:1
+    if decision is Decision.APPROVAL_REQUIRED and isinstance(resource, str) and chosen_req.resource != resource:
+        req = ToolRequest(
+            request_id=chosen_req.request_id,
+            agent_id=effective_agent,
+            tool=tool,
+            action=action,
+            resource=resource,
+            arguments=thaw_json(arguments),
+            context=TrustedContext({}),
+        )
+    else:
+        req = chosen_req
+        resource = req.resource
     res_display = resource if isinstance(resource, str) else "(none)"
     capability_id = f"{tool}.{action}"
     hook_event_name = str(payload.get("hook_event_name") or payload.get("agent_action_name") or "PreToolUse")
@@ -1823,3 +1923,164 @@ def main_init(args: list[str] | None = None) -> int:
     print(f'  dmint check -p {parsed.policy} -t shell.execute -r "docker ps"           # -> APPROVAL_REQUIRED')
     print(f'  dmint check -p {parsed.policy} -t shell.execute -r "rm -rf /etc"         # -> DENY')
     return 0
+
+
+def main_doctor(args: list[str] | None = None) -> int:
+    """CLI entrypoint for `dmint doctor`: end-to-end workspace diagnostic and security self-test."""
+    parser = argparse.ArgumentParser(
+        prog="dmint doctor",
+        description="Verify Dmint keys, SQLite approval store, per-harness policies, hooks, and run a live 4-vector security self-test.",
+    )
+    parser.add_argument("--dir", default=None, help="Target workspace directory (default: current directory)")
+    parser.add_argument("--policy", default="policy.json", help="Path to policy.json (default: policy.json)")
+    parser.add_argument("--json", dest="output_json", action="store_true", help="Output diagnostic report as JSON")
+
+    try:
+        parsed = parser.parse_args(args)
+    except SystemExit as exc:
+        return exc.code if isinstance(exc.code, int) else (0 if exc.code is None else 1)
+
+    ws_dir = Path(parsed.dir).resolve() if parsed.dir else Path.cwd().resolve()
+    dmint_dir = ws_dir / ".dmint"
+    signing_key = dmint_dir / "signing.key"
+    integrity_key = dmint_dir / "integrity.key"
+    db_path = dmint_dir / "approvals.sqlite3"
+    policy_file = (ws_dir / parsed.policy) if not Path(parsed.policy).is_absolute() else Path(parsed.policy)
+
+    checks: dict[str, dict[str, Any]] = {}
+    all_ok = True
+
+    # 1. Cryptographic engine & RFC 8785 self-test
+    try:
+        from dmint.core.canonicalize import canonicalize_bytes
+        eph_priv = Ed25519PrivateKey.generate()
+        msg = canonicalize_bytes({"b": 1, "a": [2, 3]})
+        sig = eph_priv.sign(msg)
+        eph_priv.public_key().verify(sig, msg)
+        checks["crypto_engine"] = {"ok": True, "detail": "RFC 8785 (JCS) + Ed25519 sign/verify verified"}
+    except Exception as exc:
+        checks["crypto_engine"] = {"ok": False, "detail": str(exc)}
+        all_ok = False
+
+    # 2. Keys check
+    if signing_key.exists() and integrity_key.exists():
+        try:
+            priv = load_private_key_from_file(signing_key)
+            pub_hex = public_key_hex(priv.public_key())
+            checks["keys"] = {
+                "ok": True,
+                "signing_key": str(signing_key),
+                "integrity_key": str(integrity_key),
+                "public_key_prefix": pub_hex[:16],
+            }
+        except Exception as exc:
+            checks["keys"] = {"ok": False, "detail": str(exc)}
+            all_ok = False
+    else:
+        checks["keys"] = {
+            "ok": False,
+            "detail": f"Missing keys in {dmint_dir} (run `dmint init` to generate)",
+        }
+        all_ok = False
+
+    # 3. Policy & Per-Harness Policies check
+    if policy_file.exists():
+        try:
+            pol = Policy.from_file(policy_file)
+            harness_pol_counts: dict[str, int] = {}
+            for h_name in ("claude-code", "codex", "opencode", "cursor", "windsurf", "cline"):
+                hp = get_harness_policy_path(ws_dir, h_name)
+                if hp.exists():
+                    harness_pol_counts[h_name] = len(Policy.from_file(hp).rules)
+            checks["policy"] = {
+                "ok": True,
+                "policy_path": str(policy_file),
+                "rules": len(pol.rules),
+                "digest": policy_digest(pol)[:16],
+                "harness_policies": harness_pol_counts,
+            }
+        except Exception as exc:
+            checks["policy"] = {"ok": False, "detail": str(exc)}
+            all_ok = False
+    else:
+        checks["policy"] = {
+            "ok": False,
+            "detail": f"Missing policy file {policy_file} (run `dmint init` to generate)",
+        }
+        all_ok = False
+
+    # 4. Harness Hooks status
+    hook_st = get_harness_hook_status(ws_dir)
+    checks["hooks"] = {
+        "ok": any(hook_st.values()),
+        "installed": hook_st,
+    }
+
+    # 5. Live 4-Vector Security Self-Test
+    if checks["policy"].get("ok") and checks["keys"].get("ok"):
+        try:
+            r_allow = evaluate_hook_request(
+                {"tool_name": "Bash", "tool_input": {"command": "git status"}},
+                harness="claude-code",
+                policy_path=policy_file,
+                db_path=db_path,
+                workspace_dir=ws_dir,
+            )
+            r_deny_cmd = evaluate_hook_request(
+                {"tool_name": "Bash", "tool_input": {"command": "rm -rf /"}},
+                harness="claude-code",
+                policy_path=policy_file,
+                db_path=db_path,
+                workspace_dir=ws_dir,
+            )
+            r_deny_smuggle = evaluate_hook_request(
+                {"tool_name": "Bash", "tool_input": {"command": "ls -la && rm -rf /"}},
+                harness="claude-code",
+                policy_path=policy_file,
+                db_path=db_path,
+                workspace_dir=ws_dir,
+            )
+            r_deny_env = evaluate_hook_request(
+                {"tool_name": "Read", "tool_input": {"file_path": ".env"}},
+                harness="claude-code",
+                policy_path=policy_file,
+                db_path=db_path,
+                workspace_dir=ws_dir,
+            )
+            vectors_ok = (
+                r_allow["decision"] == "ALLOW"
+                and r_deny_cmd["decision"] == "DENY"
+                and r_deny_smuggle["decision"] == "DENY"
+                and r_deny_env["decision"] == "DENY"
+            )
+            checks["self_test"] = {
+                "ok": vectors_ok,
+                "vectors": {
+                    "allow_git_status": r_allow["decision"],
+                    "deny_rm_rf_root": r_deny_cmd["decision"],
+                    "deny_chained_smuggle": r_deny_smuggle["decision"],
+                    "deny_read_dotenv": r_deny_env["decision"],
+                },
+            }
+            if not vectors_ok:
+                all_ok = False
+        except Exception as exc:
+            checks["self_test"] = {"ok": False, "detail": str(exc)}
+            all_ok = False
+    else:
+        checks["self_test"] = {"ok": False, "detail": "Skipped (keys or policy missing)"}
+
+    report = {
+        "ok": all_ok,
+        "workspace": str(ws_dir),
+        "checks": checks,
+    }
+    if parsed.output_json:
+        print(json.dumps(report, indent=2))
+    else:
+        status_banner = "PASS" if all_ok else "FAIL"
+        print(f"Dmint Doctor Diagnostic Report [{status_banner}] ({ws_dir})")
+        for name, info in checks.items():
+            mark = "✓" if info.get("ok") else "✗"
+            print(f"  {mark} {name:<15}: {json.dumps(info)}")
+    return 0 if all_ok else 1

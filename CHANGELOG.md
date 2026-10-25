@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [2.0.4] - 2026-10-25
 
 ### Added
+- **Per-Harness Dedicated Policies (`.dmint/policies/<harness>.policy.json`)**: Shipped 6 dedicated built-in tool policies (`claude-code`: 722 rules, `codex`: 729, `opencode`: 465, `cursor`: 899, `windsurf`: 715, `cline`: 716) covering every default tool in each coding harness.
+- **End-to-End Workspace Diagnostic (`dmint doctor`)**: Added `dmint doctor` (`--dir`, `--json`) to verify RFC 8785 + Ed25519 crypto, `0600` keys, per-harness policies, installed hooks, and a live 4-vector security self-test.
 - **Multi-Harness `PreToolUse` Hooks (`dmint hook`)**: Native pre-execution tool interception (`dmint hook install|run|status|uninstall`) for **Claude Code**, **OpenAI Codex CLI**, **OpenCode**, **Cursor**, **Windsurf**, and **Cline / Roo Code**.
 - **60-Second Developer Experience (`dmint init`, `dmint check`, `Dmint.local()`)**: One-command workspace bootstrap (`dmint init`), offline CLI policy simulator (`dmint check`), zero-config Python SDK constructor (`Dmint.local()`), and credential-free `dmint.retry()` auto-lookup.
 - **Automatic Store-Backed Approval Retry (`F4`)**: `approve_pending()` persists signed Ed25519 assertions in `approval_assertions` so `dmint-mcp`, `dmint hook run`, and `Dmint.retry()` can verify and consume single-use approvals by RFC 8785 fingerprint without requiring the LLM to carry a 942-byte token.
@@ -17,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Shared Store Policy Snapshot (`F2`)**: `set_authoritative_policy()` in `SQLiteApprovalStore` and `SQLAlchemyApprovalStore` now serializes via `Policy.to_dict()`, preserving `resource_kind`, `case_sensitive`, `constraints`, `schema_hash`, `strict_arguments`, and `tool_schemas`, with automatic self-healing via `sync_authoritative_policy()`.
 - **Overview Example & Missing Config Error (`F1`)**: `Dmint._persist_pending` now explicitly names every missing argument (`approval_store`, `policy_provenance`, `approval_ttl`).
 - **Rich Argument Types & `NaN` Error Code (`F7`)**: Non-JSON arguments and non-finite floats (`NaN`, `Infinity`) now consistently surface `DMT_CANONICALIZATION_ERROR` with the argument path.
+- **Compound Shell Command & Relative Symlink Smuggling Protection**: Blocked unquoted shell chaining (`&&`, `||`, `;`, `|`, `$()`, backticks) from matching prefix globs, added quote-aware compound command splitting, and resolved relative symlinks via `Path.resolve()` before path matching.
 - **Shell Command Prefix/Suffix Wildcards**: `match_resource(..., kind="exact")` now supports bounded command prefix/suffix wildcards (`"docker *"`, `"rm -rf /*"`, `"* | sh"`).
 - **Remote Policy SSRF & Postgres Recovery Lock**: `Policy.from_url()` enforces DNS pinning (`_PinnedHTTPSHandler`), redirect blocking, and 10 MB size bounds; `SQLAlchemyApprovalStore` enforces cross-process `.recovery` sidecar locking and pre-increment rollback checks.
 - **Test Portability (`F8`)**: Fixed root-user `chmod 000` test skip, optional Node `canonicalize` fixture skip, `FakeStat` owner check, and regex timing assertions.

@@ -617,5 +617,110 @@ class TestHooksAndDX(unittest.TestCase):
         self.assertIn("DMT_POLICY_DENIED", parsed_cl_batch["errorMessage"])
 
 
+
+    def test_compound_shell_command_smuggling_and_symlink_escape_blocked(self) -> None:
+        """Compound shell commands (&&, ;, |, $()) and relative symlinks to secrets must never bypass policy."""
+        _run_cli(["init", "--harness", "claude-code", "--dir", str(self.tmp_path)])
+        policy_path = str(self.tmp_path / ".dmint" / "policies" / "claude-code.policy.json")
+        db_path = str(self.tmp_path / ".dmint" / "approvals.sqlite3")
+
+        # 1. Benign compound command ("git status && pytest -q") -> ALLOW
+        rc_ok, out_ok, _ = _run_cli(
+            [
+                "hook",
+                "run",
+                "--harness",
+                "claude-code",
+                "--policy",
+                policy_path,
+                "--db-path",
+                db_path,
+                "--input",
+                json.dumps({"tool_name": "Bash", "tool_input": {"command": "git status && pytest -q"}}),
+            ]
+        )
+        self.assertEqual(rc_ok, 0)
+        self.assertEqual(json.loads(out_ok)["hookSpecificOutput"]["permissionDecision"], "allow")
+
+        # 2. Chained destructive command ("ls -la && rm -rf /") -> DENY (both in hook run and dmint check)
+        rc_smug, out_smug, _ = _run_cli(
+            [
+                "hook",
+                "run",
+                "--harness",
+                "claude-code",
+                "--policy",
+                policy_path,
+                "--db-path",
+                db_path,
+                "--input",
+                json.dumps({"tool_name": "Bash", "tool_input": {"command": "ls -la && rm -rf /"}}),
+            ]
+        )
+        self.assertEqual(rc_smug, 2)
+        self.assertEqual(json.loads(out_smug)["hookSpecificOutput"]["permissionDecision"], "deny")
+
+        rc_chk_smug, out_chk_smug, _ = _run_cli(
+            ["check", "-p", policy_path, "-t", "shell.execute", "-r", "ls -la && rm -rf /"]
+        )
+        self.assertEqual(rc_chk_smug, 2)
+        self.assertEqual(json.loads(out_chk_smug)["verdict"], "DENY")
+
+        # 3. Subshell command substitution ("echo $(cat .env)") -> DENY
+        rc_sub, out_sub, _ = _run_cli(
+            [
+                "hook",
+                "run",
+                "--harness",
+                "claude-code",
+                "--policy",
+                policy_path,
+                "--db-path",
+                db_path,
+                "--input",
+                json.dumps({"tool_name": "Bash", "tool_input": {"command": "echo $(cat .env)"}}),
+            ]
+        )
+        self.assertEqual(rc_sub, 2)
+        self.assertEqual(json.loads(out_sub)["dmint"]["code"], "DMT_POLICY_DENIED")
+
+        # 4. Relative symlink inside src/ pointing to ../.env -> resolved via realpath and DENIED
+        src_dir = self.tmp_path / "src"
+        src_dir.mkdir(parents=True, exist_ok=True)
+        env_file = self.tmp_path / ".env"
+        env_file.write_text("SECRET=1\n", encoding="utf-8")
+        symlink_file = src_dir / "innocent_config.py"
+        symlink_file.symlink_to(env_file)
+
+        rc_sym, out_sym, _ = _run_cli(
+            [
+                "hook",
+                "run",
+                "--harness",
+                "claude-code",
+                "--policy",
+                policy_path,
+                "--db-path",
+                db_path,
+                "--input",
+                json.dumps({"tool_name": "Read", "tool_input": {"file_path": "src/innocent_config.py"}}),
+            ]
+        )
+        self.assertEqual(rc_sym, 2)
+        self.assertEqual(json.loads(out_sym)["dmint"]["decision"], "DENY")
+        self.assertEqual(json.loads(out_sym)["dmint"]["code"], "DMT_POLICY_DENIED")
+
+    def test_dmint_doctor_end_to_end_self_test(self) -> None:
+        """dmint doctor should verify crypto engine, keys, per-harness policies, hooks, and 4 security vectors."""
+        _run_cli(["init", "--harness", "all", "--dir", str(self.tmp_path)])
+        rc_doc, out_doc, err_doc = _run_cli(["doctor", "--dir", str(self.tmp_path), "--json"])
+        self.assertEqual(rc_doc, 0, f"doctor failed: {out_doc}\n{err_doc}")
+        report = json.loads(out_doc)
+        self.assertTrue(report["ok"])
+        for check_key in ("crypto_engine", "keys", "policy", "hooks", "self_test"):
+            self.assertTrue(report["checks"][check_key]["ok"], f"Check {check_key} failed: {report}")
+        self.assertEqual(len(report["checks"]["policy"]["harness_policies"]), 6)
+
+
 if __name__ == "__main__":
     unittest.main()

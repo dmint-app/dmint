@@ -9,7 +9,7 @@ from dmint.cli.approvals import main_approve, main_pending, main_reject
 from dmint.cli.compile_policy import main_compile
 from dmint.cli.create_policy import main_create
 from dmint.cli.dashboard import main_dashboard
-from dmint.cli.hooks import main_check, main_hook, main_init
+from dmint.cli.hooks import main_check, main_doctor, main_hook, main_init
 from dmint.cli.install_skill import main_install_skill
 from dmint.cli.keys import main_export_public_key, main_init_keys
 from dmint.cli.policy_digest import main_policy_digest
@@ -79,6 +79,10 @@ def main(args: list[str] | None = None) -> int:
             normalized_args.append("hook")
             i += 1
             continue
+        if arg == "self-test":
+            normalized_args.append("doctor")
+            i += 1
+            continue
         normalized_args.append(arg)
         i += 1
 
@@ -134,6 +138,11 @@ Compatibility Commands:
     subparsers.add_parser(
         "check",
         help="Simulate and test a tool call against policy.json from the terminal",
+        add_help=False,
+    )
+    subparsers.add_parser(
+        "doctor",
+        help="Verify keys, SQLite store, per-harness policies, hooks, and run a 4-vector security self-test",
         add_help=False,
     )
     subparsers.add_parser(
@@ -222,6 +231,8 @@ Compatibility Commands:
         return main_init(cmd_args)
     elif cmd == "check":
         return main_check(cmd_args)
+    elif cmd == "doctor":
+        return main_doctor(cmd_args)
     elif cmd == "hook":
         return main_hook(cmd_args)
     elif cmd == "create-policy":
