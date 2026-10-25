@@ -11,7 +11,21 @@
       "effect": "allow",
       "tool": "shell",
       "action": "execute",
+      "resource": "git status *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
       "resource": "git diff",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "git diff *",
       "resource_kind": "exact"
     },
     {
@@ -25,7 +39,119 @@
       "effect": "allow",
       "tool": "shell",
       "action": "execute",
+      "resource": "git log *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "git show",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "git show *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "git branch",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "git branch *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
       "resource": "npm test",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "npm test *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "npm run test",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "npm run test *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "npm run lint",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "npm run lint *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "npm run build",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "npm run build *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "pnpm test",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "pnpm test *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "yarn test",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "yarn test *",
       "resource_kind": "exact"
     },
     {
@@ -39,7 +165,91 @@
       "effect": "allow",
       "tool": "shell",
       "action": "execute",
+      "resource": "pytest *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "python -m pytest",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "python -m pytest *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "python3 -m pytest",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "python3 -m pytest *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
       "resource": "cargo test",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "cargo test *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "go test",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "go test *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "ruff check",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "ruff check *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "mypy",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "mypy *",
       "resource_kind": "exact"
     },
     {
@@ -64,10 +274,66 @@
       "resource_kind": "exact"
     },
     {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "whoami",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "which *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "echo *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "git push",
+      "resource_kind": "exact"
+    },
+    {
       "effect": "approval_required",
       "tool": "shell",
       "action": "execute",
       "resource": "git push *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "git commit *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "git reset *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "git rebase *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "git merge *",
       "resource_kind": "exact"
     },
     {
@@ -81,7 +347,42 @@
       "effect": "approval_required",
       "tool": "shell",
       "action": "execute",
+      "resource": "service *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "shell",
+      "action": "execute",
       "resource": "docker *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "docker-compose *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "kubectl *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "helm *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "terraform *",
       "resource_kind": "exact"
     },
     {
@@ -95,6 +396,27 @@
       "effect": "approval_required",
       "tool": "shell",
       "action": "execute",
+      "resource": "pkill *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "killall *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "npm install",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "shell",
+      "action": "execute",
       "resource": "npm install *",
       "resource_kind": "exact"
     },
@@ -102,7 +424,98 @@
       "effect": "approval_required",
       "tool": "shell",
       "action": "execute",
+      "resource": "npm i *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "pnpm add *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "pnpm install *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "yarn add *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "shell",
+      "action": "execute",
       "resource": "pip install *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "pip3 install *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "uv add *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "uv pip install *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "cargo add *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "curl *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "wget *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "ssh *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "scp *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "rsync *",
       "resource_kind": "exact"
     },
     {
@@ -123,6 +536,48 @@
       "effect": "deny",
       "tool": "shell",
       "action": "execute",
+      "resource": "rm -rf ~",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "deny",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "rm -rf ~/*",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "deny",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "rm -rf .",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "deny",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "rm -rf .*",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "deny",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "sudo *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "deny",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "su *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "deny",
+      "tool": "shell",
+      "action": "execute",
       "resource": "mkfs *",
       "resource_kind": "exact"
     },
@@ -137,6 +592,20 @@
       "effect": "deny",
       "tool": "shell",
       "action": "execute",
+      "resource": "chmod 777 *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "deny",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "chown -R *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "deny",
+      "tool": "shell",
+      "action": "execute",
       "resource": "* | sh",
       "resource_kind": "exact"
     },
@@ -145,6 +614,48 @@
       "tool": "shell",
       "action": "execute",
       "resource": "* | bash",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "deny",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "* | zsh",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "deny",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "* *.env*",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "deny",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "* *.key",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "deny",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "* *.pem",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "deny",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "* */.ssh/*",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "deny",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "* */.aws/*",
       "resource_kind": "exact"
     }
   ],

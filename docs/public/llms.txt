@@ -143,7 +143,7 @@ For the full, single-file plain-text corpus of all 33 documentation pages, read 
 - [Resource Matching Engine](https://docs.dmint.app/concepts/resources): How Dmint normalizes, validates, and matches paths, URLs, hostnames, and identifiers without ReDoS or traversal vulnerabilities.
 
 ### How-To Guides
-- [Protecting Coding-Agent Hooks](https://docs.dmint.app/guides/coding-agent-hooks): How Dmint intercepts built-in shell, filesystem, and MCP tools in Claude Code, OpenAI Codex CLI, OpenCode, Cursor, Windsurf, and Cline via PreToolUse hooks.
+- [Protecting Coding-Agent Hooks](https://docs.dmint.app/guides/coding-agent-hooks): How Dmint intercepts built-in shell, filesystem, planning, and MCP tools in Claude Code, OpenAI Codex CLI, OpenCode, Cursor, Windsurf, and Cline using dedicated per-harness policy files.
 - [Python Decorator Integration](https://docs.dmint.app/guides/python-integration): How to protect Python functions, async coroutines, class methods, and static methods using the @dmint.protect decorator.
 - [Protecting MCP Servers](https://docs.dmint.app/guides/protecting-mcp): Use dmint-mcp as a deterministic enforcement gateway and proxy for Model Context Protocol tools, with schema pinning, SSRF defenses, and approval retry.
 - [Human Approvals](https://docs.dmint.app/guides/human-approvals): Review pending requests and transfer a signed, single-use Ed25519 assertion from the dashboard or CLI to the protected host.
@@ -153,10 +153,10 @@ For the full, single-file plain-text corpus of all 33 documentation pages, read 
 
 ### Integrations
 - [Claude Code, Codex & OpenCode Hooks](https://docs.dmint.app/integrations/claude-code): How to enforce deterministic policy rules and single-use human approvals on native shell, file, and MCP tools in Claude Code, OpenAI Codex, and OpenCode.
-- [OpenAI Codex CLI Integration](https://docs.dmint.app/integrations/codex): How to protect shell commands, file patches, and MCP tools in OpenAI Codex CLI using dmint init, dmint hook, and dmint-mcp.
-- [OpenCode Integration](https://docs.dmint.app/integrations/opencode): How to enforce deterministic Dmint policies and single-use human approvals in OpenCode using the generated tool.execute.before plugin.
+- [OpenAI Codex CLI Integration](https://docs.dmint.app/integrations/codex): How to protect shell commands, apply_patch edits, built-in tools, and MCP calls in OpenAI Codex CLI using its dedicated codex.policy.json.
+- [OpenCode Integration](https://docs.dmint.app/integrations/opencode): How to enforce deterministic Dmint policies and single-use human approvals in OpenCode using its dedicated opencode.policy.json and tool.execute.before plugin.
 - [Cursor, Windsurf & Cline Integration](https://docs.dmint.app/integrations/cursor): How to protect native agent tools and MCP servers in Cursor, Windsurf, and Cline using dmint hook and dmint-mcp.
-- [Windsurf & Cline / Roo Code](https://docs.dmint.app/integrations/windsurf-cline): How to protect native IDE tools and MCP servers in Windsurf, Cline, and Roo Code using dmint init, dmint hook, and dmint-mcp.
+- [Windsurf & Cline / Roo Code](https://docs.dmint.app/integrations/windsurf-cline): How to protect native IDE tools and MCP servers in Windsurf Cascade, Cline, and Roo Code using their dedicated per-harness policy files.
 - [Google Antigravity & Gemini CLI](https://docs.dmint.app/integrations/antigravity): How to enforce deterministic security in Google Antigravity (AGY) and Gemini CLI workflows.
 - [Custom Python Agents (LangChain, CrewAI, AutoGen)](https://docs.dmint.app/integrations/custom-agents): How to integrate Dmint authorization into LangChain, CrewAI, AutoGen, and custom agent loops.
 

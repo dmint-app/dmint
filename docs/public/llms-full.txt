@@ -1427,14 +1427,14 @@ def read_file(filepath: str) -> str: ...
 DOCUMENT: Protecting Coding-Agent Hooks
 URL: https://docs.dmint.app/guides/coding-agent-hooks
 SECTION: How-To Guides
-SUMMARY: How Dmint intercepts built-in shell, filesystem, and MCP tools in Claude Code, OpenAI Codex CLI, OpenCode, Cursor, Windsurf, and Cline via PreToolUse hooks.
+SUMMARY: How Dmint intercepts built-in shell, filesystem, planning, and MCP tools in Claude Code, OpenAI Codex CLI, OpenCode, Cursor, Windsurf, and Cline using dedicated per-harness policy files.
 ================================================================================
 
 # Protecting Coding-Agent Hooks (`dmint hook`)
 
-Modern AI coding agents execute their most dangerous operations—such as `Bash` commands, file edits (`Write`, `Edit`, `apply_patch`), and file deletions—through **built-in native tools** rather than external MCP servers.
+Modern AI coding agents execute their highest-impact operations—such as `Bash` / `run_commands`, file edits (`Write`, `Edit`, `apply_patch`, `pre_write_code`), file reads (`Read`, `read_files`, `pre_read_code`), and subagent delegation—through **built-in native tools** in addition to external MCP servers.
 
-`dmint hook` places Dmint's deterministic policy evaluator and single-use Ed25519 human approval engine directly into the pre-execution hook lifecycle of popular coding harnesses.
+`dmint hook` places Dmint's deterministic policy evaluator and single-use Ed25519 human approval engine directly into the official pre-execution hook lifecycle of each coding harness, provisioning a **dedicated policy file per harness** (`.dmint/policies/<harness>.policy.json`) tailored to that harness's complete built-in tool inventory.
 
 ```text
 ┌─────────────────────────────────────────────────────────────────────────┐
@@ -1442,13 +1442,14 @@ Modern AI coding agents execute their most dangerous operations—such as `Bash`
 │  (Claude Code · OpenAI Codex CLI · OpenCode · Cursor · Windsurf · Cline)│
 └───────────────────────────────────┬─────────────────────────────────────┘
                                     │
-                                    │ 1. PreToolUse / tool.execute.before
+                                    │ 1. Official Pre-Tool Hook Event
                                     ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                          dmint hook run                                 │
-│  • Normalizes tool payload -> (tool, action, resource, arguments)       │
-│  • Canonicalizes via RFC 8785 (JCS) & computes SHA-256 fingerprint      │
-│  • Evaluates policy.json (DENY > APPROVAL_REQUIRED > ALLOW)             │
+│  • Unpacks harness-specific envelope & de-stringifies JSON params       │
+│  • Inspects all batch items (multi-file apply_patch / run_commands)     │
+│  • Evaluates .dmint/policies/<harness>.policy.json (native + canonical) │
+│  • Enforces strict precedence: DENY > APPROVAL_REQUIRED > ALLOW         │
 └───────────┬───────────────────────┼───────────────────────┬─────────────┘
             │                       │                       │
             ▼                       ▼                       ▼
@@ -1461,38 +1462,50 @@ Modern AI coding agents execute their most dangerous operations—such as `Bash`
 
 ---
 
-## 1. Supported Harnesses & Generated Files
+## 1. Supported Harnesses, Official Hook Files & Dedicated Policies
 
-Run `dmint init --harness all` (or `dmint hook install --harness <name>`) to configure any or all supported harnesses:
+Run `dmint init --harness all` (or `dmint hook install --harness <name>`) to configure any or all supported harnesses. Each harness is wired to its own dedicated policy file in `.dmint/policies/<harness>.policy.json`:
 
-| Harness | Flag Value | Generated Configuration File(s) | Hook Mechanism |
-| :--- | :--- | :--- | :--- |
-| **Claude Code** | `claude-code` | `.claude/settings.json` | `hooks.PreToolUse` command hook matching `Bash\|Read\|Write\|Edit\|MultiEdit\|NotebookEdit\|WebFetch\|mcp__.*` |
-| **OpenAI Codex CLI** | `codex` | `.codex/hooks.json` & `.codex/dmint-hook.sh` | `pre_tool_use` command hook & executable shell wrapper |
-| **OpenCode** | `opencode` | `.opencode/plugin/dmint-guard.ts` | Native TypeScript plugin hooking `tool.execute.before` |
-| **Cursor** | `cursor` | `.cursor/hooks.json` | `hooks.preToolUse` command hook |
-| **Windsurf** | `windsurf` | `.windsurf/hooks.json` | `hooks.preToolUse` command hook |
-| **Cline / Roo Code** | `cline` | `.clinerules/hooks.json` | `hooks.preToolUse` command hook |
-
----
-
-## 2. How Native Tool Names Map to Dmint Capabilities
-
-Each coding agent names its built-in tools differently (`Bash` in Claude Code, `exec_command` in Codex, `run_terminal_cmd` in Cursor). `dmint hook run` normalizes them into standard Dmint `<tool>.<action>` capabilities so a single `policy.json` works across every harness:
-
-| Harness Tool Names | Normalized Dmint Capability | Extracted `resource` | `resource_kind` in Template |
-| :--- | :--- | :--- | :--- |
-| `Bash`, `sh`, `exec_command`, `execute_command`, `run_terminal_cmd`, `terminal` | `shell.execute` | Command string (e.g. `"git status"`, `"docker ps"`) | `exact` (with prefix/suffix `*`) |
-| `Read`, `read_file`, `view_file`, `cat`, `get_file_contents` | `filesystem.read_file` | Relative workspace path or absolute POSIX path | `path` |
-| `Write`, `Edit`, `MultiEdit`, `NotebookEdit`, `write_file`, `apply_patch`, `replace_in_file` | `filesystem.write_file` | Relative workspace path or absolute POSIX path | `path` |
-| `Delete`, `delete_file`, `remove_file`, `rm`, `unlink` | `filesystem.delete_file` | Relative workspace path or absolute POSIX path | `path` |
-| `LS`, `Glob`, `Grep`, `list_dir`, `list_directory`, `search_files` | `filesystem.list_directory` | Directory path or `"*"` | `path` |
-| `mkdir`, `create_directory` | `filesystem.create_directory` | Directory path | `path` |
-| `mcp__<server>__<action>` | `<server>.<action>` (or `mcp.<server>.<action>`) | `resource` / `file_path` / `uri` argument if present | Per rule |
+| Harness | Flag Value | Generated Hook Configuration File(s) | Dedicated Policy File | Official Hook Mechanism & Output Schema |
+| :--- | :--- | :--- | :--- | :--- |
+| **Claude Code** | `claude-code` | `.claude/settings.json` | `.dmint/policies/claude-code.policy.json` | `hooks.PreToolUse` (`matcher: "*"`) returning `hookSpecificOutput.permissionDecision` (`"allow"` \| `"deny"` \| `"ask"`) |
+| **OpenAI Codex CLI** | `codex` | `.codex/hooks.json` & `.codex/dmint-hook.sh` | `.dmint/policies/codex.policy.json` | `hooks.PreToolUse` (`matcher: "Bash\|apply_patch\|mcp__.*"`) returning `hookSpecificOutput.permissionDecision` (`"allow"` \| `"deny"`) + exit `2` on block |
+| **OpenCode** | `opencode` | `.opencode/plugins/dmint-guard.ts` & `.opencode/plugin/dmint-guard.ts` | `.dmint/policies/opencode.policy.json` | Native TypeScript plugin hooking `tool.execute.before` (`input.tool`, `output.args`) |
+| **Cursor** | `cursor` | `.cursor/hooks.json` (`"version": 1`) | `.dmint/policies/cursor.policy.json` | `preToolUse`, `beforeShellExecution`, `beforeReadFile`, `beforeMCPExecution`, `subagentStart` (`failClosed: true`) returning `{"permission": "allow" \| "deny"}` |
+| **Windsurf Cascade** | `windsurf` | `.windsurf/hooks.json` | `.dmint/policies/windsurf.policy.json` | `pre_run_command`, `pre_read_code`, `pre_write_code`, `pre_mcp_tool_use` (`show_output: true`), blocking via exit code `2` |
+| **Cline / Roo Code** | `cline` | `.clinerules/hooks/PreToolUse`, `.cline/hooks/PreToolUse.sh`, `.clinerules/hooks.json` | `.dmint/policies/cline.policy.json` | Executable `PreToolUse` scripts returning `{"cancel": false}` on allow and `{"cancel": true, "errorMessage": "..."}` on block |
 
 ---
 
-## 3. Single-Use Human Approvals in Hooks
+## 2. Per-Harness Built-In Tool Inventory
+
+Because each coding agent ships with its own internal tools for session planning, user questions, code intelligence, and task completion, sharing a single generic policy across harnesses can accidentally default-deny harmless session tools (such as `TodoWrite` in Claude Code, `update_plan` in Codex, `todowrite` in OpenCode, or `attempt_completion` in Cline).
+
+Dmint ships a dedicated built-in policy template (`src/dmint/templates/data/<harness>.json`) for every harness:
+
+| Harness | Allowed Safe Built-In Tools (`ALLOW`) | Approval-Gated Tools (`APPROVAL_REQUIRED`) | Strictly Blocked Targets (`DENY`) |
+| :--- | :--- | :--- | :--- |
+| **Claude Code** | `Read`, `NotebookRead` (workspace), `Glob`, `Grep`, `LS`, `LSP`, `Agent`, `Task`, `AskUserQuestion`, `EnterPlanMode`, `ExitPlanMode`, `ExitWorktree`, `TaskCreate`, `TaskGet`, `TaskList`, `TaskUpdate`, `TaskStop`, `TodoRead`, `TodoWrite`, `ToolSearch`, `WaitForMcpServers`, `ListMcpResourcesTool`, `ReadMcpResourceTool`, `ListAgents`, `ReportFindings`, `SubagentHandback`, `SendFeedback`, `PushNotification`, `CronCreate`, `CronList`, `CronDelete`, `ScheduleWakeup`, `WebSearch`, safe `Bash`/`PowerShell` (`git status`, `pytest`, `npm test`, `ls`) | `Edit`, `MultiEdit`, `Write`, `NotebookEdit` (workspace), `Skill`, `SlashCommand`, `Workflow`, `EnterWorktree`, `WebFetch`, `Artifact`, `ShareOnboardingGuide`, `RemoteTrigger`, `SendMessage`, `SendUserFile`, mutating `Bash` (`git push *`, `docker *`, `npm install *`, `pip install *`, `curl *`) | Destructive `Bash` (`rm -rf /`, `sudo *`, `mkfs *`, `* \| sh`, `* *.env*`), reading or writing `.env*`, `*.key`, `*.pem`, `.dmint/**`, `.claude/**`, `/etc/**` |
+| **OpenAI Codex CLI** | `read_file`, `Read`, `view_image` (workspace), `list_dir`, `grep_files`, `search_files`, `update_plan`, `web_search`, `wait`, `close_agent`, safe `Bash`/`exec_command`/`shell` | `apply_patch`, `Edit`, `Write`, `write_file` (workspace), `spawn_agent`, `send_input`, mutating `Bash`/`exec_command` | Destructive `Bash`/`exec_command`, reading or patching `.env*`, `*.key`, `*.pem`, `.dmint/**`, `.codex/**`, `/etc/**` |
+| **OpenCode** | `read` (workspace), `grep`, `glob`, `list`, `lsp`, `todowrite`, `todoread`, `question`, `websearch`, safe `bash` | `edit`, `write`, `apply_patch`, `patch` (workspace), `skill`, `task`, `webfetch`, mutating `bash` | Destructive `bash`, reading or editing `.env*`, `*.key`, `*.pem`, `.dmint/**`, `.opencode/**`, `/etc/**` |
+| **Cursor** | `Read`, `beforeReadFile`, `beforeTabFileRead`, `read_file` (workspace), `Grep`, `Glob`, `LS`, `codebase_search`, `grep_search`, `file_search`, `list_dir`, `Task`/`subagentStart` (`explore`, `generalPurpose`), safe `Shell`/`beforeShellExecution` | `Write`, `Edit`, `MultiEdit`, `Delete`, `edit_file`, `write_file`, `delete_file`, `search_replace` (workspace), `subagentStart` (`shell`), `beforeMCPExecution`, mutating `Shell`/`beforeShellExecution` | Destructive `Shell`/`beforeShellExecution`, reading or writing `.env*`, `*.key`, `*.pem`, `.dmint/**`, `.cursor/**`, `/etc/**` |
+| **Windsurf Cascade** | `pre_read_code`, `read_file`, `view_file`, `view_code_item` (workspace), `grep_search`, `find_by_name`, `list_dir`, `pre_user_prompt`, safe `pre_run_command` | `pre_write_code`, `write_to_file`, `replace_file_content`, `multi_replace_file_content` (workspace), `pre_mcp_tool_use`, mutating `pre_run_command` | Destructive `pre_run_command`, reading or writing `.env*`, `*.key`, `*.pem`, `.dmint/**`, `.windsurf/**`, `.devin/**`, `/etc/**` |
+| **Cline / Roo Code** | `read_files`, `read_file` (workspace), `search_files`, `list_files`, `list_code_definition_names`, `ask_followup_question`, `attempt_completion`, `load_mcp_documentation`, `access_mcp_resource`, safe `run_commands`/`execute_command` | `editor`, `write_to_file`, `replace_in_file`, `apply_patch`, `apply_diff`, `insert_content` (workspace), `new_task`, `switch_mode`, `browser_action`, `use_mcp_tool`, `web_fetch`, `web_search`, mutating `run_commands`/`execute_command` | Destructive `run_commands`/`execute_command`, reading or modifying `.clineignore`, `.clinerules/**`, `.cline/**`, `.env*`, `*.key`, `*.pem`, `.dmint/**`, `/etc/**` |
+
+---
+
+## 3. Multi-Resource & Batch Smuggling Protection
+
+Several harnesses allow an agent to batch multiple file edits or shell commands inside a single tool call:
+- **Unified Patches (`apply_patch`)**: Codex CLI, OpenCode (`output.args.patchText`), and Cline embed multiple file headers (`*** Add File: ...`, `*** Update File: ...`, `*** Delete File: ...`, `*** Move to: ...`) in one patch body.
+- **Batch File Reads (`read_files`)**: Cline accepts `{"files": [{"path": "src/app.py"}, {"path": ".env"}]}`.
+- **Batch Commands (`run_commands`)**: Cline accepts `{"commands": ["git status", "rm -rf /"]}`.
+
+`dmint hook run` extracts **every** target file path or command in the batch, evaluates each against the harness's dedicated policy (checking both the native tool name and the normalized capability), and enforces the strictest decision (**`DENY` > `APPROVAL_REQUIRED` > `ALLOW`**). A denied file or command cannot be smuggled inside an otherwise benign batch call.
+
+---
+
+## 4. Single-Use Human Approvals in Hooks
 
 When a coding agent calls a tool that matches an `approval_required` rule (for example, `git push origin main` or editing `src/main.py`):
 
@@ -1512,23 +1525,6 @@ When a coding agent calls a tool that matches an `approval_required` rule (for e
    - When the agent re-runs `git push origin main`, `dmint hook run` computes the RFC 8785 request fingerprint, finds the matching `APPROVED` assertion in `.dmint/approvals.sqlite3`, verifies the Ed25519 signature, atomically transitions the record from `APPROVED` $\to$ `CONSUMED`, and returns `ALLOW`.
    - **Tamper Resistance**: If the agent alters the command to `git push origin main --force`, the fingerprint does not match `apr_8k9P...` and execution is blocked.
    - **Replay Protection**: If the agent tries to run `git push origin main` a second time, the consumed assertion cannot be reused.
-
----
-
-## 4. Simulating Policies Offline (`dmint check`)
-
-Use `dmint check` (or `dmint test-policy`) to test how your `policy.json` evaluates any tool call before running an agent:
-
-```bash
-# Test an allowed command (exits 0)
-dmint check -p policy.json -t shell.execute -r "pytest"
-
-# Test an approval-gated command (exits 1)
-dmint check -p policy.json -t shell.execute -r "docker build ."
-
-# Test a denied file read (exits 2)
-dmint check -p policy.json -t filesystem.read_file -r ".env.production"
-```
 
 
 ================================================================================
@@ -2731,12 +2727,12 @@ claude mcp add dmint-gateway -- dmint-mcp run --config /absolute/path/to/mcp_pro
 DOCUMENT: OpenAI Codex CLI Integration
 URL: https://docs.dmint.app/integrations/codex
 SECTION: Integrations
-SUMMARY: How to protect shell commands, file patches, and MCP tools in OpenAI Codex CLI using dmint init, dmint hook, and dmint-mcp.
+SUMMARY: How to protect shell commands, apply_patch edits, built-in tools, and MCP calls in OpenAI Codex CLI using its dedicated codex.policy.json.
 ================================================================================
 
 # OpenAI Codex CLI Integration
 
-[OpenAI Codex CLI](https://github.com/openai/codex) executes shell commands (`exec_command` / `shell`), file patches (`apply_patch`), and MCP tools locally. Dmint integrates with Codex CLI via both **pre-execution hooks** (`.codex/hooks.json` and `.codex/dmint-hook.sh`) and the **`dmint-mcp` gateway**.
+[OpenAI Codex CLI](https://github.com/openai/codex) dispatches local tool calls (`Bash` / `exec_command`, `apply_patch`, `read_file`, `update_plan`, `view_image`, `web_search`, and `mcp__<server>__<tool>`) through its `PreToolUse` lifecycle hook. Dmint integrates with Codex CLI via both **pre-execution hooks** (`.codex/hooks.json` and `.codex/dmint-hook.sh`) and the **`dmint-mcp` gateway**, provisioning a dedicated `.dmint/policies/codex.policy.json` tailored to Codex CLI's built-in tools.
 
 ---
 
@@ -2749,74 +2745,51 @@ dmint init --harness codex
 ```
 
 This creates:
-- `policy.json` — Built-in `shell` and `filesystem` rules (allowing safe commands like `git status`, `ls`, and `pytest`, requiring approval for `git push *` and `docker *`, and denying `rm -rf /` and `.env*` access).
+- `.dmint/policies/codex.policy.json` — Dedicated policy covering all built-in Codex CLI tools (`Bash`, `exec_command`, `shell`, `apply_patch`, `read_file`, `view_image`, `list_dir`, `grep_files`, `update_plan`, `web_search`, `spawn_agent`).
 - `.dmint/signing.key` & `.dmint/integrity.key` (`0600`) — Local Ed25519 signing and HMAC integrity keys.
-- `.codex/hooks.json` & `.codex/dmint-hook.sh` — Pre-tool execution hook configuration for Codex CLI.
+- `.codex/hooks.json` & `.codex/dmint-hook.sh` — Official `PreToolUse` hook configuration pointing directly to `.dmint/policies/codex.policy.json`.
 
 ```json title=".codex/hooks.json"
 {
   "version": 1,
   "hooks": {
-    "pre_tool_use": {
-      "command": "dmint",
-      "args": [
-        "hook",
-        "run",
-        "--harness",
-        "codex",
-        "--policy",
-        "/absolute/path/to/policy.json",
-        "--db-path",
-        "/absolute/path/to/.dmint/approvals.sqlite3"
-      ]
-    }
+    "PreToolUse": [
+      {
+        "matcher": "Bash|apply_patch|mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "dmint hook run --harness codex --policy \"/abs/path/.dmint/policies/codex.policy.json\" --db-path \"/abs/path/.dmint/approvals.sqlite3\""
+          }
+        ]
+      }
+    ]
   }
 }
 ```
 
 ---
 
-## 2. How Codex Tool Calls Are Evaluated
+## 2. How Codex CLI Tool Calls Are Evaluated
 
-`dmint hook run --harness codex` normalizes Codex CLI payloads automatically:
-- **Shell Arrays & Commands**: Codex often invokes shell commands as `["bash", "-lc", "git status"]` or `{"cmd": "ls -la"}`. Dmint extracts the inner command string (`"git status"`, `"ls -la"`) and evaluates it as capability `shell.execute`.
-- **File Reads & Patches**: `apply_patch` and `write_file` map to `filesystem.write_file`; `read_file` maps to `filesystem.read_file`.
+`dmint hook run --harness codex` handles every Codex CLI tool surface:
+- **Shell & Unified Exec (`Bash` / `exec_command`)**: Extracts commands whether passed as `{"command": "git status"}` or `["bash", "-lc", "git status"]` and evaluates them against both `Bash` and `shell.execute` rules in `codex.policy.json`.
+- **Multi-File Unified Patches (`apply_patch`)**: Parses every `*** Add File:`, `*** Update File:`, `*** Delete File:`, and `*** Move to:` header in the patch envelope. If a single patch touches both `src/app.py` and `.env`, Dmint evaluates every path and blocks the call with `DENY`.
+- **Fail-Closed `PreToolUse` Output**: Because Codex CLI `PreToolUse` enforces `"allow"` and `"deny"` (and does not enforce `"ask"`), Dmint returns `permissionDecision: "deny"` with exit code `2` whenever a call is `DENY` or `APPROVAL_REQUIRED`, ensuring unapproved commands never execute silently.
 
-Test how your policy evaluates Codex calls from the terminal:
+Test how your Codex policy evaluates calls from the terminal:
 
 ```bash
-# Simulate a Codex exec_command call:
-dmint hook run --harness codex --input '{"tool": "exec_command", "arguments": {"cmd": ["bash", "-lc", "git status"]}}'
-```
-
-```json
-{
-  "decision": "allow",
-  "allow": true,
-  "permission": "allow",
-  "permissionDecision": "allow",
-  "code": "DMT_ALLOWED",
-  "tool": "shell",
-  "action": "execute",
-  "resource": "git status",
-  "reason": "Dmint ALLOW: shell.execute on 'git status'",
-  "dmint": {
-    "decision": "ALLOW",
-    "code": "DMT_ALLOWED",
-    "tool": "shell",
-    "action": "execute",
-    "resource": "git status",
-    "approval_id": null,
-    "consumed_approval": false
-  }
-}
+# Simulate a Codex Bash call:
+dmint hook run --harness codex --policy .dmint/policies/codex.policy.json \
+  --input '{"tool_name": "Bash", "tool_input": {"command": "git status"}}'
 ```
 
 ---
 
 ## 3. Approving Paused Commands
 
-When Codex attempts an action governed by `approval_required` (such as `git push origin main` or `docker compose up`):
+When Codex attempts an action governed by `approval_required` (such as `git push origin main`, `apply_patch` on `src/app.py`, or `docker compose up`):
 
 1. `dmint hook run` exits with code `2`, blocking execution, and records a `PENDING` request (`apr_...`) in `.dmint/approvals.sqlite3`.
 2. Review and approve the request from your terminal or web dashboard:
@@ -2831,14 +2804,14 @@ When Codex attempts an action governed by `approval_required` (such as `git push
 DOCUMENT: OpenCode Integration
 URL: https://docs.dmint.app/integrations/opencode
 SECTION: Integrations
-SUMMARY: How to enforce deterministic Dmint policies and single-use human approvals in OpenCode using the generated tool.execute.before plugin.
+SUMMARY: How to enforce deterministic Dmint policies and single-use human approvals in OpenCode using its dedicated opencode.policy.json and tool.execute.before plugin.
 ================================================================================
 
 # OpenCode Integration
 
-[OpenCode](https://opencode.ai) supports TypeScript plugins in `.opencode/plugin/` (workspace) and `~/.config/opencode/plugin/` (global) that intercept every tool call via the `tool.execute.before` lifecycle hook.
+[OpenCode](https://opencode.ai) loads local TypeScript plugins from `.opencode/plugins/` (OpenCode v2) and `.opencode/plugin/` (OpenCode v1) in your workspace, or `~/.config/opencode/plugins/` globally, firing the `tool.execute.before` lifecycle hook before any tool runs.
 
-Dmint generates a zero-dependency OpenCode guard plugin (`dmint-guard.ts`) that evaluates every shell command, file read/write, and MCP tool call against your `policy.json`.
+Dmint generates a zero-dependency OpenCode guard plugin (`dmint-guard.ts`) wired to a dedicated `.dmint/policies/opencode.policy.json` that covers every built-in OpenCode tool (`bash`, `read`, `write`, `edit`, `apply_patch`, `grep`, `glob`, `list`, `lsp`, `todowrite`, `todoread`, `question`, `skill`, `task`, `webfetch`, `websearch`).
 
 ---
 
@@ -2847,63 +2820,35 @@ Dmint generates a zero-dependency OpenCode guard plugin (`dmint-guard.ts`) that 
 In your project directory, run:
 
 ```bash
-# Install in current project (.opencode/plugin/dmint-guard.ts):
+# Install in current project (.opencode/plugins/dmint-guard.ts & .opencode/plugin/dmint-guard.ts):
 dmint init --harness opencode
 
-# Or install globally (~/.config/opencode/plugin/dmint-guard.ts):
+# Or install globally (~/.config/opencode/plugins/dmint-guard.ts):
 dmint hook install --harness opencode --global
 ```
 
 What this generates:
-- `policy.json` — Starter `shell` and `filesystem` policy rules.
+- `.dmint/policies/opencode.policy.json` — Dedicated policy tailored to all OpenCode built-in tools.
 - `.dmint/signing.key`, `.dmint/integrity.key`, and `.dmint/approvals.sqlite3`.
-- `.opencode/plugin/dmint-guard.ts` — The OpenCode `tool.execute.before` plugin.
+- `.opencode/plugins/dmint-guard.ts` (and `.opencode/plugin/dmint-guard.ts`) — The OpenCode `tool.execute.before` guard plugin pointing to `.dmint/policies/opencode.policy.json`.
 
 ---
 
 ## 2. How the OpenCode Plugin Works
 
-Whenever OpenCode prepares to execute a tool (`bash`, `read_file`, `write_file`, `edit`, `glob`, `grep`, or an MCP tool), `.opencode/plugin/dmint-guard.ts` invokes `dmint hook run --harness opencode` synchronously over `stdin`:
+Whenever OpenCode prepares to execute a built-in or MCP tool, `dmint-guard.ts` invokes `dmint hook run --harness opencode --policy "<workspace>/.dmint/policies/opencode.policy.json"` synchronously over `stdin`:
 
-```typescript title=".opencode/plugin/dmint-guard.ts"
-import { spawnSync } from "node:child_process";
-
-export const DmintGuardPlugin = async (_ctx: any) => {
-  return {
-    "tool.execute.before": async (input: any, output: any) => {
-      const payload = JSON.stringify({
-        tool_name: input?.tool ?? "",
-        session_id: input?.sessionID ?? "opencode-session",
-        call_id: input?.callID ?? "",
-        tool_input: output?.args ?? {},
-      });
-      const res = spawnSync(
-        "dmint",
-        ["hook", "run", "--harness", "opencode", "--policy", "policy.json"],
-        { input: payload, encoding: "utf-8" }
-      );
-      if (res.status !== 0) {
-        let reason = (res.stderr || res.stdout || "Blocked by Dmint policy").trim();
-        try {
-          const parsed = JSON.parse(res.stdout);
-          if (parsed && parsed.reason) reason = parsed.reason;
-        } catch {}
-        throw new Error(reason);
-      }
-    },
-  };
-};
-```
-
+- **`apply_patch` Inspection**: In OpenCode, `apply_patch` passes unified diffs in `output.args.patchText` with `*** Add File:`, `*** Update File:`, `*** Delete File:`, and `*** Move to:` headers. Dmint extracts and validates every file path in `patchText`.
+- **Safe Built-In Session Tools**: `todowrite`, `todoread`, `question`, `grep`, `glob`, `list`, `lsp`, and `websearch` are explicitly allowed in `opencode.policy.json` so OpenCode can manage task checklists and ask clarifying questions without friction.
 - **`ALLOW` (Exit `0`)**: The hook returns cleanly and OpenCode runs the tool immediately.
-- **`DENY` (Exit `2`)**: The plugin throws an `Error` with the exact Dmint policy code (`DMT_POLICY_DENIED` or `DMT_DEFAULT_DENIED`), halting execution before the tool runs.
+- **`DENY` (Exit `2`)**: The plugin throws an `Error` with the exact Dmint policy code (`DMT_POLICY_DENIED`), halting execution before the tool runs.
 - **`APPROVAL_REQUIRED` (Exit `2` until approved)**: The plugin halts the tool and displays the approval ID (`apr_...`) and `dmint approve <id>` command directly in OpenCode.
 
 ---
 
 ## 3. Approving & Retrying in OpenCode
 
-1. When OpenCode pauses on an `approval_required` action (e.g., modifying `src/index.ts` or running `docker build`), run in your terminal:
+1. When OpenCode pauses on an `approval_required` action (e.g., modifying `src/index.ts` via `edit` / `apply_patch` or running `docker build` via `bash`), run in your terminal:
    ```bash
    dmint pending
    dmint approve apr_... --by dev@company.com
@@ -3011,12 +2956,12 @@ When an IDE agent triggers an `APPROVAL_REQUIRED` rule (via either `dmint hook` 
 DOCUMENT: Windsurf & Cline / Roo Code
 URL: https://docs.dmint.app/integrations/windsurf-cline
 SECTION: Integrations
-SUMMARY: How to protect native IDE tools and MCP servers in Windsurf, Cline, and Roo Code using dmint init, dmint hook, and dmint-mcp.
+SUMMARY: How to protect native IDE tools and MCP servers in Windsurf Cascade, Cline, and Roo Code using their dedicated per-harness policy files.
 ================================================================================
 
-# Windsurf & Cline / Roo Code Integration
+# Windsurf Cascade & Cline / Roo Code Integration
 
-Dmint supports pre-tool execution hooks and MCP gateway protection for **Windsurf** (Cascade) and **Cline / Roo Code** in VS Code.
+Dmint provides first-class pre-execution hooks and dedicated built-in tool policies for **Windsurf Cascade** (`.windsurf/hooks.json`) and **Cline / Roo Code** (`.clinerules/hooks/PreToolUse`, `.cline/hooks/PreToolUse.sh`, and `.clinerules/hooks.json`).
 
 ---
 
@@ -3025,17 +2970,22 @@ Dmint supports pre-tool execution hooks and MCP gateway protection for **Windsur
 From your workspace root, run:
 
 ```bash
-# Install hooks for both Windsurf and Cline / Roo Code:
+# Install hooks and dedicated policies for both Windsurf and Cline / Roo Code:
 dmint init --harness windsurf,cline
 ```
 
 This creates:
-- `.windsurf/hooks.json` — Pre-tool execution hook for Windsurf Cascade.
-- `.clinerules/hooks.json` — Pre-tool execution hook for Cline and Roo Code (`--harness roo-code` is also accepted as an alias).
-- `policy.json` — Starter policy combining the `shell` and `filesystem` templates.
+- **Windsurf Cascade**:
+  - `.dmint/policies/windsurf.policy.json` — Dedicated policy for Windsurf Cascade's pre-hooks (`pre_run_command`, `pre_read_code`, `pre_write_code`, `pre_mcp_tool_use`, `pre_user_prompt`) and native tools.
+  - `.windsurf/hooks.json` — Official Windsurf Cascade hook configuration registering `pre_run_command`, `pre_read_code`, `pre_write_code`, and `pre_mcp_tool_use` with `show_output: true` and blocking disallowed actions via exit code `2`.
+- **Cline (VS Code Extension & CLI) / Roo Code**:
+  - `.dmint/policies/cline.policy.json` — Dedicated policy covering all Cline built-in tools (`run_commands`, `execute_command`, `read_files`, `read_file`, `editor`, `write_to_file`, `replace_in_file`, `apply_patch`, `search_files`, `list_files`, `list_code_definition_names`, `ask_followup_question`, `attempt_completion`, `new_task`, `switch_mode`, `browser_action`, `use_mcp_tool`).
+  - `.clinerules/hooks/PreToolUse` — Executable hook script (no extension, `chmod +x`) required by the Cline VS Code extension.
+  - `.cline/hooks/PreToolUse.sh` — Executable hook script required by the Cline CLI.
+  - `.clinerules/hooks.json` — Declarative hook configuration for Roo Code compatibility.
 - `.dmint/` — Local Ed25519 signing key (`0600`), HMAC integrity key (`0600`), and `approvals.sqlite3` database.
 
-Verify installed hooks at any time:
+Verify installed hooks and their dedicated policy paths at any time:
 
 ```bash
 dmint hook status
@@ -3043,48 +2993,19 @@ dmint hook status
 
 ---
 
-## 2. Test Your Policy (`dmint check`)
+## 2. Official Payload & Output Schemas Handled by Dmint
 
-Test how your workspace `policy.json` evaluates terminal commands and file paths:
+### Windsurf Cascade (`.windsurf/hooks.json`)
+Windsurf Cascade sends `agent_action_name` (`pre_run_command`, `pre_read_code`, `pre_write_code`, `pre_mcp_tool_use`) and `tool_info` (`command_line`, `file_path`, `mcp_server_name`, `mcp_tool_name`, `mcp_tool_arguments`) over `stdin`. Dmint normalizes `tool_info` automatically and exits with code `2` (writing the reason to `stderr`) whenever a call is `DENY` or `APPROVAL_REQUIRED`.
 
-```bash
-dmint check -t shell.execute -r "npm test"               # -> ALLOW (exit 0)
-dmint check -t filesystem.write_file -r "src/server.ts"  # -> APPROVAL_REQUIRED (exit 1)
-dmint check -t filesystem.read_file -r ".env.local"      # -> DENY (exit 2)
-```
-
----
-
-## 3. Wrapping External MCP Servers (`dmint-mcp`)
-
-To protect external MCP servers (PostgreSQL, GitHub, Stripe) in Windsurf or Cline:
-
-1. Generate `policy.json` and `mcp_protection.json`:
-   ```bash
-   dmint create-mcp-policy \
-     --command npx \
-     --args "-y @modelcontextprotocol/server-postgres postgresql://localhost/mydb" \
-     --integration-id postgres \
-     -f access.md \
-     -o policy.json \
-     --config-output mcp_protection.json \
-     -y
-   ```
-2. Point Windsurf (`~/.codeium/windsurf/mcp_config.json`) or Cline (`cline_mcp_settings.json`) to `dmint-mcp`:
-   ```json
-   {
-     "mcpServers": {
-       "dmint-protected-postgres": {
-         "command": "dmint-mcp",
-         "args": ["run", "--config", "/absolute/path/to/mcp_protection.json"]
-       }
-     }
-   }
-   ```
+### Cline VS Code Extension & CLI (`.clinerules/hooks/PreToolUse` & `.cline/hooks/PreToolUse.sh`)
+Cline sends either the VS Code extension payload (`{"preToolUse": {"toolName": "...", "parameters": {...}}}` with JSON-stringified parameter values) or the CLI payload (`{"tool_call": {"name": "...", "input": {...}}}`).
+- Dmint automatically parses stringified JSON parameters, inspects every file in batch `read_files` / `apply_patch` calls and every command in batch `run_commands` (`{"commands": [...]}`) calls, and returns `{"cancel": false}` on `ALLOW` or `{"cancel": true, "errorMessage": "..."}` when blocked.
+- Turn-completion and question tools (`attempt_completion`, `ask_followup_question`) are explicitly allowed in `cline.policy.json` so Cline can ask questions and finish tasks cleanly.
 
 ---
 
-## 4. Approving Paused Requests
+## 3. Approving Paused Requests
 
 When Windsurf or Cline pauses on an `APPROVAL_REQUIRED` action:
 

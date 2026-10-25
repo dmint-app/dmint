@@ -1,17 +1,20 @@
-"""Unit tests for Dmint policy templates and deduplication engine."""
+"""Unit tests for Dmint policy templates, per-harness policies, and deduplication engine."""
 
 import unittest
-from pathlib import Path
 
 from dmint.core.models import Decision
 from dmint.core.policy import Policy, Rule
 from dmint.templates import (
     AVAILABLE_TEMPLATES,
+    HARNESS_TEMPLATES,
     deduplicate_policy_dict,
     deduplicate_policy_rules,
+    get_harness_template_dict,
+    get_harness_template_policy,
     get_template_dict,
     get_template_path,
     get_template_policy,
+    list_harness_templates,
     list_templates,
 )
 
@@ -25,6 +28,15 @@ EXPECTED_TEMPLATES = {
     "kubernetes",
 }
 
+EXPECTED_HARNESS_TEMPLATES = {
+    "claude-code",
+    "codex",
+    "opencode",
+    "cursor",
+    "windsurf",
+    "cline",
+}
+
 
 class PolicyTemplatesTestCase(unittest.TestCase):
     def test_list_templates_contains_all_expected(self) -> None:
@@ -33,17 +45,27 @@ class PolicyTemplatesTestCase(unittest.TestCase):
         for t in templates:
             self.assertIn(t, AVAILABLE_TEMPLATES)
 
+    def test_list_harness_templates_contains_all_expected(self) -> None:
+        h_templates = list_harness_templates()
+        self.assertEqual(set(h_templates), EXPECTED_HARNESS_TEMPLATES)
+        for h in h_templates:
+            self.assertIn(h, HARNESS_TEMPLATES)
+            pol = get_harness_template_policy(h)
+            self.assertIsInstance(pol, Policy)
+            self.assertGreater(len(pol.rules), 100)
+
     def test_get_template_path_unknown_raises_key_error(self) -> None:
         with self.assertRaises(KeyError):
             get_template_path("non_existent_template")
+        with self.assertRaises(KeyError):
+            get_harness_template_dict("non_existent_harness")
 
     def test_all_templates_load_and_validate(self) -> None:
-        for name in EXPECTED_TEMPLATES:
+        for name in EXPECTED_TEMPLATES | EXPECTED_HARNESS_TEMPLATES:
             policy = get_template_policy(name)
             self.assertIsInstance(policy, Policy)
             self.assertGreater(len(policy.rules), 0)
 
-            # Check that every rule in the template has a valid effect
             for rule in policy.rules:
                 self.assertIsInstance(rule, Rule)
                 self.assertIn(
@@ -54,7 +76,7 @@ class PolicyTemplatesTestCase(unittest.TestCase):
                 self.assertTrue(rule.action)
 
     def test_all_templates_have_no_duplicate_rules(self) -> None:
-        for name in EXPECTED_TEMPLATES:
+        for name in EXPECTED_TEMPLATES | EXPECTED_HARNESS_TEMPLATES:
             data = get_template_dict(name)
             original_count = len(data["rules"])
             deduped = deduplicate_policy_dict(data)

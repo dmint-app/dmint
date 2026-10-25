@@ -1,0 +1,5004 @@
+{
+  "rules": [
+    {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "git status",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "git status *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "git diff",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "git diff *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "git log",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "git log *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "git show",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "git show *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "git branch",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "git branch *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "npm test",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "npm test *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "npm run test",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "npm run test *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "npm run lint",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "npm run lint *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "npm run build",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "npm run build *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "pnpm test",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "pnpm test *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "yarn test",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "yarn test *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "pytest",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "pytest *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "python -m pytest",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "python -m pytest *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "python3 -m pytest",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "python3 -m pytest *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "cargo test",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "cargo test *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "go test",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "go test *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "ruff check",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "ruff check *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "mypy",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "mypy *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "ls",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "ls *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "pwd",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "whoami",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "which *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "echo *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "git push",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "git push *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "git commit *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "git reset *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "git rebase *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "git merge *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "systemctl *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "service *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "docker *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "docker-compose *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "kubectl *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "helm *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "terraform *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "kill *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "pkill *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "killall *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "npm install",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "npm install *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "npm i *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "pnpm add *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "pnpm install *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "yarn add *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "pip install *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "pip3 install *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "uv add *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "uv pip install *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "cargo add *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "curl *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "wget *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "ssh *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "scp *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "rsync *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "deny",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "rm -rf /",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "deny",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "rm -rf /*",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "deny",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "rm -rf ~",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "deny",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "rm -rf ~/*",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "deny",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "rm -rf .",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "deny",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "rm -rf .*",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "deny",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "sudo *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "deny",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "su *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "deny",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "mkfs *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "deny",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "dd *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "deny",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "chmod 777 *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "deny",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "chown -R *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "deny",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "* | sh",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "deny",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "* | bash",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "deny",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "* | zsh",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "deny",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "* *.env*",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "deny",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "* *.key",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "deny",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "* *.pem",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "deny",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "* */.ssh/*",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "deny",
+      "tool": "shell",
+      "action": "execute",
+      "resource": "* */.aws/*",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "filesystem",
+      "action": "read_file",
+      "resource": "src/*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "allow",
+      "tool": "filesystem",
+      "action": "read_file",
+      "resource": "src/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "allow",
+      "tool": "filesystem",
+      "action": "read_file",
+      "resource": "docs/*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "allow",
+      "tool": "filesystem",
+      "action": "read_file",
+      "resource": "docs/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "allow",
+      "tool": "filesystem",
+      "action": "read_file",
+      "resource": "tests/*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "allow",
+      "tool": "filesystem",
+      "action": "read_file",
+      "resource": "tests/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "allow",
+      "tool": "filesystem",
+      "action": "read_file",
+      "resource": "scripts/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "allow",
+      "tool": "filesystem",
+      "action": "read_file",
+      "resource": "README.md",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "allow",
+      "tool": "filesystem",
+      "action": "read_file",
+      "resource": "pyproject.toml",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "allow",
+      "tool": "filesystem",
+      "action": "read_file",
+      "resource": "package.json",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "allow",
+      "tool": "filesystem",
+      "action": "read_file",
+      "resource": "Cargo.toml",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "allow",
+      "tool": "filesystem",
+      "action": "read_file",
+      "resource": "go.mod",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "allow",
+      "tool": "filesystem",
+      "action": "read_file",
+      "resource": "Makefile",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "read_file",
+      "resource": ".env*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "read_file",
+      "resource": "*/.env*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "read_file",
+      "resource": "**/.env*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "read_file",
+      "resource": "/**/.env*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "read_file",
+      "resource": "*.key",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "read_file",
+      "resource": "**/*.key",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "read_file",
+      "resource": "/**/*.key",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "read_file",
+      "resource": "*.pem",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "read_file",
+      "resource": "**/*.pem",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "read_file",
+      "resource": "/**/*.pem",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "read_file",
+      "resource": "*.p12",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "read_file",
+      "resource": "**/*.p12",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "read_file",
+      "resource": "*id_rsa*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "read_file",
+      "resource": "**/*id_rsa*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "read_file",
+      "resource": "/**/*id_rsa*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "read_file",
+      "resource": "*id_ed25519*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "read_file",
+      "resource": "**/*id_ed25519*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "read_file",
+      "resource": "/**/*id_ed25519*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "read_file",
+      "resource": ".dmint/*.key",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "read_file",
+      "resource": ".dmint/**/*.key",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "read_file",
+      "resource": "/**/.dmint/**/*.key",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "read_file",
+      "resource": "/etc/*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "read_file",
+      "resource": "/etc/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "read_file",
+      "resource": "/root/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "read_file",
+      "resource": "/**/.ssh/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "read_file",
+      "resource": "/**/.aws/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "allow",
+      "tool": "filesystem",
+      "action": "list_directory",
+      "resource": "*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "filesystem",
+      "action": "write_file",
+      "resource": "src/*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "filesystem",
+      "action": "write_file",
+      "resource": "src/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "filesystem",
+      "action": "write_file",
+      "resource": "tests/*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "filesystem",
+      "action": "write_file",
+      "resource": "tests/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "filesystem",
+      "action": "write_file",
+      "resource": "docs/*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "filesystem",
+      "action": "write_file",
+      "resource": "docs/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "filesystem",
+      "action": "write_file",
+      "resource": "scripts/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "filesystem",
+      "action": "write_file",
+      "resource": "*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "write_file",
+      "resource": ".env*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "write_file",
+      "resource": "*/.env*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "write_file",
+      "resource": "**/.env*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "write_file",
+      "resource": "/**/.env*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "write_file",
+      "resource": "*.key",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "write_file",
+      "resource": "**/*.key",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "write_file",
+      "resource": "/**/*.key",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "write_file",
+      "resource": "*.pem",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "write_file",
+      "resource": "**/*.pem",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "write_file",
+      "resource": "/**/*.pem",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "write_file",
+      "resource": ".dmint/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "write_file",
+      "resource": "/**/.dmint/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "write_file",
+      "resource": ".git/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "write_file",
+      "resource": "/**/.git/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "write_file",
+      "resource": "/etc/*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "write_file",
+      "resource": "/etc/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "write_file",
+      "resource": "/usr/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "write_file",
+      "resource": "/bin/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "write_file",
+      "resource": "/sbin/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "write_file",
+      "resource": "/**/.ssh/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "write_file",
+      "resource": "/**/.aws/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "write_file",
+      "resource": ".clineignore",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "write_file",
+      "resource": "**/.clineignore",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "write_file",
+      "resource": "/**/.clineignore",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "write_file",
+      "resource": ".clinerules/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "write_file",
+      "resource": "/**/.clinerules/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "write_file",
+      "resource": ".cline/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "write_file",
+      "resource": "/**/.cline/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "filesystem",
+      "action": "create_directory",
+      "resource": "*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "filesystem",
+      "action": "delete_file",
+      "resource": "src/*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "filesystem",
+      "action": "delete_file",
+      "resource": "src/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "filesystem",
+      "action": "delete_file",
+      "resource": "tests/*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "filesystem",
+      "action": "delete_file",
+      "resource": "tests/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "filesystem",
+      "action": "delete_file",
+      "resource": "docs/*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "filesystem",
+      "action": "delete_file",
+      "resource": "docs/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "filesystem",
+      "action": "delete_file",
+      "resource": "scripts/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "filesystem",
+      "action": "delete_file",
+      "resource": "*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "delete_file",
+      "resource": ".env*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "delete_file",
+      "resource": "*/.env*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "delete_file",
+      "resource": "**/.env*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "delete_file",
+      "resource": "/**/.env*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "delete_file",
+      "resource": "*.key",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "delete_file",
+      "resource": "**/*.key",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "delete_file",
+      "resource": "/**/*.key",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "delete_file",
+      "resource": "*.pem",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "delete_file",
+      "resource": "**/*.pem",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "delete_file",
+      "resource": "/**/*.pem",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "delete_file",
+      "resource": ".dmint/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "delete_file",
+      "resource": "/**/.dmint/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "delete_file",
+      "resource": ".git/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "delete_file",
+      "resource": "/**/.git/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "delete_file",
+      "resource": "/etc/*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "delete_file",
+      "resource": "/etc/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "delete_file",
+      "resource": "/usr/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "delete_file",
+      "resource": "/bin/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "delete_file",
+      "resource": "/sbin/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "delete_file",
+      "resource": "/**/.ssh/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "delete_file",
+      "resource": "/**/.aws/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "delete_file",
+      "resource": ".clineignore",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "delete_file",
+      "resource": "**/.clineignore",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "delete_file",
+      "resource": "/**/.clineignore",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "delete_file",
+      "resource": ".clinerules/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "delete_file",
+      "resource": "/**/.clinerules/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "delete_file",
+      "resource": ".cline/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "delete_file",
+      "resource": "/**/.cline/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "allow",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "git status",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "git status *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "git diff",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "git diff *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "git log",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "git log *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "git show",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "git show *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "git branch",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "git branch *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "npm test",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "npm test *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "npm run test",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "npm run test *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "npm run lint",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "npm run lint *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "npm run build",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "npm run build *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "pnpm test",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "pnpm test *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "yarn test",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "yarn test *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "pytest",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "pytest *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "python -m pytest",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "python -m pytest *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "python3 -m pytest",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "python3 -m pytest *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "cargo test",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "cargo test *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "go test",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "go test *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "ruff check",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "ruff check *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "mypy",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "mypy *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "ls",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "ls *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "pwd",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "whoami",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "which *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "echo *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "git push",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "git push *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "git commit *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "git reset *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "git rebase *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "git merge *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "systemctl *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "service *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "docker *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "docker-compose *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "kubectl *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "helm *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "terraform *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "kill *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "pkill *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "killall *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "npm install",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "npm install *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "npm i *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "pnpm add *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "pnpm install *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "yarn add *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "pip install *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "pip3 install *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "uv add *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "uv pip install *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "cargo add *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "curl *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "wget *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "ssh *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "scp *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "rsync *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "deny",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "rm -rf /",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "deny",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "rm -rf /*",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "deny",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "rm -rf ~",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "deny",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "rm -rf ~/*",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "deny",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "rm -rf .",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "deny",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "rm -rf .*",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "deny",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "sudo *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "deny",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "su *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "deny",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "mkfs *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "deny",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "dd *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "deny",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "chmod 777 *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "deny",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "chown -R *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "deny",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "* | sh",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "deny",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "* | bash",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "deny",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "* | zsh",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "deny",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "* *.env*",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "deny",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "* *.key",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "deny",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "* *.pem",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "deny",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "* */.ssh/*",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "deny",
+      "tool": "run_commands",
+      "action": "execute",
+      "resource": "* */.aws/*",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "git status",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "git status *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "git diff",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "git diff *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "git log",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "git log *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "git show",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "git show *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "git branch",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "git branch *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "npm test",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "npm test *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "npm run test",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "npm run test *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "npm run lint",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "npm run lint *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "npm run build",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "npm run build *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "pnpm test",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "pnpm test *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "yarn test",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "yarn test *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "pytest",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "pytest *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "python -m pytest",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "python -m pytest *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "python3 -m pytest",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "python3 -m pytest *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "cargo test",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "cargo test *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "go test",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "go test *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "ruff check",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "ruff check *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "mypy",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "mypy *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "ls",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "ls *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "pwd",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "whoami",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "which *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "echo *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "git push",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "git push *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "git commit *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "git reset *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "git rebase *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "git merge *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "systemctl *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "service *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "docker *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "docker-compose *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "kubectl *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "helm *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "terraform *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "kill *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "pkill *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "killall *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "npm install",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "npm install *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "npm i *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "pnpm add *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "pnpm install *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "yarn add *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "pip install *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "pip3 install *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "uv add *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "uv pip install *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "cargo add *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "curl *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "wget *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "ssh *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "scp *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "rsync *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "deny",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "rm -rf /",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "deny",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "rm -rf /*",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "deny",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "rm -rf ~",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "deny",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "rm -rf ~/*",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "deny",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "rm -rf .",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "deny",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "rm -rf .*",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "deny",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "sudo *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "deny",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "su *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "deny",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "mkfs *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "deny",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "dd *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "deny",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "chmod 777 *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "deny",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "chown -R *",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "deny",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "* | sh",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "deny",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "* | bash",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "deny",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "* | zsh",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "deny",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "* *.env*",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "deny",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "* *.key",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "deny",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "* *.pem",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "deny",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "* */.ssh/*",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "deny",
+      "tool": "execute_command",
+      "action": "execute",
+      "resource": "* */.aws/*",
+      "resource_kind": "exact"
+    },
+    {
+      "effect": "allow",
+      "tool": "read_files",
+      "action": "execute",
+      "resource": "src/*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "allow",
+      "tool": "read_files",
+      "action": "execute",
+      "resource": "src/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "allow",
+      "tool": "read_files",
+      "action": "execute",
+      "resource": "docs/*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "allow",
+      "tool": "read_files",
+      "action": "execute",
+      "resource": "docs/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "allow",
+      "tool": "read_files",
+      "action": "execute",
+      "resource": "tests/*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "allow",
+      "tool": "read_files",
+      "action": "execute",
+      "resource": "tests/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "allow",
+      "tool": "read_files",
+      "action": "execute",
+      "resource": "scripts/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "allow",
+      "tool": "read_files",
+      "action": "execute",
+      "resource": "README.md",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "allow",
+      "tool": "read_files",
+      "action": "execute",
+      "resource": "pyproject.toml",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "allow",
+      "tool": "read_files",
+      "action": "execute",
+      "resource": "package.json",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "allow",
+      "tool": "read_files",
+      "action": "execute",
+      "resource": "Cargo.toml",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "allow",
+      "tool": "read_files",
+      "action": "execute",
+      "resource": "go.mod",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "allow",
+      "tool": "read_files",
+      "action": "execute",
+      "resource": "Makefile",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "read_files",
+      "action": "execute",
+      "resource": ".env*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "read_files",
+      "action": "execute",
+      "resource": "*/.env*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "read_files",
+      "action": "execute",
+      "resource": "**/.env*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "read_files",
+      "action": "execute",
+      "resource": "/**/.env*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "read_files",
+      "action": "execute",
+      "resource": "*.key",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "read_files",
+      "action": "execute",
+      "resource": "**/*.key",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "read_files",
+      "action": "execute",
+      "resource": "/**/*.key",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "read_files",
+      "action": "execute",
+      "resource": "*.pem",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "read_files",
+      "action": "execute",
+      "resource": "**/*.pem",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "read_files",
+      "action": "execute",
+      "resource": "/**/*.pem",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "read_files",
+      "action": "execute",
+      "resource": "*.p12",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "read_files",
+      "action": "execute",
+      "resource": "**/*.p12",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "read_files",
+      "action": "execute",
+      "resource": "*id_rsa*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "read_files",
+      "action": "execute",
+      "resource": "**/*id_rsa*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "read_files",
+      "action": "execute",
+      "resource": "/**/*id_rsa*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "read_files",
+      "action": "execute",
+      "resource": "*id_ed25519*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "read_files",
+      "action": "execute",
+      "resource": "**/*id_ed25519*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "read_files",
+      "action": "execute",
+      "resource": "/**/*id_ed25519*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "read_files",
+      "action": "execute",
+      "resource": ".dmint/*.key",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "read_files",
+      "action": "execute",
+      "resource": ".dmint/**/*.key",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "read_files",
+      "action": "execute",
+      "resource": "/**/.dmint/**/*.key",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "read_files",
+      "action": "execute",
+      "resource": "/etc/*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "read_files",
+      "action": "execute",
+      "resource": "/etc/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "read_files",
+      "action": "execute",
+      "resource": "/root/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "read_files",
+      "action": "execute",
+      "resource": "/**/.ssh/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "read_files",
+      "action": "execute",
+      "resource": "/**/.aws/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "read_files",
+      "action": "execute",
+      "resource": ".clineignore",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "read_files",
+      "action": "execute",
+      "resource": "**/.clineignore",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "read_files",
+      "action": "execute",
+      "resource": "/**/.clineignore",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "read_files",
+      "action": "execute",
+      "resource": ".clinerules/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "read_files",
+      "action": "execute",
+      "resource": "/**/.clinerules/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "read_files",
+      "action": "execute",
+      "resource": ".cline/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "read_files",
+      "action": "execute",
+      "resource": "/**/.cline/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "allow",
+      "tool": "read_file",
+      "action": "execute",
+      "resource": "src/*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "allow",
+      "tool": "read_file",
+      "action": "execute",
+      "resource": "src/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "allow",
+      "tool": "read_file",
+      "action": "execute",
+      "resource": "docs/*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "allow",
+      "tool": "read_file",
+      "action": "execute",
+      "resource": "docs/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "allow",
+      "tool": "read_file",
+      "action": "execute",
+      "resource": "tests/*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "allow",
+      "tool": "read_file",
+      "action": "execute",
+      "resource": "tests/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "allow",
+      "tool": "read_file",
+      "action": "execute",
+      "resource": "scripts/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "allow",
+      "tool": "read_file",
+      "action": "execute",
+      "resource": "README.md",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "allow",
+      "tool": "read_file",
+      "action": "execute",
+      "resource": "pyproject.toml",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "allow",
+      "tool": "read_file",
+      "action": "execute",
+      "resource": "package.json",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "allow",
+      "tool": "read_file",
+      "action": "execute",
+      "resource": "Cargo.toml",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "allow",
+      "tool": "read_file",
+      "action": "execute",
+      "resource": "go.mod",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "allow",
+      "tool": "read_file",
+      "action": "execute",
+      "resource": "Makefile",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "read_file",
+      "action": "execute",
+      "resource": ".env*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "read_file",
+      "action": "execute",
+      "resource": "*/.env*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "read_file",
+      "action": "execute",
+      "resource": "**/.env*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "read_file",
+      "action": "execute",
+      "resource": "/**/.env*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "read_file",
+      "action": "execute",
+      "resource": "*.key",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "read_file",
+      "action": "execute",
+      "resource": "**/*.key",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "read_file",
+      "action": "execute",
+      "resource": "/**/*.key",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "read_file",
+      "action": "execute",
+      "resource": "*.pem",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "read_file",
+      "action": "execute",
+      "resource": "**/*.pem",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "read_file",
+      "action": "execute",
+      "resource": "/**/*.pem",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "read_file",
+      "action": "execute",
+      "resource": "*.p12",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "read_file",
+      "action": "execute",
+      "resource": "**/*.p12",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "read_file",
+      "action": "execute",
+      "resource": "*id_rsa*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "read_file",
+      "action": "execute",
+      "resource": "**/*id_rsa*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "read_file",
+      "action": "execute",
+      "resource": "/**/*id_rsa*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "read_file",
+      "action": "execute",
+      "resource": "*id_ed25519*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "read_file",
+      "action": "execute",
+      "resource": "**/*id_ed25519*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "read_file",
+      "action": "execute",
+      "resource": "/**/*id_ed25519*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "read_file",
+      "action": "execute",
+      "resource": ".dmint/*.key",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "read_file",
+      "action": "execute",
+      "resource": ".dmint/**/*.key",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "read_file",
+      "action": "execute",
+      "resource": "/**/.dmint/**/*.key",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "read_file",
+      "action": "execute",
+      "resource": "/etc/*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "read_file",
+      "action": "execute",
+      "resource": "/etc/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "read_file",
+      "action": "execute",
+      "resource": "/root/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "read_file",
+      "action": "execute",
+      "resource": "/**/.ssh/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "read_file",
+      "action": "execute",
+      "resource": "/**/.aws/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "read_file",
+      "action": "execute",
+      "resource": ".clineignore",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "read_file",
+      "action": "execute",
+      "resource": "**/.clineignore",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "read_file",
+      "action": "execute",
+      "resource": "/**/.clineignore",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "read_file",
+      "action": "execute",
+      "resource": ".clinerules/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "read_file",
+      "action": "execute",
+      "resource": "/**/.clinerules/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "read_file",
+      "action": "execute",
+      "resource": ".cline/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "read_file",
+      "action": "execute",
+      "resource": "/**/.cline/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "allow",
+      "tool": "search_files",
+      "action": "execute",
+      "resource": "*"
+    },
+    {
+      "effect": "allow",
+      "tool": "list_files",
+      "action": "execute",
+      "resource": "*"
+    },
+    {
+      "effect": "allow",
+      "tool": "list_code_definition_names",
+      "action": "execute",
+      "resource": "*"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "editor",
+      "action": "execute",
+      "resource": "src/*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "editor",
+      "action": "execute",
+      "resource": "src/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "editor",
+      "action": "execute",
+      "resource": "tests/*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "editor",
+      "action": "execute",
+      "resource": "tests/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "editor",
+      "action": "execute",
+      "resource": "docs/*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "editor",
+      "action": "execute",
+      "resource": "docs/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "editor",
+      "action": "execute",
+      "resource": "scripts/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "editor",
+      "action": "execute",
+      "resource": "*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "editor",
+      "action": "execute",
+      "resource": ".env*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "editor",
+      "action": "execute",
+      "resource": "*/.env*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "editor",
+      "action": "execute",
+      "resource": "**/.env*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "editor",
+      "action": "execute",
+      "resource": "/**/.env*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "editor",
+      "action": "execute",
+      "resource": "*.key",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "editor",
+      "action": "execute",
+      "resource": "**/*.key",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "editor",
+      "action": "execute",
+      "resource": "/**/*.key",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "editor",
+      "action": "execute",
+      "resource": "*.pem",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "editor",
+      "action": "execute",
+      "resource": "**/*.pem",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "editor",
+      "action": "execute",
+      "resource": "/**/*.pem",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "editor",
+      "action": "execute",
+      "resource": ".dmint/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "editor",
+      "action": "execute",
+      "resource": "/**/.dmint/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "editor",
+      "action": "execute",
+      "resource": ".git/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "editor",
+      "action": "execute",
+      "resource": "/**/.git/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "editor",
+      "action": "execute",
+      "resource": "/etc/*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "editor",
+      "action": "execute",
+      "resource": "/etc/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "editor",
+      "action": "execute",
+      "resource": "/usr/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "editor",
+      "action": "execute",
+      "resource": "/bin/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "editor",
+      "action": "execute",
+      "resource": "/sbin/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "editor",
+      "action": "execute",
+      "resource": "/**/.ssh/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "editor",
+      "action": "execute",
+      "resource": "/**/.aws/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "editor",
+      "action": "execute",
+      "resource": ".clineignore",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "editor",
+      "action": "execute",
+      "resource": "**/.clineignore",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "editor",
+      "action": "execute",
+      "resource": "/**/.clineignore",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "editor",
+      "action": "execute",
+      "resource": ".clinerules/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "editor",
+      "action": "execute",
+      "resource": "/**/.clinerules/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "editor",
+      "action": "execute",
+      "resource": ".cline/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "editor",
+      "action": "execute",
+      "resource": "/**/.cline/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "write_to_file",
+      "action": "execute",
+      "resource": "src/*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "write_to_file",
+      "action": "execute",
+      "resource": "src/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "write_to_file",
+      "action": "execute",
+      "resource": "tests/*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "write_to_file",
+      "action": "execute",
+      "resource": "tests/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "write_to_file",
+      "action": "execute",
+      "resource": "docs/*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "write_to_file",
+      "action": "execute",
+      "resource": "docs/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "write_to_file",
+      "action": "execute",
+      "resource": "scripts/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "write_to_file",
+      "action": "execute",
+      "resource": "*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "write_to_file",
+      "action": "execute",
+      "resource": ".env*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "write_to_file",
+      "action": "execute",
+      "resource": "*/.env*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "write_to_file",
+      "action": "execute",
+      "resource": "**/.env*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "write_to_file",
+      "action": "execute",
+      "resource": "/**/.env*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "write_to_file",
+      "action": "execute",
+      "resource": "*.key",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "write_to_file",
+      "action": "execute",
+      "resource": "**/*.key",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "write_to_file",
+      "action": "execute",
+      "resource": "/**/*.key",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "write_to_file",
+      "action": "execute",
+      "resource": "*.pem",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "write_to_file",
+      "action": "execute",
+      "resource": "**/*.pem",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "write_to_file",
+      "action": "execute",
+      "resource": "/**/*.pem",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "write_to_file",
+      "action": "execute",
+      "resource": ".dmint/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "write_to_file",
+      "action": "execute",
+      "resource": "/**/.dmint/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "write_to_file",
+      "action": "execute",
+      "resource": ".git/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "write_to_file",
+      "action": "execute",
+      "resource": "/**/.git/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "write_to_file",
+      "action": "execute",
+      "resource": "/etc/*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "write_to_file",
+      "action": "execute",
+      "resource": "/etc/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "write_to_file",
+      "action": "execute",
+      "resource": "/usr/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "write_to_file",
+      "action": "execute",
+      "resource": "/bin/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "write_to_file",
+      "action": "execute",
+      "resource": "/sbin/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "write_to_file",
+      "action": "execute",
+      "resource": "/**/.ssh/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "write_to_file",
+      "action": "execute",
+      "resource": "/**/.aws/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "write_to_file",
+      "action": "execute",
+      "resource": ".clineignore",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "write_to_file",
+      "action": "execute",
+      "resource": "**/.clineignore",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "write_to_file",
+      "action": "execute",
+      "resource": "/**/.clineignore",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "write_to_file",
+      "action": "execute",
+      "resource": ".clinerules/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "write_to_file",
+      "action": "execute",
+      "resource": "/**/.clinerules/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "write_to_file",
+      "action": "execute",
+      "resource": ".cline/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "write_to_file",
+      "action": "execute",
+      "resource": "/**/.cline/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "replace_in_file",
+      "action": "execute",
+      "resource": "src/*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "replace_in_file",
+      "action": "execute",
+      "resource": "src/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "replace_in_file",
+      "action": "execute",
+      "resource": "tests/*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "replace_in_file",
+      "action": "execute",
+      "resource": "tests/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "replace_in_file",
+      "action": "execute",
+      "resource": "docs/*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "replace_in_file",
+      "action": "execute",
+      "resource": "docs/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "replace_in_file",
+      "action": "execute",
+      "resource": "scripts/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "replace_in_file",
+      "action": "execute",
+      "resource": "*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "replace_in_file",
+      "action": "execute",
+      "resource": ".env*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "replace_in_file",
+      "action": "execute",
+      "resource": "*/.env*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "replace_in_file",
+      "action": "execute",
+      "resource": "**/.env*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "replace_in_file",
+      "action": "execute",
+      "resource": "/**/.env*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "replace_in_file",
+      "action": "execute",
+      "resource": "*.key",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "replace_in_file",
+      "action": "execute",
+      "resource": "**/*.key",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "replace_in_file",
+      "action": "execute",
+      "resource": "/**/*.key",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "replace_in_file",
+      "action": "execute",
+      "resource": "*.pem",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "replace_in_file",
+      "action": "execute",
+      "resource": "**/*.pem",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "replace_in_file",
+      "action": "execute",
+      "resource": "/**/*.pem",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "replace_in_file",
+      "action": "execute",
+      "resource": ".dmint/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "replace_in_file",
+      "action": "execute",
+      "resource": "/**/.dmint/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "replace_in_file",
+      "action": "execute",
+      "resource": ".git/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "replace_in_file",
+      "action": "execute",
+      "resource": "/**/.git/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "replace_in_file",
+      "action": "execute",
+      "resource": "/etc/*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "replace_in_file",
+      "action": "execute",
+      "resource": "/etc/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "replace_in_file",
+      "action": "execute",
+      "resource": "/usr/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "replace_in_file",
+      "action": "execute",
+      "resource": "/bin/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "replace_in_file",
+      "action": "execute",
+      "resource": "/sbin/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "replace_in_file",
+      "action": "execute",
+      "resource": "/**/.ssh/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "replace_in_file",
+      "action": "execute",
+      "resource": "/**/.aws/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "replace_in_file",
+      "action": "execute",
+      "resource": ".clineignore",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "replace_in_file",
+      "action": "execute",
+      "resource": "**/.clineignore",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "replace_in_file",
+      "action": "execute",
+      "resource": "/**/.clineignore",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "replace_in_file",
+      "action": "execute",
+      "resource": ".clinerules/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "replace_in_file",
+      "action": "execute",
+      "resource": "/**/.clinerules/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "replace_in_file",
+      "action": "execute",
+      "resource": ".cline/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "replace_in_file",
+      "action": "execute",
+      "resource": "/**/.cline/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "apply_patch",
+      "action": "execute",
+      "resource": "src/*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "apply_patch",
+      "action": "execute",
+      "resource": "src/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "apply_patch",
+      "action": "execute",
+      "resource": "tests/*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "apply_patch",
+      "action": "execute",
+      "resource": "tests/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "apply_patch",
+      "action": "execute",
+      "resource": "docs/*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "apply_patch",
+      "action": "execute",
+      "resource": "docs/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "apply_patch",
+      "action": "execute",
+      "resource": "scripts/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "apply_patch",
+      "action": "execute",
+      "resource": "*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "apply_patch",
+      "action": "execute",
+      "resource": ".env*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "apply_patch",
+      "action": "execute",
+      "resource": "*/.env*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "apply_patch",
+      "action": "execute",
+      "resource": "**/.env*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "apply_patch",
+      "action": "execute",
+      "resource": "/**/.env*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "apply_patch",
+      "action": "execute",
+      "resource": "*.key",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "apply_patch",
+      "action": "execute",
+      "resource": "**/*.key",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "apply_patch",
+      "action": "execute",
+      "resource": "/**/*.key",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "apply_patch",
+      "action": "execute",
+      "resource": "*.pem",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "apply_patch",
+      "action": "execute",
+      "resource": "**/*.pem",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "apply_patch",
+      "action": "execute",
+      "resource": "/**/*.pem",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "apply_patch",
+      "action": "execute",
+      "resource": ".dmint/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "apply_patch",
+      "action": "execute",
+      "resource": "/**/.dmint/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "apply_patch",
+      "action": "execute",
+      "resource": ".git/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "apply_patch",
+      "action": "execute",
+      "resource": "/**/.git/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "apply_patch",
+      "action": "execute",
+      "resource": "/etc/*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "apply_patch",
+      "action": "execute",
+      "resource": "/etc/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "apply_patch",
+      "action": "execute",
+      "resource": "/usr/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "apply_patch",
+      "action": "execute",
+      "resource": "/bin/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "apply_patch",
+      "action": "execute",
+      "resource": "/sbin/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "apply_patch",
+      "action": "execute",
+      "resource": "/**/.ssh/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "apply_patch",
+      "action": "execute",
+      "resource": "/**/.aws/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "apply_patch",
+      "action": "execute",
+      "resource": ".clineignore",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "apply_patch",
+      "action": "execute",
+      "resource": "**/.clineignore",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "apply_patch",
+      "action": "execute",
+      "resource": "/**/.clineignore",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "apply_patch",
+      "action": "execute",
+      "resource": ".clinerules/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "apply_patch",
+      "action": "execute",
+      "resource": "/**/.clinerules/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "apply_patch",
+      "action": "execute",
+      "resource": ".cline/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "apply_patch",
+      "action": "execute",
+      "resource": "/**/.cline/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "apply_diff",
+      "action": "execute",
+      "resource": "src/*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "apply_diff",
+      "action": "execute",
+      "resource": "src/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "apply_diff",
+      "action": "execute",
+      "resource": "tests/*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "apply_diff",
+      "action": "execute",
+      "resource": "tests/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "apply_diff",
+      "action": "execute",
+      "resource": "docs/*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "apply_diff",
+      "action": "execute",
+      "resource": "docs/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "apply_diff",
+      "action": "execute",
+      "resource": "scripts/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "apply_diff",
+      "action": "execute",
+      "resource": "*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "apply_diff",
+      "action": "execute",
+      "resource": ".env*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "apply_diff",
+      "action": "execute",
+      "resource": "*/.env*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "apply_diff",
+      "action": "execute",
+      "resource": "**/.env*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "apply_diff",
+      "action": "execute",
+      "resource": "/**/.env*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "apply_diff",
+      "action": "execute",
+      "resource": "*.key",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "apply_diff",
+      "action": "execute",
+      "resource": "**/*.key",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "apply_diff",
+      "action": "execute",
+      "resource": "/**/*.key",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "apply_diff",
+      "action": "execute",
+      "resource": "*.pem",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "apply_diff",
+      "action": "execute",
+      "resource": "**/*.pem",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "apply_diff",
+      "action": "execute",
+      "resource": "/**/*.pem",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "apply_diff",
+      "action": "execute",
+      "resource": ".dmint/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "apply_diff",
+      "action": "execute",
+      "resource": "/**/.dmint/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "apply_diff",
+      "action": "execute",
+      "resource": ".git/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "apply_diff",
+      "action": "execute",
+      "resource": "/**/.git/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "apply_diff",
+      "action": "execute",
+      "resource": "/etc/*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "apply_diff",
+      "action": "execute",
+      "resource": "/etc/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "apply_diff",
+      "action": "execute",
+      "resource": "/usr/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "apply_diff",
+      "action": "execute",
+      "resource": "/bin/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "apply_diff",
+      "action": "execute",
+      "resource": "/sbin/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "apply_diff",
+      "action": "execute",
+      "resource": "/**/.ssh/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "apply_diff",
+      "action": "execute",
+      "resource": "/**/.aws/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "apply_diff",
+      "action": "execute",
+      "resource": ".clineignore",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "apply_diff",
+      "action": "execute",
+      "resource": "**/.clineignore",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "apply_diff",
+      "action": "execute",
+      "resource": "/**/.clineignore",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "apply_diff",
+      "action": "execute",
+      "resource": ".clinerules/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "apply_diff",
+      "action": "execute",
+      "resource": "/**/.clinerules/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "apply_diff",
+      "action": "execute",
+      "resource": ".cline/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "apply_diff",
+      "action": "execute",
+      "resource": "/**/.cline/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "insert_content",
+      "action": "execute",
+      "resource": "src/*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "insert_content",
+      "action": "execute",
+      "resource": "src/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "insert_content",
+      "action": "execute",
+      "resource": "tests/*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "insert_content",
+      "action": "execute",
+      "resource": "tests/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "insert_content",
+      "action": "execute",
+      "resource": "docs/*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "insert_content",
+      "action": "execute",
+      "resource": "docs/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "insert_content",
+      "action": "execute",
+      "resource": "scripts/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "insert_content",
+      "action": "execute",
+      "resource": "*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "insert_content",
+      "action": "execute",
+      "resource": ".env*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "insert_content",
+      "action": "execute",
+      "resource": "*/.env*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "insert_content",
+      "action": "execute",
+      "resource": "**/.env*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "insert_content",
+      "action": "execute",
+      "resource": "/**/.env*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "insert_content",
+      "action": "execute",
+      "resource": "*.key",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "insert_content",
+      "action": "execute",
+      "resource": "**/*.key",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "insert_content",
+      "action": "execute",
+      "resource": "/**/*.key",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "insert_content",
+      "action": "execute",
+      "resource": "*.pem",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "insert_content",
+      "action": "execute",
+      "resource": "**/*.pem",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "insert_content",
+      "action": "execute",
+      "resource": "/**/*.pem",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "insert_content",
+      "action": "execute",
+      "resource": ".dmint/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "insert_content",
+      "action": "execute",
+      "resource": "/**/.dmint/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "insert_content",
+      "action": "execute",
+      "resource": ".git/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "insert_content",
+      "action": "execute",
+      "resource": "/**/.git/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "insert_content",
+      "action": "execute",
+      "resource": "/etc/*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "insert_content",
+      "action": "execute",
+      "resource": "/etc/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "insert_content",
+      "action": "execute",
+      "resource": "/usr/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "insert_content",
+      "action": "execute",
+      "resource": "/bin/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "insert_content",
+      "action": "execute",
+      "resource": "/sbin/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "insert_content",
+      "action": "execute",
+      "resource": "/**/.ssh/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "insert_content",
+      "action": "execute",
+      "resource": "/**/.aws/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "insert_content",
+      "action": "execute",
+      "resource": ".clineignore",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "insert_content",
+      "action": "execute",
+      "resource": "**/.clineignore",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "insert_content",
+      "action": "execute",
+      "resource": "/**/.clineignore",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "insert_content",
+      "action": "execute",
+      "resource": ".clinerules/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "insert_content",
+      "action": "execute",
+      "resource": "/**/.clinerules/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "insert_content",
+      "action": "execute",
+      "resource": ".cline/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "insert_content",
+      "action": "execute",
+      "resource": "/**/.cline/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "allow",
+      "tool": "ask_followup_question",
+      "action": "execute",
+      "resource": "*"
+    },
+    {
+      "effect": "allow",
+      "tool": "attempt_completion",
+      "action": "execute",
+      "resource": "*"
+    },
+    {
+      "effect": "allow",
+      "tool": "load_mcp_documentation",
+      "action": "execute",
+      "resource": "*"
+    },
+    {
+      "effect": "allow",
+      "tool": "access_mcp_resource",
+      "action": "execute",
+      "resource": "*"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "new_task",
+      "action": "execute",
+      "resource": "*"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "switch_mode",
+      "action": "execute",
+      "resource": "*"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "browser_action",
+      "action": "execute",
+      "resource": "*"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "use_mcp_tool",
+      "action": "execute",
+      "resource": "*"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "web_fetch",
+      "action": "execute",
+      "resource": "*"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "web_search",
+      "action": "execute",
+      "resource": "*"
+    }
+  ],
+  "strict_arguments": false
+}

@@ -1,12 +1,12 @@
 ---
 title: "Windsurf & Cline / Roo Code"
-description: "How to protect native IDE tools and MCP servers in Windsurf, Cline, and Roo Code using dmint init, dmint hook, and dmint-mcp."
+description: "How to protect native IDE tools and MCP servers in Windsurf Cascade, Cline, and Roo Code using their dedicated per-harness policy files."
 icon: "laptop-code"
 ---
 
-# Windsurf & Cline / Roo Code Integration
+# Windsurf Cascade & Cline / Roo Code Integration
 
-Dmint supports pre-tool execution hooks and MCP gateway protection for **Windsurf** (Cascade) and **Cline / Roo Code** in VS Code.
+Dmint provides first-class pre-execution hooks and dedicated built-in tool policies for **Windsurf Cascade** (`.windsurf/hooks.json`) and **Cline / Roo Code** (`.clinerules/hooks/PreToolUse`, `.cline/hooks/PreToolUse.sh`, and `.clinerules/hooks.json`).
 
 ---
 
@@ -15,17 +15,22 @@ Dmint supports pre-tool execution hooks and MCP gateway protection for **Windsur
 From your workspace root, run:
 
 ```bash
-# Install hooks for both Windsurf and Cline / Roo Code:
+# Install hooks and dedicated policies for both Windsurf and Cline / Roo Code:
 dmint init --harness windsurf,cline
 ```
 
 This creates:
-- `.windsurf/hooks.json` — Pre-tool execution hook for Windsurf Cascade.
-- `.clinerules/hooks.json` — Pre-tool execution hook for Cline and Roo Code (`--harness roo-code` is also accepted as an alias).
-- `policy.json` — Starter policy combining the `shell` and `filesystem` templates.
+- **Windsurf Cascade**:
+  - `.dmint/policies/windsurf.policy.json` — Dedicated policy for Windsurf Cascade's pre-hooks (`pre_run_command`, `pre_read_code`, `pre_write_code`, `pre_mcp_tool_use`, `pre_user_prompt`) and native tools.
+  - `.windsurf/hooks.json` — Official Windsurf Cascade hook configuration registering `pre_run_command`, `pre_read_code`, `pre_write_code`, and `pre_mcp_tool_use` with `show_output: true` and blocking disallowed actions via exit code `2`.
+- **Cline (VS Code Extension & CLI) / Roo Code**:
+  - `.dmint/policies/cline.policy.json` — Dedicated policy covering all Cline built-in tools (`run_commands`, `execute_command`, `read_files`, `read_file`, `editor`, `write_to_file`, `replace_in_file`, `apply_patch`, `search_files`, `list_files`, `list_code_definition_names`, `ask_followup_question`, `attempt_completion`, `new_task`, `switch_mode`, `browser_action`, `use_mcp_tool`).
+  - `.clinerules/hooks/PreToolUse` — Executable hook script (no extension, `chmod +x`) required by the Cline VS Code extension.
+  - `.cline/hooks/PreToolUse.sh` — Executable hook script required by the Cline CLI.
+  - `.clinerules/hooks.json` — Declarative hook configuration for Roo Code compatibility.
 - `.dmint/` — Local Ed25519 signing key (`0600`), HMAC integrity key (`0600`), and `approvals.sqlite3` database.
 
-Verify installed hooks at any time:
+Verify installed hooks and their dedicated policy paths at any time:
 
 ```bash
 dmint hook status
@@ -33,48 +38,19 @@ dmint hook status
 
 ---
 
-## 2. Test Your Policy (`dmint check`)
+## 2. Official Payload & Output Schemas Handled by Dmint
 
-Test how your workspace `policy.json` evaluates terminal commands and file paths:
+### Windsurf Cascade (`.windsurf/hooks.json`)
+Windsurf Cascade sends `agent_action_name` (`pre_run_command`, `pre_read_code`, `pre_write_code`, `pre_mcp_tool_use`) and `tool_info` (`command_line`, `file_path`, `mcp_server_name`, `mcp_tool_name`, `mcp_tool_arguments`) over `stdin`. Dmint normalizes `tool_info` automatically and exits with code `2` (writing the reason to `stderr`) whenever a call is `DENY` or `APPROVAL_REQUIRED`.
 
-```bash
-dmint check -t shell.execute -r "npm test"               # -> ALLOW (exit 0)
-dmint check -t filesystem.write_file -r "src/server.ts"  # -> APPROVAL_REQUIRED (exit 1)
-dmint check -t filesystem.read_file -r ".env.local"      # -> DENY (exit 2)
-```
-
----
-
-## 3. Wrapping External MCP Servers (`dmint-mcp`)
-
-To protect external MCP servers (PostgreSQL, GitHub, Stripe) in Windsurf or Cline:
-
-1. Generate `policy.json` and `mcp_protection.json`:
-   ```bash
-   dmint create-mcp-policy \
-     --command npx \
-     --args "-y @modelcontextprotocol/server-postgres postgresql://localhost/mydb" \
-     --integration-id postgres \
-     -f access.md \
-     -o policy.json \
-     --config-output mcp_protection.json \
-     -y
-   ```
-2. Point Windsurf (`~/.codeium/windsurf/mcp_config.json`) or Cline (`cline_mcp_settings.json`) to `dmint-mcp`:
-   ```json
-   {
-     "mcpServers": {
-       "dmint-protected-postgres": {
-         "command": "dmint-mcp",
-         "args": ["run", "--config", "/absolute/path/to/mcp_protection.json"]
-       }
-     }
-   }
-   ```
+### Cline VS Code Extension & CLI (`.clinerules/hooks/PreToolUse` & `.cline/hooks/PreToolUse.sh`)
+Cline sends either the VS Code extension payload (`{"preToolUse": {"toolName": "...", "parameters": {...}}}` with JSON-stringified parameter values) or the CLI payload (`{"tool_call": {"name": "...", "input": {...}}}`).
+- Dmint automatically parses stringified JSON parameters, inspects every file in batch `read_files` / `apply_patch` calls and every command in batch `run_commands` (`{"commands": [...]}`) calls, and returns `{"cancel": false}` on `ALLOW` or `{"cancel": true, "errorMessage": "..."}` when blocked.
+- Turn-completion and question tools (`attempt_completion`, `ask_followup_question`) are explicitly allowed in `cline.policy.json` so Cline can ask questions and finish tasks cleanly.
 
 ---
 
-## 4. Approving Paused Requests
+## 3. Approving Paused Requests
 
 When Windsurf or Cline pauses on an `APPROVAL_REQUIRED` action:
 

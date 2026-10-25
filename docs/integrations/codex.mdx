@@ -1,12 +1,12 @@
 ---
 title: "OpenAI Codex CLI Integration"
-description: "How to protect shell commands, file patches, and MCP tools in OpenAI Codex CLI using dmint init, dmint hook, and dmint-mcp."
+description: "How to protect shell commands, apply_patch edits, built-in tools, and MCP calls in OpenAI Codex CLI using its dedicated codex.policy.json."
 icon: "terminal"
 ---
 
 # OpenAI Codex CLI Integration
 
-[OpenAI Codex CLI](https://github.com/openai/codex) executes shell commands (`exec_command` / `shell`), file patches (`apply_patch`), and MCP tools locally. Dmint integrates with Codex CLI via both **pre-execution hooks** (`.codex/hooks.json` and `.codex/dmint-hook.sh`) and the **`dmint-mcp` gateway**.
+[OpenAI Codex CLI](https://github.com/openai/codex) dispatches local tool calls (`Bash` / `exec_command`, `apply_patch`, `read_file`, `update_plan`, `view_image`, `web_search`, and `mcp__<server>__<tool>`) through its `PreToolUse` lifecycle hook. Dmint integrates with Codex CLI via both **pre-execution hooks** (`.codex/hooks.json` and `.codex/dmint-hook.sh`) and the **`dmint-mcp` gateway**, provisioning a dedicated `.dmint/policies/codex.policy.json` tailored to Codex CLI's built-in tools.
 
 ---
 
@@ -19,74 +19,51 @@ dmint init --harness codex
 ```
 
 This creates:
-- `policy.json` — Built-in `shell` and `filesystem` rules (allowing safe commands like `git status`, `ls`, and `pytest`, requiring approval for `git push *` and `docker *`, and denying `rm -rf /` and `.env*` access).
+- `.dmint/policies/codex.policy.json` — Dedicated policy covering all built-in Codex CLI tools (`Bash`, `exec_command`, `shell`, `apply_patch`, `read_file`, `view_image`, `list_dir`, `grep_files`, `update_plan`, `web_search`, `spawn_agent`).
 - `.dmint/signing.key` & `.dmint/integrity.key` (`0600`) — Local Ed25519 signing and HMAC integrity keys.
-- `.codex/hooks.json` & `.codex/dmint-hook.sh` — Pre-tool execution hook configuration for Codex CLI.
+- `.codex/hooks.json` & `.codex/dmint-hook.sh` — Official `PreToolUse` hook configuration pointing directly to `.dmint/policies/codex.policy.json`.
 
 ```json title=".codex/hooks.json"
 {
   "version": 1,
   "hooks": {
-    "pre_tool_use": {
-      "command": "dmint",
-      "args": [
-        "hook",
-        "run",
-        "--harness",
-        "codex",
-        "--policy",
-        "/absolute/path/to/policy.json",
-        "--db-path",
-        "/absolute/path/to/.dmint/approvals.sqlite3"
-      ]
-    }
+    "PreToolUse": [
+      {
+        "matcher": "Bash|apply_patch|mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "dmint hook run --harness codex --policy \"/abs/path/.dmint/policies/codex.policy.json\" --db-path \"/abs/path/.dmint/approvals.sqlite3\""
+          }
+        ]
+      }
+    ]
   }
 }
 ```
 
 ---
 
-## 2. How Codex Tool Calls Are Evaluated
+## 2. How Codex CLI Tool Calls Are Evaluated
 
-`dmint hook run --harness codex` normalizes Codex CLI payloads automatically:
-- **Shell Arrays & Commands**: Codex often invokes shell commands as `["bash", "-lc", "git status"]` or `{"cmd": "ls -la"}`. Dmint extracts the inner command string (`"git status"`, `"ls -la"`) and evaluates it as capability `shell.execute`.
-- **File Reads & Patches**: `apply_patch` and `write_file` map to `filesystem.write_file`; `read_file` maps to `filesystem.read_file`.
+`dmint hook run --harness codex` handles every Codex CLI tool surface:
+- **Shell & Unified Exec (`Bash` / `exec_command`)**: Extracts commands whether passed as `{"command": "git status"}` or `["bash", "-lc", "git status"]` and evaluates them against both `Bash` and `shell.execute` rules in `codex.policy.json`.
+- **Multi-File Unified Patches (`apply_patch`)**: Parses every `*** Add File:`, `*** Update File:`, `*** Delete File:`, and `*** Move to:` header in the patch envelope. If a single patch touches both `src/app.py` and `.env`, Dmint evaluates every path and blocks the call with `DENY`.
+- **Fail-Closed `PreToolUse` Output**: Because Codex CLI `PreToolUse` enforces `"allow"` and `"deny"` (and does not enforce `"ask"`), Dmint returns `permissionDecision: "deny"` with exit code `2` whenever a call is `DENY` or `APPROVAL_REQUIRED`, ensuring unapproved commands never execute silently.
 
-Test how your policy evaluates Codex calls from the terminal:
+Test how your Codex policy evaluates calls from the terminal:
 
 ```bash
-# Simulate a Codex exec_command call:
-dmint hook run --harness codex --input '{"tool": "exec_command", "arguments": {"cmd": ["bash", "-lc", "git status"]}}'
-```
-
-```json
-{
-  "decision": "allow",
-  "allow": true,
-  "permission": "allow",
-  "permissionDecision": "allow",
-  "code": "DMT_ALLOWED",
-  "tool": "shell",
-  "action": "execute",
-  "resource": "git status",
-  "reason": "Dmint ALLOW: shell.execute on 'git status'",
-  "dmint": {
-    "decision": "ALLOW",
-    "code": "DMT_ALLOWED",
-    "tool": "shell",
-    "action": "execute",
-    "resource": "git status",
-    "approval_id": null,
-    "consumed_approval": false
-  }
-}
+# Simulate a Codex Bash call:
+dmint hook run --harness codex --policy .dmint/policies/codex.policy.json \
+  --input '{"tool_name": "Bash", "tool_input": {"command": "git status"}}'
 ```
 
 ---
 
 ## 3. Approving Paused Commands
 
-When Codex attempts an action governed by `approval_required` (such as `git push origin main` or `docker compose up`):
+When Codex attempts an action governed by `approval_required` (such as `git push origin main`, `apply_patch` on `src/app.py`, or `docker compose up`):
 
 1. `dmint hook run` exits with code `2`, blocking execution, and records a `PENDING` request (`apr_...`) in `.dmint/approvals.sqlite3`.
 2. Review and approve the request from your terminal or web dashboard:

@@ -11,6 +11,13 @@
       "effect": "allow",
       "tool": "filesystem",
       "action": "read_file",
+      "resource": "src/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "allow",
+      "tool": "filesystem",
+      "action": "read_file",
       "resource": "docs/*",
       "resource_kind": "path"
     },
@@ -18,7 +25,252 @@
       "effect": "allow",
       "tool": "filesystem",
       "action": "read_file",
+      "resource": "docs/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "allow",
+      "tool": "filesystem",
+      "action": "read_file",
       "resource": "tests/*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "allow",
+      "tool": "filesystem",
+      "action": "read_file",
+      "resource": "tests/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "allow",
+      "tool": "filesystem",
+      "action": "read_file",
+      "resource": "scripts/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "allow",
+      "tool": "filesystem",
+      "action": "read_file",
+      "resource": "README.md",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "allow",
+      "tool": "filesystem",
+      "action": "read_file",
+      "resource": "pyproject.toml",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "allow",
+      "tool": "filesystem",
+      "action": "read_file",
+      "resource": "package.json",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "allow",
+      "tool": "filesystem",
+      "action": "read_file",
+      "resource": "Cargo.toml",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "allow",
+      "tool": "filesystem",
+      "action": "read_file",
+      "resource": "go.mod",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "allow",
+      "tool": "filesystem",
+      "action": "read_file",
+      "resource": "Makefile",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "read_file",
+      "resource": ".env*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "read_file",
+      "resource": "*/.env*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "read_file",
+      "resource": "**/.env*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "read_file",
+      "resource": "/**/.env*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "read_file",
+      "resource": "*.key",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "read_file",
+      "resource": "**/*.key",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "read_file",
+      "resource": "/**/*.key",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "read_file",
+      "resource": "*.pem",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "read_file",
+      "resource": "**/*.pem",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "read_file",
+      "resource": "/**/*.pem",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "read_file",
+      "resource": "*.p12",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "read_file",
+      "resource": "**/*.p12",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "read_file",
+      "resource": "*id_rsa*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "read_file",
+      "resource": "**/*id_rsa*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "read_file",
+      "resource": "/**/*id_rsa*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "read_file",
+      "resource": "*id_ed25519*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "read_file",
+      "resource": "**/*id_ed25519*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "read_file",
+      "resource": "/**/*id_ed25519*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "read_file",
+      "resource": ".dmint/*.key",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "read_file",
+      "resource": ".dmint/**/*.key",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "read_file",
+      "resource": "/**/.dmint/**/*.key",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "read_file",
+      "resource": "/etc/*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "read_file",
+      "resource": "/etc/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "read_file",
+      "resource": "/root/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "read_file",
+      "resource": "/**/.ssh/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "read_file",
+      "resource": "/**/.aws/**",
       "resource_kind": "path"
     },
     {
@@ -38,8 +290,253 @@
     {
       "effect": "approval_required",
       "tool": "filesystem",
+      "action": "write_file",
+      "resource": "src/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "filesystem",
+      "action": "write_file",
+      "resource": "tests/*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "filesystem",
+      "action": "write_file",
+      "resource": "tests/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "filesystem",
+      "action": "write_file",
+      "resource": "docs/*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "filesystem",
+      "action": "write_file",
+      "resource": "docs/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "filesystem",
+      "action": "write_file",
+      "resource": "scripts/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "filesystem",
+      "action": "write_file",
+      "resource": "*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "write_file",
+      "resource": ".env*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "write_file",
+      "resource": "*/.env*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "write_file",
+      "resource": "**/.env*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "write_file",
+      "resource": "/**/.env*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "write_file",
+      "resource": "*.key",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "write_file",
+      "resource": "**/*.key",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "write_file",
+      "resource": "/**/*.key",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "write_file",
+      "resource": "*.pem",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "write_file",
+      "resource": "**/*.pem",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "write_file",
+      "resource": "/**/*.pem",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "write_file",
+      "resource": ".dmint/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "write_file",
+      "resource": "/**/.dmint/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "write_file",
+      "resource": ".git/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "write_file",
+      "resource": "/**/.git/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "write_file",
+      "resource": "/etc/*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "write_file",
+      "resource": "/etc/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "write_file",
+      "resource": "/usr/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "write_file",
+      "resource": "/bin/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "write_file",
+      "resource": "/sbin/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "write_file",
+      "resource": "/**/.ssh/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "write_file",
+      "resource": "/**/.aws/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "filesystem",
       "action": "create_directory",
       "resource": "*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "filesystem",
+      "action": "delete_file",
+      "resource": "src/*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "filesystem",
+      "action": "delete_file",
+      "resource": "src/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "filesystem",
+      "action": "delete_file",
+      "resource": "tests/*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "filesystem",
+      "action": "delete_file",
+      "resource": "tests/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "filesystem",
+      "action": "delete_file",
+      "resource": "docs/*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "filesystem",
+      "action": "delete_file",
+      "resource": "docs/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "approval_required",
+      "tool": "filesystem",
+      "action": "delete_file",
+      "resource": "scripts/**",
       "resource_kind": "path"
     },
     {
@@ -52,57 +549,148 @@
     {
       "effect": "deny",
       "tool": "filesystem",
-      "action": "read_file",
+      "action": "delete_file",
       "resource": ".env*",
       "resource_kind": "path"
     },
     {
       "effect": "deny",
       "tool": "filesystem",
-      "action": "read_file",
+      "action": "delete_file",
       "resource": "*/.env*",
       "resource_kind": "path"
     },
     {
       "effect": "deny",
       "tool": "filesystem",
-      "action": "read_file",
+      "action": "delete_file",
+      "resource": "**/.env*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "delete_file",
+      "resource": "/**/.env*",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "delete_file",
       "resource": "*.key",
       "resource_kind": "path"
     },
     {
       "effect": "deny",
       "tool": "filesystem",
-      "action": "read_file",
+      "action": "delete_file",
+      "resource": "**/*.key",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "delete_file",
+      "resource": "/**/*.key",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "delete_file",
       "resource": "*.pem",
       "resource_kind": "path"
     },
     {
       "effect": "deny",
       "tool": "filesystem",
-      "action": "read_file",
+      "action": "delete_file",
+      "resource": "**/*.pem",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "delete_file",
+      "resource": "/**/*.pem",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "delete_file",
+      "resource": ".dmint/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "delete_file",
+      "resource": "/**/.dmint/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "delete_file",
+      "resource": ".git/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "delete_file",
+      "resource": "/**/.git/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "delete_file",
       "resource": "/etc/*",
       "resource_kind": "path"
     },
     {
       "effect": "deny",
       "tool": "filesystem",
-      "action": "write_file",
-      "resource": ".env*",
+      "action": "delete_file",
+      "resource": "/etc/**",
       "resource_kind": "path"
     },
     {
       "effect": "deny",
       "tool": "filesystem",
-      "action": "write_file",
-      "resource": "*/.env*",
+      "action": "delete_file",
+      "resource": "/usr/**",
       "resource_kind": "path"
     },
     {
       "effect": "deny",
       "tool": "filesystem",
-      "action": "write_file",
-      "resource": "/etc/*",
+      "action": "delete_file",
+      "resource": "/bin/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "delete_file",
+      "resource": "/sbin/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "delete_file",
+      "resource": "/**/.ssh/**",
+      "resource_kind": "path"
+    },
+    {
+      "effect": "deny",
+      "tool": "filesystem",
+      "action": "delete_file",
+      "resource": "/**/.aws/**",
       "resource_kind": "path"
     }
   ],

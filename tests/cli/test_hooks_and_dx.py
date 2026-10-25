@@ -404,5 +404,218 @@ class TestHooksAndDX(unittest.TestCase):
         self.assertEqual(json.loads(out_mcp2)["hookSpecificOutput"]["permissionDecision"], "deny")
 
 
+
+    def test_per_harness_dedicated_policies_and_official_hook_schemas(self) -> None:
+        """Each harness must get its own .dmint/policies/<harness>.policy.json and official hook format."""
+        rc, out, err = _run_cli(["init", "--harness", "all", "--dir", str(self.tmp_path)])
+        self.assertEqual(rc, 0, f"init failed: {out}\n{err}")
+
+        db_path = str(self.tmp_path / ".dmint" / "approvals.sqlite3")
+        policies_dir = self.tmp_path / ".dmint" / "policies"
+
+        # 1. Verify all 6 dedicated per-harness policy files exist and are wired into each harness's hook config
+        for h in ("claude-code", "codex", "opencode", "cursor", "windsurf", "cline"):
+            h_pol = policies_dir / f"{h}.policy.json"
+            self.assertTrue(h_pol.exists(), f"Missing dedicated policy for {h}: {h_pol}")
+
+        claude_cfg = json.loads((self.tmp_path / ".claude" / "settings.json").read_text(encoding="utf-8"))
+        self.assertEqual(claude_cfg["hooks"]["PreToolUse"][0]["matcher"], "*")
+        self.assertIn(
+            str(policies_dir / "claude-code.policy.json"),
+            claude_cfg["hooks"]["PreToolUse"][0]["hooks"][0]["command"],
+        )
+
+        codex_cfg = json.loads((self.tmp_path / ".codex" / "hooks.json").read_text(encoding="utf-8"))
+        self.assertIn("PreToolUse", codex_cfg["hooks"])
+        self.assertIn(
+            str(policies_dir / "codex.policy.json"),
+            codex_cfg["hooks"]["PreToolUse"][0]["hooks"][0]["command"],
+        )
+
+        # OpenCode v2 plural (.opencode/plugins/dmint-guard.ts) and v1 singular (.opencode/plugin/dmint-guard.ts)
+        oc_plural = self.tmp_path / ".opencode" / "plugins" / "dmint-guard.ts"
+        oc_singular = self.tmp_path / ".opencode" / "plugin" / "dmint-guard.ts"
+        self.assertTrue(oc_plural.exists())
+        self.assertTrue(oc_singular.exists())
+        self.assertIn("opencode.policy.json", oc_plural.read_text(encoding="utf-8"))
+
+        # Cursor hooks.json requires "version": 1 and failClosed: true
+        cursor_cfg = json.loads((self.tmp_path / ".cursor" / "hooks.json").read_text(encoding="utf-8"))
+        self.assertEqual(cursor_cfg["version"], 1)
+        for ev in ("preToolUse", "beforeShellExecution", "beforeReadFile", "beforeMCPExecution", "subagentStart"):
+            self.assertIn(ev, cursor_cfg["hooks"])
+            self.assertTrue(cursor_cfg["hooks"][ev][0]["failClosed"])
+            self.assertIn("cursor.policy.json", cursor_cfg["hooks"][ev][0]["command"])
+
+        # Windsurf Cascade hooks.json uses snake_case pre_run_command, pre_read_code, pre_write_code, pre_mcp_tool_use
+        ws_cfg = json.loads((self.tmp_path / ".windsurf" / "hooks.json").read_text(encoding="utf-8"))
+        for ev in ("pre_run_command", "pre_read_code", "pre_write_code", "pre_mcp_tool_use"):
+            self.assertIn(ev, ws_cfg["hooks"])
+            self.assertTrue(ws_cfg["hooks"][ev][0]["show_output"])
+            self.assertIn("windsurf.policy.json", ws_cfg["hooks"][ev][0]["command"])
+
+        # Cline executable hooks (.clinerules/hooks/PreToolUse & .cline/hooks/PreToolUse.sh)
+        cline_ext_hook = self.tmp_path / ".clinerules" / "hooks" / "PreToolUse"
+        cline_cli_hook = self.tmp_path / ".cline" / "hooks" / "PreToolUse.sh"
+        self.assertTrue(cline_ext_hook.exists())
+        self.assertTrue(cline_cli_hook.exists())
+        self.assertIn("cline.policy.json", cline_ext_hook.read_text(encoding="utf-8"))
+
+        # 2. Test built-in tools against each harness's dedicated policy file
+        # 2a. Claude Code built-in tools (TodoWrite, AskUserQuestion, TaskCreate -> ALLOW; Skill -> APPROVAL_REQUIRED)
+        claude_pol = str(policies_dir / "claude-code.policy.json")
+        for safe_claude_tool in ("TodoWrite", "AskUserQuestion", "TaskCreate", "EnterPlanMode", "Glob", "Grep", "LSP"):
+            rc_c, out_c, _ = _run_cli(
+                [
+                    "hook",
+                    "run",
+                    "--harness",
+                    "claude-code",
+                    "--policy",
+                    claude_pol,
+                    "--db-path",
+                    db_path,
+                    "--input",
+                    json.dumps({"tool_name": safe_claude_tool, "tool_input": {}}),
+                ]
+            )
+            self.assertEqual(rc_c, 0, f"Claude built-in tool {safe_claude_tool} should be ALLOWED")
+            self.assertEqual(json.loads(out_c)["hookSpecificOutput"]["permissionDecision"], "allow")
+
+        # 2b. Codex CLI apply_patch multi-file smuggling protection (src/app.py + .env -> DENY)
+        codex_pol = str(policies_dir / "codex.policy.json")
+        codex_smuggle = json.dumps(
+            {
+                "tool_name": "apply_patch",
+                "tool_input": {
+                    "input": "*** Begin Patch\n*** Update File: src/app.py\n@@\n*** Update File: .env\n@@\n*** End Patch"
+                },
+            }
+        )
+        rc_cx, out_cx, _ = _run_cli(
+            ["hook", "run", "--harness", "codex", "--policy", codex_pol, "--db-path", db_path, "--input", codex_smuggle]
+        )
+        self.assertEqual(rc_cx, 2)
+        self.assertEqual(json.loads(out_cx)["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertEqual(json.loads(out_cx)["dmint"]["decision"], "DENY")
+
+        # Codex built-in update_plan -> ALLOW
+        rc_plan, out_plan, _ = _run_cli(
+            [
+                "hook",
+                "run",
+                "--harness",
+                "codex",
+                "--policy",
+                codex_pol,
+                "--db-path",
+                db_path,
+                "--input",
+                json.dumps({"tool_name": "update_plan", "tool_input": {"plan": []}}),
+            ]
+        )
+        self.assertEqual(rc_plan, 0)
+        self.assertEqual(json.loads(out_plan)["hookSpecificOutput"]["permissionDecision"], "allow")
+
+        # 2c. OpenCode apply_patch with patchText header & todowrite -> ALLOW / APPROVAL_REQUIRED
+        oc_pol = str(policies_dir / "opencode.policy.json")
+        rc_oc_todo, out_oc_todo, _ = _run_cli(
+            [
+                "hook",
+                "run",
+                "--harness",
+                "opencode",
+                "--policy",
+                oc_pol,
+                "--db-path",
+                db_path,
+                "--input",
+                json.dumps({"tool_name": "todowrite", "tool_input": {"todos": []}}),
+            ]
+        )
+        self.assertEqual(rc_oc_todo, 0)
+        self.assertTrue(json.loads(out_oc_todo)["allow"])
+
+        # 2d. Windsurf Cascade official pre_run_command & pre_read_code payloads
+        ws_pol = str(policies_dir / "windsurf.policy.json")
+        rc_ws_ok, _, _ = _run_cli(
+            [
+                "hook",
+                "run",
+                "--harness",
+                "windsurf",
+                "--policy",
+                ws_pol,
+                "--db-path",
+                db_path,
+                "--input",
+                json.dumps({"agent_action_name": "pre_run_command", "tool_info": {"command_line": "git status"}}),
+            ]
+        )
+        self.assertEqual(rc_ws_ok, 0)
+
+        rc_ws_deny, _, _ = _run_cli(
+            [
+                "hook",
+                "run",
+                "--harness",
+                "windsurf",
+                "--policy",
+                ws_pol,
+                "--db-path",
+                db_path,
+                "--input",
+                json.dumps({"agent_action_name": "pre_read_code", "tool_info": {"file_path": ".env.local"}}),
+            ]
+        )
+        self.assertEqual(rc_ws_deny, 2)
+
+        # 2e. Cline VS Code extension (.preToolUse) & CLI (.tool_call) payloads
+        cline_pol = str(policies_dir / "cline.policy.json")
+        rc_cl_ok, out_cl_ok, _ = _run_cli(
+            [
+                "hook",
+                "run",
+                "--harness",
+                "cline",
+                "--policy",
+                cline_pol,
+                "--db-path",
+                db_path,
+                "--input",
+                json.dumps({"preToolUse": {"toolName": "attempt_completion", "parameters": {"result": "All done"}}}),
+            ]
+        )
+        self.assertEqual(rc_cl_ok, 0)
+        self.assertFalse(json.loads(out_cl_ok)["cancel"])
+
+        # Cline multi-command batch smuggling in run_commands -> DENY (cancel: true)
+        rc_cl_batch, out_cl_batch, _ = _run_cli(
+            [
+                "hook",
+                "run",
+                "--harness",
+                "cline",
+                "--policy",
+                cline_pol,
+                "--db-path",
+                db_path,
+                "--input",
+                json.dumps(
+                    {
+                        "tool_call": {
+                            "name": "run_commands",
+                            "input": {"commands": ["git status", "rm -rf /"]},
+                        }
+                    }
+                ),
+            ]
+        )
+        self.assertEqual(rc_cl_batch, 2)
+        parsed_cl_batch = json.loads(out_cl_batch)
+        self.assertTrue(parsed_cl_batch["cancel"])
+        self.assertIn("DMT_POLICY_DENIED", parsed_cl_batch["errorMessage"])
+
+
 if __name__ == "__main__":
     unittest.main()

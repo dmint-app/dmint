@@ -1,14 +1,14 @@
 ---
 title: "OpenCode Integration"
-description: "How to enforce deterministic Dmint policies and single-use human approvals in OpenCode using the generated tool.execute.before plugin."
+description: "How to enforce deterministic Dmint policies and single-use human approvals in OpenCode using its dedicated opencode.policy.json and tool.execute.before plugin."
 icon: "code"
 ---
 
 # OpenCode Integration
 
-[OpenCode](https://opencode.ai) supports TypeScript plugins in `.opencode/plugin/` (workspace) and `~/.config/opencode/plugin/` (global) that intercept every tool call via the `tool.execute.before` lifecycle hook.
+[OpenCode](https://opencode.ai) loads local TypeScript plugins from `.opencode/plugins/` (OpenCode v2) and `.opencode/plugin/` (OpenCode v1) in your workspace, or `~/.config/opencode/plugins/` globally, firing the `tool.execute.before` lifecycle hook before any tool runs.
 
-Dmint generates a zero-dependency OpenCode guard plugin (`dmint-guard.ts`) that evaluates every shell command, file read/write, and MCP tool call against your `policy.json`.
+Dmint generates a zero-dependency OpenCode guard plugin (`dmint-guard.ts`) wired to a dedicated `.dmint/policies/opencode.policy.json` that covers every built-in OpenCode tool (`bash`, `read`, `write`, `edit`, `apply_patch`, `grep`, `glob`, `list`, `lsp`, `todowrite`, `todoread`, `question`, `skill`, `task`, `webfetch`, `websearch`).
 
 ---
 
@@ -17,63 +17,35 @@ Dmint generates a zero-dependency OpenCode guard plugin (`dmint-guard.ts`) that 
 In your project directory, run:
 
 ```bash
-# Install in current project (.opencode/plugin/dmint-guard.ts):
+# Install in current project (.opencode/plugins/dmint-guard.ts & .opencode/plugin/dmint-guard.ts):
 dmint init --harness opencode
 
-# Or install globally (~/.config/opencode/plugin/dmint-guard.ts):
+# Or install globally (~/.config/opencode/plugins/dmint-guard.ts):
 dmint hook install --harness opencode --global
 ```
 
 What this generates:
-- `policy.json` — Starter `shell` and `filesystem` policy rules.
+- `.dmint/policies/opencode.policy.json` — Dedicated policy tailored to all OpenCode built-in tools.
 - `.dmint/signing.key`, `.dmint/integrity.key`, and `.dmint/approvals.sqlite3`.
-- `.opencode/plugin/dmint-guard.ts` — The OpenCode `tool.execute.before` plugin.
+- `.opencode/plugins/dmint-guard.ts` (and `.opencode/plugin/dmint-guard.ts`) — The OpenCode `tool.execute.before` guard plugin pointing to `.dmint/policies/opencode.policy.json`.
 
 ---
 
 ## 2. How the OpenCode Plugin Works
 
-Whenever OpenCode prepares to execute a tool (`bash`, `read_file`, `write_file`, `edit`, `glob`, `grep`, or an MCP tool), `.opencode/plugin/dmint-guard.ts` invokes `dmint hook run --harness opencode` synchronously over `stdin`:
+Whenever OpenCode prepares to execute a built-in or MCP tool, `dmint-guard.ts` invokes `dmint hook run --harness opencode --policy "<workspace>/.dmint/policies/opencode.policy.json"` synchronously over `stdin`:
 
-```typescript title=".opencode/plugin/dmint-guard.ts"
-import { spawnSync } from "node:child_process";
-
-export const DmintGuardPlugin = async (_ctx: any) => {
-  return {
-    "tool.execute.before": async (input: any, output: any) => {
-      const payload = JSON.stringify({
-        tool_name: input?.tool ?? "",
-        session_id: input?.sessionID ?? "opencode-session",
-        call_id: input?.callID ?? "",
-        tool_input: output?.args ?? {},
-      });
-      const res = spawnSync(
-        "dmint",
-        ["hook", "run", "--harness", "opencode", "--policy", "policy.json"],
-        { input: payload, encoding: "utf-8" }
-      );
-      if (res.status !== 0) {
-        let reason = (res.stderr || res.stdout || "Blocked by Dmint policy").trim();
-        try {
-          const parsed = JSON.parse(res.stdout);
-          if (parsed && parsed.reason) reason = parsed.reason;
-        } catch {}
-        throw new Error(reason);
-      }
-    },
-  };
-};
-```
-
+- **`apply_patch` Inspection**: In OpenCode, `apply_patch` passes unified diffs in `output.args.patchText` with `*** Add File:`, `*** Update File:`, `*** Delete File:`, and `*** Move to:` headers. Dmint extracts and validates every file path in `patchText`.
+- **Safe Built-In Session Tools**: `todowrite`, `todoread`, `question`, `grep`, `glob`, `list`, `lsp`, and `websearch` are explicitly allowed in `opencode.policy.json` so OpenCode can manage task checklists and ask clarifying questions without friction.
 - **`ALLOW` (Exit `0`)**: The hook returns cleanly and OpenCode runs the tool immediately.
-- **`DENY` (Exit `2`)**: The plugin throws an `Error` with the exact Dmint policy code (`DMT_POLICY_DENIED` or `DMT_DEFAULT_DENIED`), halting execution before the tool runs.
+- **`DENY` (Exit `2`)**: The plugin throws an `Error` with the exact Dmint policy code (`DMT_POLICY_DENIED`), halting execution before the tool runs.
 - **`APPROVAL_REQUIRED` (Exit `2` until approved)**: The plugin halts the tool and displays the approval ID (`apr_...`) and `dmint approve <id>` command directly in OpenCode.
 
 ---
 
 ## 3. Approving & Retrying in OpenCode
 
-1. When OpenCode pauses on an `approval_required` action (e.g., modifying `src/index.ts` or running `docker build`), run in your terminal:
+1. When OpenCode pauses on an `approval_required` action (e.g., modifying `src/index.ts` via `edit` / `apply_patch` or running `docker build` via `bash`), run in your terminal:
    ```bash
    dmint pending
    dmint approve apr_... --by dev@company.com
