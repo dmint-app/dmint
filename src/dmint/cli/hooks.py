@@ -1813,12 +1813,79 @@ def main_check(args: list[str] | None = None) -> int:
             arguments=call_args,
             context=TrustedContext(ctx_data),
         )
-        decision, code = policy.evaluate_detailed(req)
-        matched_rules = [
-            idx + 1
-            for idx, r in enumerate(policy.rules)
-            if r.matches_tool_action(req) and r.matches(req)
-        ]
+        if (tool_name == "shell" or tool_name.lower() in _SHELL_TOOL_NAMES) and isinstance(res_val, str):
+            norm_tool = "shell" if tool_name.lower() in _SHELL_TOOL_NAMES else tool_name
+            norm_action = "execute" if tool_name.lower() in _SHELL_TOOL_NAMES else action_name
+            full_req = ToolRequest(
+                request_id=req.request_id,
+                agent_id=parsed.agent_id,
+                tool=norm_tool,
+                action=norm_action,
+                resource=res_val,
+                arguments=call_args,
+                context=TrustedContext(ctx_data),
+            )
+            f_dec, f_code = _evaluate_dual_policy(policy, norm_req=full_req, native_tool_name=tool_name)
+            if f_dec is Decision.DENY and f_code == "DMT_POLICY_DENIED":
+                decision, code = f_dec, f_code
+            else:
+                segs = _split_compound_shell_commands(res_val)
+                decision, code = Decision.ALLOW, "DMT_ALLOWED"
+                for idx_s, seg in enumerate(segs):
+                    seg_req = ToolRequest(
+                        request_id=new_request_id(),
+                        agent_id=parsed.agent_id,
+                        tool=norm_tool,
+                        action=norm_action,
+                        resource=seg,
+                        arguments=call_args,
+                        context=TrustedContext(ctx_data),
+                    )
+                    s_dec, s_code = _evaluate_dual_policy(policy, norm_req=seg_req, native_tool_name=tool_name)
+                    if idx_s == 0:
+                        decision, code = s_dec, s_code
+                    elif s_dec is Decision.DENY:
+                        decision, code = s_dec, s_code
+                        break
+                    elif s_dec is Decision.APPROVAL_REQUIRED and decision is Decision.ALLOW:
+                        decision, code = s_dec, s_code
+            matched_rules = [
+                idx + 1
+                for idx, r in enumerate(policy.rules)
+                if any(
+                    r.matches_tool_action(
+                        ToolRequest(
+                            request_id=req.request_id,
+                            agent_id=parsed.agent_id,
+                            tool=t_cand,
+                            action=a_cand,
+                            resource=seg_cand,
+                            arguments=call_args,
+                            context=TrustedContext(ctx_data),
+                        )
+                    )
+                    and r.matches(
+                        ToolRequest(
+                            request_id=req.request_id,
+                            agent_id=parsed.agent_id,
+                            tool=t_cand,
+                            action=a_cand,
+                            resource=seg_cand,
+                            arguments=call_args,
+                            context=TrustedContext(ctx_data),
+                        )
+                    )
+                    for t_cand, a_cand in {(norm_tool, norm_action), (tool_name, action_name)}
+                    for seg_cand in ([res_val] + _split_compound_shell_commands(res_val))
+                )
+            ]
+        else:
+            decision, code = policy.evaluate_detailed(req)
+            matched_rules = [
+                idx + 1
+                for idx, r in enumerate(policy.rules)
+                if r.matches_tool_action(req) and r.matches(req)
+            ]
     except Exception as exc:
         print(f"Error evaluating policy: {exc}", file=sys.stderr)
         return 1

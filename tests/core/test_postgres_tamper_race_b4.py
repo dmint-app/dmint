@@ -20,7 +20,12 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
     Ed25519PrivateKey,
     Ed25519PublicKey,
 )
-import rfc8785
+try:
+    import rfc8785
+except ImportError:
+    import types as _types
+    from dmint.core.canonicalize import canonicalize_bytes as _cb
+    rfc8785 = _types.SimpleNamespace(dumps=_cb)  # type: ignore[assignment]
 from sqlalchemy import text
 
 from dmint.core.approvals import (

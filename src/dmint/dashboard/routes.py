@@ -83,9 +83,14 @@ def build_router() -> APIRouter:
             ctx.setdefault("csrf_token", session.get("csrf_token", ""))
             ctx.setdefault("current_user", session.get("identity", ""))
             ctx.setdefault("current_user_source", session.get("identity_source", "self-asserted"))
-        return _templates(request).TemplateResponse(
-            request=request, name=template, context=ctx, status_code=status_code
-        )
+        try:
+            return _templates(request).TemplateResponse(
+                request=request, name=template, context=ctx, status_code=status_code
+            )
+        except TypeError:
+            return _templates(request).TemplateResponse(
+                template, ctx, status_code=status_code
+            )
 
     def _record_display(record: ApprovalRecord) -> dict[str, Any]:
         """Convert an ApprovalRecord to a template-friendly dict."""
