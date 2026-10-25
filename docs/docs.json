@@ -96,6 +96,7 @@
       {
         "group": "Operations & Security",
         "pages": [
+          "operations/production-proof",
           "operations/deployment-model",
           "operations/security-model",
           "operations/known-limitations"
