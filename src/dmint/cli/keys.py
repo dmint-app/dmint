@@ -32,6 +32,12 @@ def main_init_keys(args: list[str]) -> int:
         description="Generate and persist new signing and HMAC storage integrity keys.",
     )
     parser.add_argument(
+        "--dir",
+        dest="key_dir",
+        default=None,
+        help="Directory in which to generate signing.key and integrity.key",
+    )
+    parser.add_argument(
         "--key-file",
         default=str(DEFAULT_KEY_FILE),
         help=f"Destination for the signing key file (default: {DEFAULT_KEY_FILE})",

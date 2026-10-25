@@ -249,3 +249,5 @@ class KeyExistsError(FileExistsError, DmintError):
     """Refusing to overwrite an existing key file without --force."""
 
     code = "DMT_KEY_EXISTS"
+
+ApprovalRequired = ApprovalRequiredError

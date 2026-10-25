@@ -135,11 +135,18 @@ class DownstreamMCPClient:
 
         # 2. Prepare headers (resolving env vars if specified via $VAR)
         headers: dict[str, str] = {}
+        import re as _re
         for k, v in (self._config.headers or {}).items():
             val = v
             if val.startswith("$"):
                 var_name = val[1:].strip("{}")
                 val = os.environ.get(var_name, val)
+            elif "$" in val:
+                val = _re.sub(
+                    r"\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?",
+                    lambda m: os.environ.get(m.group(1), m.group(0)),
+                    val,
+                )
             headers[k] = val
 
         sensitive_tokens = self._get_sensitive_tokens()

@@ -290,7 +290,7 @@ def main_approve(args: list[str] | None = None) -> int:
     parser.add_argument("--deployment-epoch", default=None, help="Deployment epoch (default: 'default')")
     parser.add_argument("--policy", default=None, help="Path to policy file for re-verification")
     parser.add_argument("--approver-id", "--by", "--approver", dest="approver_id", default=None, help="Approver principal ID (or set DMINT_APPROVER_ID)")
-    parser.add_argument("--authority-issuer", default=None, help="Authority issuer ID")
+    parser.add_argument("--authority-issuer", "--issuer-id", default=None, help="Authority issuer ID")
     parser.add_argument(
         "--key-file",
         "--key-path",
@@ -445,7 +445,7 @@ def main_reject(args: list[str] | None = None) -> int:
     parser.add_argument("--database-url", default=None, help="Database URL (or set DMINT_DATABASE_URL)")
     parser.add_argument("--deployment-epoch", default=None, help="Deployment epoch (default: 'default')")
     parser.add_argument("--approver-id", "--by", "--approver", dest="approver_id", default=None, help="Rejecter principal ID (or set DMINT_APPROVER_ID)")
-    parser.add_argument("--authority-issuer", default=None, help="Authority issuer ID")
+    parser.add_argument("--authority-issuer", "--issuer-id", default=None, help="Authority issuer ID")
     parser.add_argument("--audience", default=None, help="Approval authority audience")
     parser.add_argument(
         "--key-file",

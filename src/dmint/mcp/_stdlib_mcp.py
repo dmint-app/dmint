@@ -564,7 +564,7 @@ class Server:
         server_ref = self
 
         async def _handle_http_mcp(request: Request) -> Response:
-            body_bytes = await request.body()
+            body_bytes = request.scope.get("_dmint_cached_body") if "_dmint_cached_body" in request.scope else await request.body()
             if len(body_bytes) > max_request_body_size:
                 return JSONResponse({"error": "Request body too large"}, status_code=413)
             raw_text = body_bytes.decode("utf-8", errors="replace")

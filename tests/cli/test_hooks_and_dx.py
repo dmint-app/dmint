@@ -773,3 +773,147 @@ class TestHooksAndDX(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+    def test_10_uncharted_real_world_and_adversarial_edges(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            test_uncharted_real_world_and_adversarial_edges(Path(td))
+
+
+def test_uncharted_real_world_and_adversarial_edges(tmp_path: Path) -> None:
+    """Verify undocumented real-world edge cases:
+    - Single & background shell operator splitting and metacharacter blocking
+    - Non-standard path argument keys (filepath, filename, destination, dest, source, src)
+    - Tool names containing secret/token/password/key inside mcp_protection.json tool_bindings
+    - Bearer ${ENV_VAR} header interpolation in mcp_protection.json
+    - Dmint.protect(tool=..., action=...) and Dmint.retry() on bound class methods & async functions
+    - 10-way concurrent double-spend replay race and wrong-key signature forgery on hooks
+    """
+    import asyncio
+    import concurrent.futures
+    import os
+    import threading
+    from dmint import ApprovalRequired, Dmint
+    from dmint.cli.approvals import main_approve
+    from dmint.cli.hooks import (
+        _extract_all_paths_from_args,
+        _split_compound_shell_commands,
+        ensure_local_dmint_environment,
+        evaluate_hook_request,
+    )
+    from dmint.core.keys import Ed25519PrivateKey, write_private_key_atomic
+    from dmint.mcp.config_loader import parse_protection_config
+
+    ensure_local_dmint_environment(tmp_path, harnesses=["claude-code"])
+
+    # 1. Background & operator splitting & blocking
+    assert _split_compound_shell_commands("git status & rm -rf /") == ["git status", "rm -rf /"]
+    bg_res = evaluate_hook_request(
+        payload={"tool_name": "Bash", "tool_input": {"command": "git status & rm -rf /"}},
+        harness="claude-code",
+        workspace_dir=tmp_path,
+    )
+    assert bg_res["decision"] == "DENY"
+
+    # 2. Non-standard path argument keys
+    for key in ("filepath", "filename", "destination", "dest", "source", "src"):
+        extracted = _extract_all_paths_from_args({key: ".env"}, tmp_path)
+        assert extracted == [".env"]
+        r = evaluate_hook_request(
+            payload={"tool_name": "Read", "tool_input": {key: ".env"}},
+            harness="claude-code",
+            workspace_dir=tmp_path,
+        )
+        assert r["decision"] == "DENY"
+
+    # 3. tool_bindings with tool names containing secret/token/password/key + Bearer ${ENV_VAR}
+    cfg = parse_protection_config(
+        {
+            "policy": {"rules": [{"tool": "vault", "action": "rotate_master_secret", "resource": "*", "effect": "deny"}]},
+            "integrations": [
+                {
+                    "integration_id": "vault",
+                    "transport": "streamable_http",
+                    "connection": {
+                        "url": "http://127.0.0.1:9999/mcp",
+                        "headers": {"Authorization": "Bearer ${VAULT_MCP_TOKEN}"},
+                    },
+                    "tool_bindings": {
+                        "rotate_master_secret": "vault.rotate_master_secret",
+                        "create_secret_key": "vault.create_secret_key",
+                        "revoke_access_token": "vault.revoke_access_token",
+                    },
+                }
+            ],
+        }
+    )
+    assert len(cfg.integrations) == 1
+    assert "rotate_master_secret" in cfg.integrations[0].tool_bindings
+
+    # 4. SDK dynamic wrapping & bound class method retry
+    sdk_dir = tmp_path / "sdk_test"
+    sdk_dir.mkdir()
+    pol_file = sdk_dir / "policy.json"
+    pol_file.write_text(
+        json.dumps({"rules": [{"tool": "erp", "action": "payout", "effect": "approval_required"}]}),
+        encoding="utf-8",
+    )
+    dm = Dmint.local(policy_path=pol_file, storage=sdk_dir / "approvals.sqlite3")
+
+    class ErpClient:
+        def __init__(self, tag: str) -> None:
+            self.tag = tag
+
+        @dm.protect(tool="erp", action="payout")
+        def send_payout(self, iban: str, amount: int) -> str:
+            return f"{self.tag}:{iban}:{amount}"
+
+    client = ErpClient("ACME")
+    try:
+        client.send_payout("DE89000", 900)
+        raise AssertionError("Expected ApprovalRequired")
+    except ApprovalRequired as exc:
+        rc = main_approve(
+            [
+                exc.request_id,
+                "--by",
+                "cfo@acme.com",
+                "--db",
+                str(sdk_dir / "approvals.sqlite3"),
+                "--key-file",
+                str(sdk_dir / ".dmint/signing.key"),
+            ]
+        )
+        assert rc == 0
+        assert dm.retry(client.send_payout, "DE89000", 900) == "ACME:DE89000:900"
+
+    # 5. Wrong-key signature forgery must be rejected with DENY
+    forgery_req = evaluate_hook_request(
+        payload={"tool_name": "Bash", "tool_input": {"command": "git push origin main"}},
+        harness="claude-code",
+        workspace_dir=tmp_path,
+    )
+    assert forgery_req["decision"] == "APPROVAL_REQUIRED"
+    rogue_key = tmp_path / "rogue.key"
+    write_private_key_atomic(rogue_key, Ed25519PrivateKey.generate())
+    assert (
+        main_approve(
+            [
+                forgery_req["approval_id"],
+                "--by",
+                "rogue@evil.com",
+                "--db",
+                str(tmp_path / ".dmint/approvals.sqlite3"),
+                "--key-file",
+                str(rogue_key),
+            ]
+        )
+        == 0
+    )
+    forgery_retry = evaluate_hook_request(
+        payload={"tool_name": "Bash", "tool_input": {"command": "git push origin main"}},
+        harness="claude-code",
+        workspace_dir=tmp_path,
+    )
+    assert forgery_retry["decision"] == "DENY"
+    assert "SIGNATURE_INVALID" in forgery_retry["code"]

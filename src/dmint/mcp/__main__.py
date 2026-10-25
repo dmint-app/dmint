@@ -41,6 +41,13 @@ def main(argv: list[str] | None = None) -> None:
         help="Agent-facing transport to expose (default: stdio)",
     )
     parser.add_argument(
+        "--http",
+        dest="transport",
+        action="store_const",
+        const="http",
+        help="Shortcut for --transport http",
+    )
+    parser.add_argument(
         "--host",
         dest="host",
         default="127.0.0.1",

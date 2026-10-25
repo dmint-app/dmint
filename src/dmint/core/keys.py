@@ -594,14 +594,14 @@ def load_integrity_key_source(
     if env_file:
         return load_integrity_key_from_file(env_file, allow_insecure_permissions=allow_insecure_permissions)
 
+    env_raw = os.environ.get(_INTEGRITY_KEY_ENV, "").strip()
+    if env_raw:
+        return _parse_integrity_key(env_raw)
+
     if DEFAULT_INTEGRITY_KEY_FILE.exists():
         return load_integrity_key_from_file(
             DEFAULT_INTEGRITY_KEY_FILE, allow_insecure_permissions=allow_insecure_permissions
         )
-
-    env_raw = os.environ.get(_INTEGRITY_KEY_ENV, "").strip()
-    if env_raw:
-        return _parse_integrity_key(env_raw)
 
     raise KeyLoadError(
         "no integrity key source found; an integrity key must be provided via integrity_key argument, "

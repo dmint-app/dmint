@@ -385,6 +385,13 @@ def _split_compound_shell_commands(cmd: str) -> list[str]:
                 buf = []
                 i += 1
                 continue
+            if ch == "&" and cmd[i : i + 2] not in ("&&", "&>") and (i == 0 or cmd[i - 1] not in (">", "<", "&")):
+                seg = "".join(buf).strip()
+                if seg:
+                    segments.append(seg)
+                buf = []
+                i += 1
+                continue
         buf.append(ch)
         i += 1
     tail = "".join(buf).strip()
@@ -439,14 +446,24 @@ def _extract_all_paths_from_args(args: Mapping[str, Any], workspace_dir: Path | 
     for key in (
         "file_path",
         "filePath",
+        "filepath",
+        "filename",
+        "file_name",
         "dirPath",
         "path",
         "target_file",
         "TargetFile",
+        "target_path",
+        "destination",
+        "dest",
+        "source",
+        "src",
         "AbsolutePath",
         "notebook_path",
         "directory",
         "dir_path",
+        "folder_path",
+        "folder",
         "pattern",
         "url",
         "uri",
@@ -989,7 +1006,13 @@ def evaluate_hook_request(
                 except Exception:
                     pass
 
-            if trusted_issuers:
+            if approved_rec.policy_provenance.policy_digest != prov.policy_digest:
+                try:
+                    store.invalidate_approved(approved_rec, reason="policy provenance changed")
+                except Exception:
+                    pass
+            elif trusted_issuers:
+                from dmint.core.errors import ApprovalConsumedError, ApprovalError
                 verifier = ApprovalVerifier(
                     trusted_issuers=trusted_issuers,
                     audience=assertion.audience,
@@ -1004,29 +1027,45 @@ def evaluate_hook_request(
                     arguments=thaw_json(arguments),
                     context=TrustedContext({}),
                 )
-                store.consume_approved(
-                    approval_id=approved_rec.approval_id,
-                    credential=assertion,
-                    expected_request=expected_req,
-                    verifier=verifier,
-                    now=now,
-                )
-                reason = (
-                    f"Dmint ALLOW (Approved retry consumed single-use credential {approved_rec.approval_id}): "
-                    f"{capability_id} on '{res_display}'"
-                )
-                return _build_hook_result(
-                    harness=norm_harness,
-                    decision=Decision.ALLOW,
-                    code="DMT_APPROVAL_CONSUMED_ALLOW",
-                    tool=tool,
-                    action=action,
-                    resource=resource if isinstance(resource, str) else None,
-                    reason=reason,
-                    approval_id=approved_rec.approval_id,
-                    consumed_approval=True,
-                    hook_event_name=hook_event_name,
-                )
+                try:
+                    store.consume_approved(
+                        approval_id=approved_rec.approval_id,
+                        credential=assertion,
+                        expected_request=expected_req,
+                        verifier=verifier,
+                        now=now,
+                    )
+                    reason = (
+                        f"Dmint ALLOW (Approved retry consumed single-use credential {approved_rec.approval_id}): "
+                        f"{capability_id} on '{res_display}'"
+                    )
+                    return _build_hook_result(
+                        harness=norm_harness,
+                        decision=Decision.ALLOW,
+                        code="DMT_APPROVAL_CONSUMED_ALLOW",
+                        tool=tool,
+                        action=action,
+                        resource=resource if isinstance(resource, str) else None,
+                        reason=reason,
+                        approval_id=approved_rec.approval_id,
+                        consumed_approval=True,
+                        hook_event_name=hook_event_name,
+                    )
+                except ApprovalConsumedError:
+                    pass
+                except ApprovalError as exc:
+                    err_code = getattr(exc, "code", "DMT_APPROVAL_CREDENTIAL_INVALID")
+                    return _build_hook_result(
+                        harness=norm_harness,
+                        decision=Decision.DENY,
+                        code=err_code,
+                        tool=tool,
+                        action=action,
+                        resource=resource if isinstance(resource, str) else None,
+                        reason=f"Dmint DENY [{err_code}]: {exc}",
+                        approval_id=approved_rec.approval_id,
+                        hook_event_name=hook_event_name,
+                    )
 
         # Otherwise persist pending approval record
         record = ApprovalRecord.create(

@@ -364,9 +364,11 @@ class Dmint:
     @classmethod
     def local(
         cls,
-        policy: Policy | str | Path,
+        policy: Policy | str | Path = "policy.json",
         *,
+        policy_path: str | Path | None = None,
         db_path: str | Path | None = None,
+        storage: str | Path | None = None,
         state_dir: str | Path | None = None,
         agent_id: str = "local-agent",
         context: TrustedContext | Mapping[str, Any] | None = None,
@@ -382,6 +384,10 @@ class Dmint:
         from .storage.sqlite import SQLiteApprovalStore
         from .verification import DEFAULT_APPROVAL_AUDIENCE
 
+        if policy_path is not None:
+            policy = policy_path
+        if storage is not None and db_path is None:
+            db_path = storage
         if isinstance(policy, Policy):
             resolved_policy = policy
         else:
@@ -407,7 +413,7 @@ class Dmint:
             db_p = Path(db_path) if db_path is not None else (dmint_dir / "approvals.sqlite3")
         elif db_path is not None:
             db_p = Path(db_path)
-            dmint_dir = db_p.parent if db_p.parent.name == ".dmint" else Path(".dmint")
+            dmint_dir = db_p.parent if db_p.parent.name == ".dmint" else (db_p.parent / ".dmint")
         else:
             dmint_dir = Path(".dmint")
             db_p = dmint_dir / "approvals.sqlite3"
@@ -566,8 +572,16 @@ class Dmint:
     ) -> Callable[..., Any]:
         """Register a target callable for a capability on this Dmint instance."""
 
+        if capability is None:
+            if tool and action:
+                capability = f"{tool}.{action}"
+            else:
+                raise RequestValidationError("capability (or both tool and action) must be provided")
         _capability_parts(capability)
-        if type(resource) is not NoResource and not callable(resource):
+        if isinstance(resource, str):
+            res_str = resource
+            resource = lambda b_args, _r=res_str: str(b_args.get(_r, _r))
+        elif type(resource) is not NoResource and not callable(resource):
             raise RequestValidationError("resource must be NO_RESOURCE or a resolver over bound arguments")
         target = _validate_function(function)
         raw_target = target.__func__ if isinstance(target, (classmethod, staticmethod)) else target
@@ -786,12 +800,14 @@ class Dmint:
                 ]
                 if len(args) == len(sig_params) + 1:
                     args = args[1:]
+        bound_self = getattr(protected_callable, "__self__", None)
+        call_args = (bound_self, *args) if (bound_self is not None and (not args or args[0] is not bound_self)) else args
         if approval_credential is None and hasattr(self._approval_store, "get_approved_assertion_for_request"):
             from .request_binding import request_binding_fingerprint
             from .errors import ApprovalConsumedError
             _, _, probe_req = self._prepare_call(
                 binding.function,
-                args,
+                call_args,
                 kwargs,
                 capability=binding.capability,
                 resource=binding.resource,
@@ -831,7 +847,7 @@ class Dmint:
             raise AuthorizationError("approval not found", code="DMT_APPROVAL_NOT_FOUND")
         function, snapshot, request = self._prepare_call(
             binding.function,
-            args,
+            call_args,
             kwargs,
             capability=binding.capability,
             resource=binding.resource,
@@ -904,8 +920,10 @@ class Dmint:
 
     def protected(
         self,
-        capability: str,
+        capability: str | None = None,
         *,
+        tool: str | None = None,
+        action: str | None = None,
         resource: ResourceSpec = NO_RESOURCE,
     ) -> Callable[[F], F]:
         """Decorator that protects a target function with deterministic pre-execution policy enforcement.
@@ -929,8 +947,16 @@ class Dmint:
             ```
         """
 
+        if capability is None:
+            if tool and action:
+                capability = f"{tool}.{action}"
+            else:
+                raise RequestValidationError("capability (or both tool and action) must be provided")
         _capability_parts(capability)
-        if type(resource) is not NoResource and not callable(resource):
+        if isinstance(resource, str):
+            res_str = resource
+            resource = lambda b_args, _r=res_str: str(b_args.get(_r, _r))
+        elif type(resource) is not NoResource and not callable(resource):
             raise RequestValidationError("resource must be NO_RESOURCE or a resolver over bound arguments")
 
         def decorator(function: F) -> F:
@@ -956,8 +982,12 @@ class Dmint:
                     class_name = parts[-2]
                     cap_parts = effective_capability.split(".")
                     if class_name not in cap_parts:
-                        tool, action = _capability_parts(effective_capability)
-                        effective_capability = f"{tool}.{class_name}.{action}"
+                        c_tool, c_action = _capability_parts(effective_capability)
+                        cls_action = f"{class_name}.{c_action}"
+                        has_cls_rule = any(r.tool in (c_tool, "*") and r.action == cls_action for r in self._policy.rules)
+                        has_base_rule = any(r.tool in (c_tool, "*") and r.action == c_action for r in self._policy.rules)
+                        if has_cls_rule or not has_base_rule:
+                            effective_capability = f"{c_tool}.{cls_action}"
 
             registered_target = self.register(target, effective_capability, resource=resource)
             raw_target = getattr(registered_target, "__func__", registered_target)

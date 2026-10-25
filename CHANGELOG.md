@@ -1,3 +1,12 @@
+- **Uncharted Real-World & Adversarial Chaos Hardening**:
+  - Blocked standalone background shell operator `&` (`git status & rm -rf /`) in both `_split_compound_shell_commands()` (`src/dmint/cli/hooks.py`) and `_match_resource_unchecked()` (`src/dmint/core/resources.py`).
+  - Added non-standard path argument keys (`filepath`, `filename`, `file_name`, `target_path`, `destination`, `dest`, `source`, `src`, `folder_path`, `folder`) to `_extract_all_paths_from_args()`.
+  - Fixed `_assert_no_secrets` in `src/dmint/mcp/config_loader.py` so tool names in `tool_bindings` containing `secret`, `token`, `password`, `credential`, or `key` (e.g. `rotate_master_secret`, `create_secret_key`) are not rejected as hardcoded secrets, and added support for `"Bearer ${ENV_VAR}"` / `"Bearer $ENV_VAR"` header templates in `config_loader.py` and `DownstreamMCPClient`.
+  - Fixed Starlette `<0.29` `BaseHTTPMiddleware` request body stream exhaustion in `AgentAuthMiddleware` (`src/dmint/mcp/auth.py`) and `_stdlib_mcp.py` so `dmint-mcp --transport http` (`--http`) serves Streamable HTTP requests without hanging on `await request.body()`.
+  - Fixed `load_integrity_key_source` precedence in `src/dmint/core/keys.py` so `DMINT_INTEGRITY_KEY` takes precedence over the fallback `DEFAULT_INTEGRITY_KEY_FILE`.
+  - Hardened `evaluate_hook_request` (`src/dmint/cli/hooks.py`) to verify policy digest provenance before consuming approvals, handle concurrent double-spend `ApprovalConsumedError` races without crashing, and return deterministic `DENY` on forged/invalid approval signatures (`ApprovalError`).
+  - Enhanced Python SDK (`Dmint.local`, `Dmint.protect`, `Dmint.retry`) to support `tool=...` / `action=...` keyword arguments, string resource resolvers, `policy_path` / `storage` aliases, `ApprovalRequired` exception alias, and bound class/instance method retries (`dm.retry(svc.method, ...)`).
+
 - **Pure-Python JSON-RPC 2.0 MCP Client & Server Fallback (`_stdlib_mcp.py`)**: Added native `stdio` and `streamable-http` MCP client/server support in `src/dmint/mcp/_stdlib_mcp.py` so `dmint create-mcp-policy` and `dmint-mcp` operate out of the box without requiring the optional `mcp` PyPI package, and fixed missing `sync_authoritative_policy` import in `src/dmint/mcp/proxy.py`.
 - **End-to-End Black-Box Hook, CLI & Policy Authoring Hardening**:
   - Inspected nested `"edits"`, `"replacements"`, and `"changes"` file lists in `_extract_all_paths_from_args()` to block `MultiEdit` batch path smuggling even when no top-level `file_path` is provided.

@@ -236,3 +236,5 @@ __all__ = [
     "evaluate_constraints",
     "validate_constraints_schema",
 ]
+
+ApprovalRequired = ApprovalRequiredError

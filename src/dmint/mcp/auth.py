@@ -197,6 +197,10 @@ class AgentAuthMiddleware(BaseHTTPMiddleware):
         # 1.5. Validate JSON body syntax and reject duplicate keys
         if request.method in ("POST", "PUT", "PATCH"):
             body = await request.body()
+            request.scope["_dmint_cached_body"] = body
+            async def _replay_receive():
+                return {"type": "http.request", "body": body, "more_body": False}
+            request._receive = _replay_receive
             if body:
                 content_type = request.headers.get("content-type", "")
                 if "application/json" in content_type or body.lstrip()[:1] in (b"{", b"["):

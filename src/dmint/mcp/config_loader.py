@@ -26,10 +26,21 @@ _PUBLIC_KEY_FIELDS = frozenset({"public_key_hex", "public_key_pem", "public_key"
 _DEFAULT_APPROVAL_AUDIENCE = "dmint/dashboard/v1"
 
 
-def _assert_no_secrets(data: Any) -> None:
+def _assert_no_secrets(data: Any, *, _in_tool_bindings: bool = False) -> None:
     """Scan configuration recursively to ensure no embedded secrets or credentials exist."""
     if isinstance(data, dict):
         for k, v in data.items():
+            if k == "tool_bindings" and isinstance(v, (dict, list)):
+                _assert_no_secrets(v, _in_tool_bindings=True)
+                continue
+            if _in_tool_bindings:
+                if isinstance(v, str) and any(pat in v.lower() for pat in SECRET_SUBSTRINGS):
+                    raise MCPConfigurationError(
+                        "Security violation: protection configuration appears to contain an embedded credential."
+                    )
+                elif isinstance(v, (dict, list)):
+                    _assert_no_secrets(v, _in_tool_bindings=True)
+                continue
             if any(s in k.lower() for s in ("token", "secret", "password", "credential")):
                 if isinstance(v, str) and v and not v.startswith("[") and not v.startswith("$"):
                     # Only raise if value looks like an actual hardcoded secret rather than a placeholder/env var
@@ -51,7 +62,9 @@ def _assert_no_secrets(data: Any) -> None:
         for item in data:
             _assert_no_secrets(item)
     elif isinstance(data, str):
-        if any(pat in data.lower() for pat in SECRET_SUBSTRINGS):
+        # Allow environment variable templates such as "Bearer ${TOKEN}" or "Bearer $TOKEN"
+        stripped_env = re.sub(r"\$\{?[A-Za-z_][A-Za-z0-9_]*\}?", "", data).strip()
+        if stripped_env.lower() not in ("bearer", "") and any(pat in stripped_env.lower() for pat in SECRET_SUBSTRINGS):
             raise MCPConfigurationError(
                 "Security violation: protection configuration appears to contain an embedded credential."
             )
