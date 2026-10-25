@@ -418,7 +418,7 @@ def _extract_all_paths_from_args(args: Mapping[str, Any], workspace_dir: Path | 
                     collected.append(pp)
 
     # 2. Check multi-file list fields (Cline read_files: {files: [{path: ...}]}, paths: [...], file_paths: [...])
-    for list_key in ("files", "paths", "file_paths"):
+    for list_key in ("files", "paths", "file_paths", "edits", "replacements", "changes"):
         lval = _dejson(args.get(list_key))
         if isinstance(lval, list):
             for item in lval:
@@ -543,14 +543,16 @@ def _unpack_harness_envelope(
             server_name = str(info_dict.get("mcp_server_name") or "mcp").strip()
             mcp_tool = str(info_dict.get("mcp_tool_name") or "execute").strip()
             mcp_args = info_dict.get("mcp_tool_arguments")
-            args_out = dict(mcp_args) if isinstance(mcp_args, Mapping) else info_dict
-            return f"mcp__{server_name}__{mcp_tool}", args_out, detected_ws
+            args_out = dict(mcp_args) if isinstance(mcp_args, Mapping) else dict(info_dict)
+            args_out["_mcp_server_name"] = server_name
+            args_out["_mcp_tool_name"] = mcp_tool
+            return "pre_mcp_tool_use", args_out, detected_ws
         return agent_action.strip(), info_dict, detected_ws
 
     # 2. Cline VS Code extension envelope: {"preToolUse": {"toolName": "...", "parameters": {...}}}
     cline_ext = payload.get("preToolUse")
     if isinstance(cline_ext, Mapping):
-        t_name = str(cline_ext.get("toolName") or cline_ext.get("tool_name") or "").strip()
+        t_name = str(cline_ext.get("toolName") or cline_ext.get("tool_name") or cline_ext.get("tool") or cline_ext.get("name") or "").strip()
         raw_params = _dejson(cline_ext.get("parameters") or cline_ext.get("input") or {})
         params_dict: dict[str, Any] = {}
         if isinstance(raw_params, Mapping):
@@ -574,7 +576,9 @@ def _unpack_harness_envelope(
         mcp_tool = str(payload.get("tool_name") or "execute").strip()
         raw_ti = _dejson(payload.get("tool_input") or {})
         ti_dict = dict(raw_ti) if isinstance(raw_ti, Mapping) else {}
-        return f"mcp__{server_name}__{mcp_tool}", ti_dict, detected_ws
+        ti_dict["_mcp_server_name"] = server_name
+        ti_dict["_mcp_tool_name"] = mcp_tool
+        return "beforeMCPExecution", ti_dict, detected_ws
 
     if hook_event in ("beforeShellExecution", "beforeReadFile", "beforeTabFileRead", "subagentStart") and not payload.get(
         "tool_name"
@@ -655,18 +659,23 @@ def normalize_harness_payload(
                 return "mcp", f"{server_id}.{mcp_action}", res, args
             return server_id, mcp_action, res, args
 
-    # 1c. Cline use_mcp_tool: {"server_name": "...", "tool_name": "...", "arguments": {...}}
-    if lower_name == "use_mcp_tool":
-        server_id = str(args.get("server_name") or "mcp").strip()
-        mcp_action = str(args.get("tool_name") or "execute").strip()
-        sub_args = _dejson(args.get("arguments") or {})
-        merged_args = dict(sub_args) if isinstance(sub_args, Mapping) else dict(args)
+    # 1c. Cline use_mcp_tool / Cursor beforeMCPExecution / Windsurf pre_mcp_tool_use
+    if lower_name in ("use_mcp_tool", "beforemcpexecution", "pre_mcp_tool_use"):
+        server_id = str(args.get("server_name") or args.get("_mcp_server_name") or "mcp").strip()
+        mcp_action = str(args.get("tool_name") or args.get("_mcp_tool_name") or "execute").strip()
+        sub_args = _dejson(args.get("arguments") if "arguments" in args else args)
+        merged_args = {k: v for k, v in (dict(sub_args) if isinstance(sub_args, Mapping) else dict(args)).items() if not str(k).startswith("_mcp_")}
         res = explicit_resource or _extract_path_from_args(merged_args, eff_ws)
-        if policy is not None and any(
-            r.tool == server_id and r.action == mcp_action for r in policy.rules
-        ):
-            return server_id, mcp_action, res, merged_args
-        return "use_mcp_tool", "execute", res, merged_args
+        if policy is not None:
+            if any(r.tool == server_id and r.action == mcp_action for r in policy.rules):
+                return server_id, mcp_action, res, merged_args
+            if any(r.tool == "mcp" and r.action == f"{server_id}.{mcp_action}" for r in policy.rules):
+                return "mcp", f"{server_id}.{mcp_action}", res, merged_args
+            if "." in mcp_action:
+                s_part, _, a_part = mcp_action.partition(".")
+                if any(r.tool == s_part and r.action == a_part for r in policy.rules):
+                    return s_part, a_part, res, merged_args
+        return clean_name, "execute", res, merged_args
 
     # 2. Explicit dotted capability: e.g. "shell.execute", "filesystem.read_file", "postgres.select"
     if "." in clean_name:
@@ -1667,7 +1676,15 @@ def main_hook(args: list[str] | None = None) -> int:
             target_harnesses = ["claude-code", "codex", "opencode", "cursor", "windsurf", "cline"]
         else:
             target_harnesses = [x.strip() for x in raw_h.split(",") if x.strip()]
-        tpl_list = [t.strip() for t in parsed.templates.split(",") if t.strip()]
+        raw_tpls = [t.strip() for t in parsed.templates.split(",") if t.strip()]
+        tpl_list: list[str] = []
+        for t_item in raw_tpls:
+            if t_item.lower() == "all":
+                for dt in ("shell", "filesystem", "postgres", "github", "stripe", "aws", "kubernetes"):
+                    if dt not in tpl_list:
+                        tpl_list.append(dt)
+            elif t_item not in tpl_list:
+                tpl_list.append(t_item)
         try:
             ws_dir = Path(parsed.dir).resolve() if parsed.dir else Path.cwd().resolve()
             p_file = (ws_dir / parsed.policy) if not Path(parsed.policy).is_absolute() else Path(parsed.policy)
@@ -1794,6 +1811,9 @@ def main_check(args: list[str] | None = None) -> int:
 
     try:
         policy = Policy.from_file(parsed.policy)
+        if "." in parsed.tool and parsed.action and parsed.action.strip().startswith("{") and parsed.args == "{}":
+            parsed.args = parsed.action
+            parsed.action = None
         if "." in parsed.tool and not parsed.action:
             tool_name, _, action_name = parsed.tool.partition(".")
         else:
@@ -1938,7 +1958,15 @@ def main_init(args: list[str] | None = None) -> int:
     except SystemExit as exc:
         return exc.code if isinstance(exc.code, int) else (0 if exc.code is None else 1)
 
-    tpl_list = [t.strip() for t in parsed.templates.split(",") if t.strip()]
+    raw_tpls = [t.strip() for t in parsed.templates.split(",") if t.strip()]
+    tpl_list: list[str] = []
+    for t_item in raw_tpls:
+        if t_item.lower() == "all":
+            for dt in ("shell", "filesystem", "postgres", "github", "stripe", "aws", "kubernetes"):
+                if dt not in tpl_list:
+                    tpl_list.append(dt)
+        elif t_item not in tpl_list:
+            tpl_list.append(t_item)
     raw_h = parsed.harness.strip().lower()
     target_harnesses: list[str] = []
     if raw_h != "none":
@@ -2000,6 +2028,7 @@ def main_doctor(args: list[str] | None = None) -> int:
     )
     parser.add_argument("--dir", default=None, help="Target workspace directory (default: current directory)")
     parser.add_argument("--policy", default="policy.json", help="Path to policy.json (default: policy.json)")
+    parser.add_argument("--harness", "--agent", default=None, help="Optional harness name to verify (e.g. claude-code, codex, opencode, cursor, windsurf, cline)")
     parser.add_argument("--json", dest="output_json", action="store_true", help="Output diagnostic report as JSON")
 
     try:

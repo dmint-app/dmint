@@ -12,12 +12,14 @@ try:
     from mcp import ClientSession, StdioServerParameters, stdio_client
     from mcp.client.streamable_http import httpx2, streamable_http_client
 except ImportError:
-    types = None  # type: ignore[assignment]
-    ClientSession = None  # type: ignore[assignment, misc]
-    StdioServerParameters = None  # type: ignore[assignment, misc]
-    stdio_client = None  # type: ignore[assignment]
-    httpx2 = None  # type: ignore[assignment]
-    streamable_http_client = None  # type: ignore[assignment]
+    import httpx as httpx2  # type: ignore[no-redef]
+    from ._stdlib_mcp import (  # type: ignore[assignment]
+        ClientSession,
+        StdioServerParameters,
+        stdio_client,
+        streamable_http_client,
+        types,
+    )
 
 from .errors import MCPConnectionError, MCPError, MCPProtocolError, MCPTimeoutError
 from .config import MCPIntegrationConfig, MCPTransportType

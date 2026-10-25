@@ -15,17 +15,13 @@ try:
     from mcp.server.stdio import stdio_server
     from mcp.shared.exceptions import MCPError as SDKMCPError
 except ImportError:
-    types = None  # type: ignore[assignment]
-    class Server:  # type: ignore[no-redef]
-        def __init__(self, name: str) -> None:
-            self.name = name
-        def list_tools(self) -> Any:
-            return lambda fn: fn
-        def call_tool(self) -> Any:
-            return lambda fn: fn
+    from ._stdlib_mcp import (  # type: ignore[assignment]
+        MCPError as SDKMCPError,
+        Server,
+        stdio_server,
+        types,
+    )
     ServerRequestContext = Any  # type: ignore[assignment, misc]
-    stdio_server = None  # type: ignore[assignment]
-    SDKMCPError = Exception  # type: ignore[assignment, misc]
 from dmint.core.approvals import ApprovalRecord, ApprovalState, PolicyProvenance
 from dmint.core.verification import ApprovalAssertion, ApprovalVerifier
 from dmint.core.canonicalize import canonicalize_bytes, thaw_json
@@ -47,7 +43,7 @@ from .errors import (
     MCPTimeoutError,
 )
 from dmint.core.models import Decision, ToolRequest, TrustedContext
-from dmint.core.policy import Policy, compute_tool_schema_hash
+from dmint.core.policy import Policy, compute_tool_schema_hash, sync_authoritative_policy
 from dmint.core.request_binding import request_binding_fingerprint
 from dmint.core.storage import ApprovalStore, SQLiteApprovalStore
 from dmint.core.webhooks import (

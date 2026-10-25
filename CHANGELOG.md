@@ -1,3 +1,11 @@
+- **Pure-Python JSON-RPC 2.0 MCP Client & Server Fallback (`_stdlib_mcp.py`)**: Added native `stdio` and `streamable-http` MCP client/server support in `src/dmint/mcp/_stdlib_mcp.py` so `dmint create-mcp-policy` and `dmint-mcp` operate out of the box without requiring the optional `mcp` PyPI package, and fixed missing `sync_authoritative_policy` import in `src/dmint/mcp/proxy.py`.
+- **End-to-End Black-Box Hook, CLI & Policy Authoring Hardening**:
+  - Inspected nested `"edits"`, `"replacements"`, and `"changes"` file lists in `_extract_all_paths_from_args()` to block `MultiEdit` batch path smuggling even when no top-level `file_path` is provided.
+  - Accepted `"tool"` and `"name"` in addition to `"toolName"` / `"tool_name"` in Cline `preToolUse` hook envelopes.
+  - Defaulted Cursor `beforeMCPExecution` and Windsurf `pre_mcp_tool_use` to `APPROVAL_REQUIRED` fallback evaluation when no server-specific MCP rule matches.
+  - Added `read`, `write`, `delete`, and `list` action aliases to `filesystem.json` alongside `read_file`, `write_file`, `delete_file`, and `list_directory`.
+  - Added `--templates all` support to `dmint init` and `dmint hook install`, `--harness` / `--agent` filtering to `dmint doctor`, `-t <tool.action> -a '{...}'` JSON shorthand detection to `dmint check`, dynamic `Path.home()` resolution in `dmint install-skill`, `./approvals.sqlite3` auto-discovery in `dmint dashboard`, and automatic `policy_ready` envelope normalization in `dmint create-policy` / `dmint create-mcp-policy`.
+
 # Changelog
 
 All notable changes to this project will be documented in this file.

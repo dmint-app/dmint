@@ -108,6 +108,8 @@ def main(argv: list[str] | None = None, prog: str | None = None) -> None:
     if not args.db_path and not args.database_url:
         if Path(".dmint/approvals.sqlite3").is_file():
             args.db_path = ".dmint/approvals.sqlite3"
+        elif Path("approvals.sqlite3").is_file():
+            args.db_path = "approvals.sqlite3"
         else:
             parser.error(
                 "DMINT_DB_PATH / DMINT_DATABASE_URL environment variable or --db-path / --database-url argument is required.\n"

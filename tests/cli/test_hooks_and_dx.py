@@ -721,6 +721,55 @@ class TestHooksAndDX(unittest.TestCase):
             self.assertTrue(report["checks"][check_key]["ok"], f"Check {check_key} failed: {report}")
         self.assertEqual(len(report["checks"]["policy"]["harness_policies"]), 6)
 
+    def test_blackbox_manual_qa_e2e_regressions(self) -> None:
+        """Verify all 6 edge cases uncovered during black-box manual QA E2E testing."""
+        # 1. dmint init --templates all --harness all
+        rc_init, _, err_init = _run_cli(["init", "--templates", "all", "--harness", "all", "--dir", str(self.tmp_path), "--force"])
+        self.assertEqual(rc_init, 0, err_init)
+        pol_path = str(self.tmp_path / "policy.json")
+        claude_pol = str(self.tmp_path / ".dmint" / "policies" / "claude-code.policy.json")
+        cursor_pol = str(self.tmp_path / ".dmint" / "policies" / "cursor.policy.json")
+        cline_pol = str(self.tmp_path / ".dmint" / "policies" / "cline.policy.json")
+        db_path = str(self.tmp_path / ".dmint" / "approvals.sqlite3")
+
+        # 2. dmint doctor --harness <h>
+        rc_doc_h, _, _ = _run_cli(["doctor", "--dir", str(self.tmp_path), "--harness", "claude-code"])
+        self.assertEqual(rc_doc_h, 0)
+
+        # 3. filesystem.read alias & dmint check -a '{...}' JSON arguments fallback
+        rc_fs, out_fs, _ = _run_cli(["check", "-p", pol_path, "-t", "filesystem.read", "-r", "README.md", "--json"])
+        self.assertEqual(rc_fs, 0)
+        self.assertEqual(json.loads(out_fs)["decision"], "ALLOW")
+
+        rc_pg, out_pg, _ = _run_cli(["check", "-p", pol_path, "-t", "postgres.select", "-r", "db://app/users", "-a", '{"sql":"SELECT 1"}', "--json"])
+        self.assertEqual(rc_pg, 0)
+        self.assertEqual(json.loads(out_pg)["decision"], "ALLOW")
+
+        # 4. MultiEdit batch smuggling via 'edits' array without top-level file_path
+        rc_me, out_me, _ = _run_cli([
+            "hook", "run", "--harness", "claude-code", "--policy", claude_pol, "--db-path", db_path,
+            "--input", json.dumps({"tool_name": "MultiEdit", "tool_input": {"edits": [{"file_path": "src/a.py"}, {"file_path": ".env"}]}})
+        ])
+        self.assertEqual(rc_me, 2)
+        self.assertEqual(json.loads(out_me)["dmint"]["decision"], "DENY")
+
+        # 5. Cursor beforeMCPExecution fallback to APPROVAL_REQUIRED
+        rc_cur, out_cur, _ = _run_cli([
+            "hook", "run", "--harness", "cursor", "--policy", cursor_pol, "--db-path", db_path,
+            "--input", json.dumps({"hook_event_name": "beforeMCPExecution", "tool_name": "postgres.query", "tool_input": {"sql": "SELECT 1"}})
+        ])
+        self.assertEqual(rc_cur, 2)
+        self.assertEqual(json.loads(out_cur)["dmint"]["decision"], "APPROVAL_REQUIRED")
+
+        # 6. Cline preToolUse with 'tool' key
+        rc_cl, out_cl, _ = _run_cli([
+            "hook", "run", "--harness", "cline", "--policy", cline_pol, "--db-path", db_path,
+            "--input", json.dumps({"hookName": "PreToolUse", "preToolUse": {"tool": "execute_command", "parameters": {"command": "git status"}}})
+        ])
+        self.assertEqual(rc_cl, 0)
+        self.assertFalse(json.loads(out_cl)["cancel"])
+
+
 
 if __name__ == "__main__":
     unittest.main()

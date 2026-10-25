@@ -401,8 +401,8 @@ async def _discover_stdio_tools(integration: MCPIntegration) -> list[dict[str, A
     try:
         from mcp import ClientSession, StdioServerParameters
         from mcp.client.stdio import stdio_client
-    except ImportError as exc:
-        raise CLIError("mcp package is required for MCP tool discovery. Install via `pip install mcp`.") from exc
+    except ImportError:
+        from dmint.mcp._stdlib_mcp import ClientSession, StdioServerParameters, stdio_client
 
     params = StdioServerParameters(
         command=str(command) if command is not None else "",
@@ -463,8 +463,9 @@ async def _discover_streamable_http_tools(
         import httpx2
         from mcp import ClientSession
         from mcp.client.streamable_http import streamable_http_client
-    except ImportError as exc:
-        raise CLIError("mcp package with streamable_http client is required. Install via `pip install mcp`.") from exc
+    except ImportError:
+        import httpx as httpx2  # type: ignore[no-redef]
+        from dmint.mcp._stdlib_mcp import ClientSession, streamable_http_client
 
     # Build an authenticated HTTP client and inject it into the MCP transport.
     # - verify=True: never weaken certificate verification.

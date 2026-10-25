@@ -351,6 +351,11 @@ def run_create_policy_wizard(
             response_data = json.loads(raw_response)
         except json.JSONDecodeError:
             response_data = None
+        if isinstance(response_data, dict) and "type" not in response_data:
+            if isinstance(response_data.get("rules"), list):
+                response_data = {"type": "policy_ready", "rules": response_data["rules"]}
+            elif isinstance(response_data.get("policy"), dict) and isinstance(response_data["policy"].get("rules"), list):
+                response_data = {"type": "policy_ready", "rules": response_data["policy"]["rules"]}
 
         # Check envelope shape
         if not isinstance(response_data, dict) or "type" not in response_data:

@@ -158,9 +158,9 @@ def interactive_destination_prompt(default_dest: Path) -> Path:
     elif choice == "2":
         return Path.cwd() / ALT_WORKSPACE_SKILL_DIR
     elif choice == "3":
-        return GEMINI_GLOBAL_SKILL_DIR
+        return Path.home() / ".gemini" / "config" / "skills"
     elif choice == "4":
-        return CLAUDE_GLOBAL_SKILL_DIR
+        return Path.home() / ".claude" / "skills"
     elif choice == "5":
         try:
             custom = input("Enter custom directory path: ").strip()

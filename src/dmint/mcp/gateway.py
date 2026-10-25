@@ -20,19 +20,15 @@ try:
     from mcp.shared.exceptions import MCPError as SDKMCPError, ErrorData
     from mcp.server.transport_security import TransportSecuritySettings
 except ImportError:
-    types = None  # type: ignore[assignment]
-    class Server:  # type: ignore[no-redef]
-        def __init__(self, name: str) -> None:
-            self.name = name
-        def list_tools(self) -> Any:
-            return lambda fn: fn
-        def call_tool(self) -> Any:
-            return lambda fn: fn
+    from ._stdlib_mcp import (  # type: ignore[assignment]
+        ErrorData,
+        MCPError as SDKMCPError,
+        Server,
+        TransportSecuritySettings,
+        stdio_server,
+        types,
+    )
     ServerRequestContext = Any  # type: ignore[assignment, misc]
-    stdio_server = None  # type: ignore[assignment]
-    SDKMCPError = Exception  # type: ignore[assignment, misc]
-    ErrorData = None  # type: ignore[assignment, misc]
-    TransportSecuritySettings = None  # type: ignore[assignment, misc]
 
 try:
     from starlette.applications import Starlette
