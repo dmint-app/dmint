@@ -1,20 +1,3 @@
-- **Uncharted Real-World & Adversarial Chaos Hardening**:
-  - Blocked standalone background shell operator `&` (`git status & rm -rf /`) in both `_split_compound_shell_commands()` (`src/dmint/cli/hooks.py`) and `_match_resource_unchecked()` (`src/dmint/core/resources.py`).
-  - Added non-standard path argument keys (`filepath`, `filename`, `file_name`, `target_path`, `destination`, `dest`, `source`, `src`, `folder_path`, `folder`) to `_extract_all_paths_from_args()`.
-  - Fixed `_assert_no_secrets` in `src/dmint/mcp/config_loader.py` so tool names in `tool_bindings` containing `secret`, `token`, `password`, `credential`, or `key` (e.g. `rotate_master_secret`, `create_secret_key`) are not rejected as hardcoded secrets, and added support for `"Bearer ${ENV_VAR}"` / `"Bearer $ENV_VAR"` header templates in `config_loader.py` and `DownstreamMCPClient`.
-  - Fixed Starlette `<0.29` `BaseHTTPMiddleware` request body stream exhaustion in `AgentAuthMiddleware` (`src/dmint/mcp/auth.py`) and `_stdlib_mcp.py` so `dmint-mcp --transport http` (`--http`) serves Streamable HTTP requests without hanging on `await request.body()`.
-  - Fixed `load_integrity_key_source` precedence in `src/dmint/core/keys.py` so `DMINT_INTEGRITY_KEY` takes precedence over the fallback `DEFAULT_INTEGRITY_KEY_FILE`.
-  - Hardened `evaluate_hook_request` (`src/dmint/cli/hooks.py`) to verify policy digest provenance before consuming approvals, handle concurrent double-spend `ApprovalConsumedError` races without crashing, and return deterministic `DENY` on forged/invalid approval signatures (`ApprovalError`).
-  - Enhanced Python SDK (`Dmint.local`, `Dmint.protect`, `Dmint.retry`) to support `tool=...` / `action=...` keyword arguments, string resource resolvers, `policy_path` / `storage` aliases, `ApprovalRequired` exception alias, and bound class/instance method retries (`dm.retry(svc.method, ...)`).
-
-- **Pure-Python JSON-RPC 2.0 MCP Client & Server Fallback (`_stdlib_mcp.py`)**: Added native `stdio` and `streamable-http` MCP client/server support in `src/dmint/mcp/_stdlib_mcp.py` so `dmint create-mcp-policy` and `dmint-mcp` operate out of the box without requiring the optional `mcp` PyPI package, and fixed missing `sync_authoritative_policy` import in `src/dmint/mcp/proxy.py`.
-- **End-to-End Black-Box Hook, CLI & Policy Authoring Hardening**:
-  - Inspected nested `"edits"`, `"replacements"`, and `"changes"` file lists in `_extract_all_paths_from_args()` to block `MultiEdit` batch path smuggling even when no top-level `file_path` is provided.
-  - Accepted `"tool"` and `"name"` in addition to `"toolName"` / `"tool_name"` in Cline `preToolUse` hook envelopes.
-  - Defaulted Cursor `beforeMCPExecution` and Windsurf `pre_mcp_tool_use` to `APPROVAL_REQUIRED` fallback evaluation when no server-specific MCP rule matches.
-  - Added `read`, `write`, `delete`, and `list` action aliases to `filesystem.json` alongside `read_file`, `write_file`, `delete_file`, and `list_directory`.
-  - Added `--templates all` support to `dmint init` and `dmint hook install`, `--harness` / `--agent` filtering to `dmint doctor`, `-t <tool.action> -a '{...}'` JSON shorthand detection to `dmint check`, dynamic `Path.home()` resolution in `dmint install-skill`, `./approvals.sqlite3` auto-discovery in `dmint dashboard`, and automatic `policy_ready` envelope normalization in `dmint create-policy` / `dmint create-mcp-policy`.
-
 # Changelog
 
 All notable changes to this project will be documented in this file.
@@ -22,7 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.0.4] - 2026-10-25
+## [2.0.4] - 2026-10-26
+
+### Tier-1 Launch Features: Tamper-Evident Audit Logs, Red-Team Simulator & Shadow Mode (v2.0.4)
+- **Feature #1 — Tamper-Evident SHA-256 Hash-Chained Audit Trail & Level-Based Logging (`dmint.core.audit` & `dmint logs` / `dmint audit`)**:
+  - Added `AuditLogger` supporting all 5 industry-standard log levels (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` via `DMINT_LOG_LEVEL` or `--log-level`), POSIX `fcntl` advisory file locking, size-bounded log rotation, and automatic credential/DSN/API-key redaction.
+  - Every audit entry in `.dmint/audit.jsonl` is cryptographically chained (`prev_hash` -> `entry_hash`) over RFC 8785 (JCS) canonical JSON (`b"dmint/audit-log/v1\x00"`).
+  - Added `dmint logs` (alias: `dmint audit`) with `rich` table formatting, `--level`, `--decision` / `--denied`, `--tool`, `--harness`, `--verify` (cryptographic chain verification), `--stats`, `--follow` (`-f` live tailing), and `--export` (`.csv` / `.json`).
+- **Feature #2 — 1-Command Interactive 7-Scenario Red-Team Attack Simulator (`dmint demo` / `dmint redteam`)**:
+  - Added `dmint demo` (aliases: `dmint redteam`, `dmint attack-sim`) to execute 7 live adversarial scenarios (Safe Read, Compound Shell Smuggling, Symlink Escape to `/etc/passwd`, Multi-File Patch Smuggling, Ed25519 Single-Use Approval Lifecycle, Post-Approval RFC 8785 Parameter Tampering, and Replay + Rogue Key Forgery) with sub-millisecond/millisecond latency metrics and SHA-256 audit chain verification.
+- **Feature #3 — Shadow / Dry-Run Mode (`--mode shadow`) & Policy Auto-Learner (`dmint learn-policy` / `create-policy --from-logs`)**:
+  - Added `--mode shadow|enforce` (and `DMINT_MODE=shadow`) to `dmint hook run` so teams can observe and log what *would* have been blocked (`shadow_would_block=True` at `WARNING` level in `.dmint/audit.jsonl`) without interrupting agent execution.
+  - Added `dmint learn-policy` and `dmint create-policy --from-logs .dmint/audit.jsonl` to synthesize a verified least-privilege `policy.json` from observed session logs while strictly enforcing `DENY` on destructive/secret targets.
+
+
+
+### CLI Audit & Modernization (v2.0.4)
+- **Unified Terminal UI & Help Formatter (`src/dmint/cli/ui.py`)**:
+  - Added `DmintHelpFormatter` (100-column layout with `max_help_position=36`) and `rich`-aware TTY rendering with automatic `NO_COLOR` / `--no-color` / `TERM=dumb` fallback for deterministic piped and CI/CD output.
+  - Reorganized `dmint --help` into 5 logical command groups (`Primary Commands`, `Policy Authoring & Verification Commands`, `Approval & Dashboard Commands`, `Key Management & Agent Skill Commands`, `Compatibility Commands`), removed duplicate command listings, and added `dmint help <command>` and `dmint status` / `dmint deny` top-level commands.
+- **4-Mode Policy Authoring (`dmint create-policy` & `dmint create-mcp-policy`)**:
+  - Added `--template` / `-t` (offline built-in domain templates: `shell,filesystem,postgres,github,stripe,aws,kubernetes`), `--rule` / `-r` (repeatable inline rule specs: `<effect>:<tool>.<action>[:<resource>[:<kind>]]`), `--interactive` / `-i` (offline step-by-step terminal rule builder), and `--prompt` / `-p` (inline natural-language prompt) to `dmint create-policy`.
+  - Added `--offline` / `--auto-classify` to `dmint create-mcp-policy` so users can discover live MCP server tools, pin SHA-256 `schema_hash` digests, and generate `policy.json` + `mcp_protection.json` without an LLM API key.
+- **CLI Bug Fixes & Flag Consistency**:
+  - Fixed `dmint hook install --help` bug where `_normalize_cli_args` previously rewrote `"install"` at arg index `> 0` to `"install-skill"`.
+  - Fixed `dmint init-keys --dir <dir>` and `dmint export-public-key --dir <dir>` so `--dir` / `-d` is respected when `--key-file` is not explicitly set.
+  - Added positional `<tool.action>` shorthand to `dmint check` (`dmint check postgres.select -r users`), `dmint hook list` alias, and `--json` output across `pending`, `verify-policy`, `policy-digest`, and `export-public-key`.
+  - Added PEP 562 lazy subcommand loading in `src/dmint/cli/__init__.py` and `src/dmint/cli/__main__.py`, cutting CLI cold-start latency by **3x (`1,075.7 ms` -> `361.4 ms`)**.
+
+ - 2026-10-25
 
 ### Added
 - **Per-Harness Dedicated Policies (`.dmint/policies/<harness>.policy.json`)**: Shipped 6 dedicated built-in tool policies (`claude-code`: 722 rules, `codex`: 729, `opencode`: 465, `cursor`: 899, `windsurf`: 715, `cline`: 716) covering every default tool in each coding harness.
@@ -44,6 +55,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - **Unified Default Deployment Epoch (`F3`)**: `MCPGateway` now defaults `deployment_epoch` to `"default"` (configurable via `"deployment_epoch"` in `mcp_protection.json` or `DMINT_DEPLOYMENT_EPOCH`), matching `dmint pending`, `dmint approve`, and `dmint dashboard` out of the box.
 - **PyPI Maturity Classifier (`F6`)**: Updated classifier from `5 - Production/Stable` to `4 - Beta`.
+
+### Security, MCP & Hook Hardening (v2.0.4)
+- **Uncharted Real-World & Adversarial Chaos Hardening**:
+  - Blocked standalone background shell operator `&` (`git status & rm -rf /`) in both `_split_compound_shell_commands()` (`src/dmint/cli/hooks.py`) and `_match_resource_unchecked()` (`src/dmint/core/resources.py`).
+  - Added non-standard path argument keys (`filepath`, `filename`, `file_name`, `target_path`, `destination`, `dest`, `source`, `src`, `folder_path`, `folder`) to `_extract_all_paths_from_args()`.
+  - Fixed `_assert_no_secrets` in `src/dmint/mcp/config_loader.py` so tool names in `tool_bindings` containing `secret`, `token`, `password`, `credential`, or `key` (e.g. `rotate_master_secret`, `create_secret_key`) are not rejected as hardcoded secrets, and added support for `"Bearer ${ENV_VAR}"` / `"Bearer $ENV_VAR"` header templates in `config_loader.py` and `DownstreamMCPClient`.
+  - Fixed Starlette `<0.29` `BaseHTTPMiddleware` request body stream exhaustion in `AgentAuthMiddleware` (`src/dmint/mcp/auth.py`) and `_stdlib_mcp.py` so `dmint-mcp --transport http` (`--http`) serves Streamable HTTP requests without hanging on `await request.body()`.
+  - Fixed `load_integrity_key_source` precedence in `src/dmint/core/keys.py` so `DMINT_INTEGRITY_KEY` takes precedence over the fallback `DEFAULT_INTEGRITY_KEY_FILE`.
+  - Hardened `evaluate_hook_request` (`src/dmint/cli/hooks.py`) to verify policy digest provenance before consuming approvals, handle concurrent double-spend `ApprovalConsumedError` races without crashing, and return deterministic `DENY` on forged/invalid approval signatures (`ApprovalError`).
+  - Enhanced Python SDK (`Dmint.local`, `Dmint.protect`, `Dmint.retry`) to support `tool=...` / `action=...` keyword arguments, string resource resolvers, `policy_path` / `storage` aliases, `ApprovalRequired` exception alias, and bound class/instance method retries (`dm.retry(svc.method, ...)`).
+
+- **Pure-Python JSON-RPC 2.0 MCP Client & Server Fallback (`_stdlib_mcp.py`)**: Added native `stdio` and `streamable-http` MCP client/server support in `src/dmint/mcp/_stdlib_mcp.py` so `dmint create-mcp-policy` and `dmint-mcp` operate out of the box without requiring the optional `mcp` PyPI package, and fixed missing `sync_authoritative_policy` import in `src/dmint/mcp/proxy.py`.
+- **End-to-End Black-Box Hook, CLI & Policy Authoring Hardening**:
+  - Inspected nested `"edits"`, `"replacements"`, and `"changes"` file lists in `_extract_all_paths_from_args()` to block `MultiEdit` batch path smuggling even when no top-level `file_path` is provided.
+  - Accepted `"tool"` and `"name"` in addition to `"toolName"` / `"tool_name"` in Cline `preToolUse` hook envelopes.
+  - Defaulted Cursor `beforeMCPExecution` and Windsurf `pre_mcp_tool_use` to `APPROVAL_REQUIRED` fallback evaluation when no server-specific MCP rule matches.
+  - Added `read`, `write`, `delete`, and `list` action aliases to `filesystem.json` alongside `read_file`, `write_file`, `delete_file`, and `list_directory`.
+  - Added `--templates all` support to `dmint init` and `dmint hook install`, `--harness` / `--agent` filtering to `dmint doctor`, `-t <tool.action> -a '{...}'` JSON shorthand detection to `dmint check`, dynamic `Path.home()` resolution in `dmint install-skill`, `./approvals.sqlite3` auto-discovery in `dmint dashboard`, and automatic `policy_ready` envelope normalization in `dmint create-policy` / `dmint create-mcp-policy`.
 
 ## [2.0.3] - 2026-10-24
 

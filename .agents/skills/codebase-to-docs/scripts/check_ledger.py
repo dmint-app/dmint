@@ -24,6 +24,7 @@ What is enforced mechanically:
 What is NOT enforced: that the quote really supports the claim, and that the docs sentence says
 what the claim says. Those are the blind re-derivation pass's job.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -87,11 +88,16 @@ def check_evidence(rep, repo, cid, i, ev, slack, rerun, counters):
             rep.add("ERROR", w, f"{ev['path']} has {len(lines)} lines; evidence cites {ev['lines']}")
             return
         lo, hi = max(1, rng[0] - slack), min(len(lines), rng[1] + slack)
-        if quote in squash(" ".join(lines[lo - 1:hi])):
+        if quote in squash(" ".join(lines[lo - 1 : hi])):
             counters["file_ok"] += 1
         else:
-            rep.add("ERROR", w, f"quote not found in {ev['path']}:{ev['lines']}"
-                    + (f" (±{slack})" if slack else "") + " - evidence is stale or wrong")
+            rep.add(
+                "ERROR",
+                w,
+                f"quote not found in {ev['path']}:{ev['lines']}"
+                + (f" (±{slack})" if slack else "")
+                + " - evidence is stale or wrong",
+            )
     elif "command" in ev:
         counters["command"] += 1
         if rerun:
@@ -129,8 +135,12 @@ def main():
 
     head = git(repo, "rev-parse", "HEAD")
     if meta.get("repo_sha") and head and meta["repo_sha"] != head:
-        rep.add("WARN", "ledger", f"repo HEAD {head[:10]} differs from ledger repo_sha {meta['repo_sha'][:10]}: "
-                "evidence may have drifted; re-run all passes for pages whose sources changed")
+        rep.add(
+            "WARN",
+            "ledger",
+            f"repo HEAD {head[:10]} differs from ledger repo_sha {meta['repo_sha'][:10]}: "
+            "evidence may have drifted; re-run all passes for pages whose sources changed",
+        )
     if not meta.get("repo_sha"):
         rep.add("WARN", "ledger", "no _meta.repo_sha recorded: cannot tell which commit the evidence was read at")
     if head and git(repo, "status", "--porcelain"):
@@ -159,7 +169,9 @@ def main():
         for i, ev in enumerate(r.get("evidence") or []):
             check_evidence(rep, repo, cid, i, ev, a.slack, a.rerun, counters)
         if status == "contradicted":
-            rep.add("ERROR", str(cid), f"claim is contradicted by the code: fix or remove it from {page} - {r.get('claim')}")
+            rep.add(
+                "ERROR", str(cid), f"claim is contradicted by the code: fix or remove it from {page} - {r.get('claim')}"
+            )
         elif status == "unverified":
             rep.add("WARN", str(cid), f"unverified: must not appear in the docs as fact ({page}): {r.get('claim')}")
         elif status == "verified":
@@ -168,7 +180,9 @@ def main():
             if len(methods) < 2:
                 rep.add("ERROR", str(cid), f"verified needs >= 2 distinct check methods, has {sorted(methods)}")
             if kind in DYNAMIC_KINDS and not (methods & DYNAMIC_METHODS):
-                rep.add("ERROR", str(cid), f"{kind} claims need a dynamic check (run/test/computed), has {sorted(methods)}")
+                rep.add(
+                    "ERROR", str(cid), f"{kind} claims need a dynamic check (run/test/computed), has {sorted(methods)}"
+                )
             if kind == "security" and (len(methods) < 3 or "rederive" not in methods):
                 rep.add("ERROR", str(cid), "security claims need >= 3 methods including 'rederive'")
             if kind == "external" and not any("url" in e for e in (r.get("evidence") or []) if isinstance(e, dict)):
@@ -182,9 +196,12 @@ def main():
                 rep.add("WARN", str(p.relative_to(repo) if repo in p.parents else p), "page has no ledger entries")
 
     rep.print(show_info=True)
-    print(f"\n{len(records)} claim(s): " + ", ".join(f"{k}={v}" for k, v in status_count.items())
-          + f"; file evidence re-checked OK={counters['file_ok']}; command evidence={counters['command']} "
-          f"(re-run OK={counters['cmd_ok']}, not re-run={counters['cmd_skipped']}); external (manual)={counters['external']}")
+    print(
+        f"\n{len(records)} claim(s): "
+        + ", ".join(f"{k}={v}" for k, v in status_count.items())
+        + f"; file evidence re-checked OK={counters['file_ok']}; command evidence={counters['command']} "
+        f"(re-run OK={counters['cmd_ok']}, not re-run={counters['cmd_skipped']}); external (manual)={counters['external']}"
+    )
     if counters["cmd_skipped"]:
         print("Command evidence was not re-run (use --rerun in a safe environment).")
     if counters["external"]:

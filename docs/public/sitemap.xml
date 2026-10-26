@@ -111,6 +111,11 @@
     <priority>0.8</priority>
   </url>
   <url>
+    <loc>https://docs.dmint.app/operations/production-proof</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
     <loc>https://docs.dmint.app/operations/deployment-model</loc>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>

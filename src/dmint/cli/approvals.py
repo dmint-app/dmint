@@ -86,7 +86,11 @@ def _get_store(
             target_sqlite = "approvals.sqlite3"
 
     integrity_key: Path | None = Path(integrity_key_file) if integrity_key_file else None
-    if integrity_key is None and not os.environ.get("DMINT_INTEGRITY_KEY") and not os.environ.get("DMINT_INTEGRITY_KEY_FILE"):
+    if (
+        integrity_key is None
+        and not os.environ.get("DMINT_INTEGRITY_KEY")
+        and not os.environ.get("DMINT_INTEGRITY_KEY_FILE")
+    ):
         if target_sqlite and (Path(target_sqlite).parent / "integrity.key").exists():
             integrity_key = Path(target_sqlite).parent / "integrity.key"
 
@@ -110,7 +114,11 @@ def _get_authority(
     issuer = authority_issuer or os.environ.get("DMINT_AUTHORITY_ISSUER") or "dmint-cli"
     aud = audience or os.environ.get("DMINT_AUTHORITY_AUDIENCE", DEFAULT_APPROVAL_AUDIENCE)
     resolved_key_file = key_file
-    if resolved_key_file is None and not os.environ.get("DMINT_KEY_FILE") and not os.environ.get("DMINT_SIGNING_KEY_FILE"):
+    if (
+        resolved_key_file is None
+        and not os.environ.get("DMINT_KEY_FILE")
+        and not os.environ.get("DMINT_SIGNING_KEY_FILE")
+    ):
         local_skey = Path(".dmint/signing.key")
         if local_skey.exists():
             resolved_key_file = local_skey
@@ -168,7 +176,6 @@ def _resolve_current_policy(
             ) from exc
 
     return None
-
 
 
 def _resolve_approval_id(store: ApprovalStore, raw_id: str) -> str:
@@ -322,7 +329,14 @@ def main_approve(args: list[str] | None = None) -> int:
     parser.add_argument("--database-url", default=None, help="Database URL (or set DMINT_DATABASE_URL)")
     parser.add_argument("--deployment-epoch", default=None, help="Deployment epoch (default: 'default')")
     parser.add_argument("--policy", default=None, help="Path to policy file for re-verification")
-    parser.add_argument("--approver-id", "--by", "--approver", dest="approver_id", default=None, help="Approver principal ID (or set DMINT_APPROVER_ID)")
+    parser.add_argument(
+        "--approver-id",
+        "--by",
+        "--approver",
+        dest="approver_id",
+        default=None,
+        help="Approver principal ID (or set DMINT_APPROVER_ID)",
+    )
     parser.add_argument("--authority-issuer", "--issuer-id", default=None, help="Authority issuer ID")
     parser.add_argument(
         "--key-file",
@@ -439,6 +453,7 @@ def main_approve(args: list[str] | None = None) -> int:
 
             try:
                 from dmint.core.audit import AuditLogger
+
                 if Path(".dmint").is_dir() or os.environ.get("DMINT_AUDIT_LOG"):
                     AuditLogger().log_event(
                         decision="APPROVED",
@@ -498,7 +513,14 @@ def main_reject(args: list[str] | None = None) -> int:
     parser.add_argument("--db-path", default=None, help="Path to SQLite database (or set DMINT_DB_PATH)")
     parser.add_argument("--database-url", default=None, help="Database URL (or set DMINT_DATABASE_URL)")
     parser.add_argument("--deployment-epoch", default=None, help="Deployment epoch (default: 'default')")
-    parser.add_argument("--approver-id", "--by", "--approver", dest="approver_id", default=None, help="Rejecter principal ID (or set DMINT_APPROVER_ID)")
+    parser.add_argument(
+        "--approver-id",
+        "--by",
+        "--approver",
+        dest="approver_id",
+        default=None,
+        help="Rejecter principal ID (or set DMINT_APPROVER_ID)",
+    )
     parser.add_argument("--authority-issuer", "--issuer-id", default=None, help="Authority issuer ID")
     parser.add_argument("--audience", default=None, help="Approval authority audience")
     parser.add_argument(
@@ -574,6 +596,7 @@ def main_reject(args: list[str] | None = None) -> int:
 
             try:
                 from dmint.core.audit import AuditLogger
+
                 if Path(".dmint").is_dir() or os.environ.get("DMINT_AUDIT_LOG"):
                     AuditLogger().log_event(
                         decision="REJECTED",

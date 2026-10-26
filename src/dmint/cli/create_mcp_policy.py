@@ -666,13 +666,15 @@ def run_create_mcp_policy_wizard(
                 tool_schema_hashes[f"{integ.integration_id}.{t['name']}"] = shash
                 tool_schema_hashes[f"mcp.{integ.integration_id}.{t['name']}"] = shash
                 eff = auto_classify_mcp_tool_effect(t["name"], t.get("description", ""))
-                rules.append({
-                    "effect": eff,
-                    "tool": integ.integration_id,
-                    "action": t["name"],
-                    "resource": "*",
-                    "schema_hash": shash,
-                })
+                rules.append(
+                    {
+                        "effect": eff,
+                        "tool": integ.integration_id,
+                        "action": t["name"],
+                        "resource": "*",
+                        "schema_hash": shash,
+                    }
+                )
         policy_mapping = {"rules": rules, "tool_schemas": tool_schema_hashes}
         _validate_rule_completeness(rules)
         _assert_no_secrets_in_policy(policy_mapping)
@@ -684,7 +686,9 @@ def run_create_mcp_policy_wizard(
         for r in verified_policy.rules:
             res_str = r.resource if isinstance(r.resource, str) else type(r.resource).__name__
             pin_hash = r.schema_hash or verified_policy.get_tool_schema_hash(r.action, r.tool)
-            print(f"  [{r.effect.value.upper()}] tool='{r.tool}', action='{r.action}', resource='{res_str}' [PINNED: {(pin_hash or '')[:12]}...]")
+            print(
+                f"  [{r.effect.value.upper()}] tool='{r.tool}', action='{r.action}', resource='{res_str}' [PINNED: {(pin_hash or '')[:12]}...]"
+            )
         atomic_write_policy_json(json_path, verified_policy)
         verify_policy_file(json_path)
         sorted_integrations = _sort_integrations_deterministically(integrations)
@@ -831,7 +835,9 @@ def run_create_mcp_policy_wizard(
         if isinstance(response_data, dict) and "type" not in response_data:
             if isinstance(response_data.get("rules"), list):
                 response_data = {"type": "policy_ready", "rules": response_data["rules"]}
-            elif isinstance(response_data.get("policy"), dict) and isinstance(response_data["policy"].get("rules"), list):
+            elif isinstance(response_data.get("policy"), dict) and isinstance(
+                response_data["policy"].get("rules"), list
+            ):
                 response_data = {"type": "policy_ready", "rules": response_data["policy"]["rules"]}
 
         if not isinstance(response_data, dict) or "type" not in response_data:
@@ -862,8 +868,8 @@ def run_create_mcp_policy_wizard(
             continue
 
         elif msg_type == "policy_ready":
-            rules = response_data.get("rules")
-            if not isinstance(rules, list):
+            llm_rules = response_data.get("rules")
+            if not isinstance(llm_rules, list):
                 shape_retry_attempts += 1
                 if shape_retry_attempts >= 3:
                     raise JSONExtractionError("policy_ready missing rules list.")
@@ -877,35 +883,35 @@ def run_create_mcp_policy_wizard(
                 continue
 
             # Pin tool schemas for all discovered capabilities
-            tool_schema_hashes: dict[str, str] = {}
+            llm_tool_schema_hashes: dict[str, str] = {}
             for integ in integrations:
                 for t in integ.discovered_tools:
                     shash = compute_tool_schema_hash(t.get("description"), t.get("input_schema") or {})
-                    tool_schema_hashes[t["name"]] = shash
-                    tool_schema_hashes[f"{integ.integration_id}.{t['name']}"] = shash
-                    tool_schema_hashes[f"mcp.{integ.integration_id}.{t['name']}"] = shash
+                    llm_tool_schema_hashes[t["name"]] = shash
+                    llm_tool_schema_hashes[f"{integ.integration_id}.{t['name']}"] = shash
+                    llm_tool_schema_hashes[f"mcp.{integ.integration_id}.{t['name']}"] = shash
 
             # Annotate rules with schema_hash if matching discovered tool
-            for r_dict in rules:
+            for r_dict in llm_rules:
                 tool_action = r_dict.get("action", "")
                 tool_mod = r_dict.get("tool", "")
                 rule_shash: str | None = (
-                    tool_schema_hashes.get(tool_action)
-                    or tool_schema_hashes.get(f"{tool_mod}.{tool_action}")
-                    or tool_schema_hashes.get(tool_action.split(".")[-1])
+                    llm_tool_schema_hashes.get(tool_action)
+                    or llm_tool_schema_hashes.get(f"{tool_mod}.{tool_action}")
+                    or llm_tool_schema_hashes.get(tool_action.split(".")[-1])
                 )
                 if rule_shash:
                     r_dict["schema_hash"] = rule_shash
 
             policy_mapping = {
-                "rules": rules,
-                "tool_schemas": tool_schema_hashes,
+                "rules": llm_rules,
+                "tool_schemas": llm_tool_schema_hashes,
             }
 
             try:
                 # Requirement 7: LLM output is untrusted. Deterministic validation is authoritative.
                 # Gate 1: completeness — every rule must have required fields (effect, tool, action).
-                _validate_rule_completeness(rules)
+                _validate_rule_completeness(llm_rules)
                 # Gate 2: no secrets embedded in LLM-generated policy rules.
                 _assert_no_secrets_in_policy(policy_mapping)
                 # Gate 3: capability identity — all referenced tools must match discovered inventory.
@@ -926,10 +932,10 @@ def run_create_mcp_policy_wizard(
             unpinned_tools: list[str] = []
             for r in verified_policy.rules:
                 res_str = r.resource if isinstance(r.resource, str) else type(r.resource).__name__
-                pin_hash: str | None = r.schema_hash or verified_policy.get_tool_schema_hash(r.action, r.tool)
-                if pin_hash:
+                rule_pin_hash: str | None = r.schema_hash or verified_policy.get_tool_schema_hash(r.action, r.tool)
+                if rule_pin_hash:
                     print(
-                        f"  [{r.effect.value.upper()}] tool='{r.tool}', action='{r.action}', resource='{res_str}' [PINNED: {pin_hash[:12]}...]"
+                        f"  [{r.effect.value.upper()}] tool='{r.tool}', action='{r.action}', resource='{res_str}' [PINNED: {rule_pin_hash[:12]}...]"
                     )
                 else:
                     print(
@@ -1046,7 +1052,9 @@ def main_create_mcp(args: list[str] | None = None) -> int:
     parser.add_argument("--command", help="MCP server executable command (e.g. npx, mcp-server-postgres)")
     parser.add_argument("--args", nargs="*", help="Arguments for MCP server executable")
     parser.add_argument("--integration-id", help="Unique integration ID for this MCP server")
-    parser.add_argument("--transport", default="stdio", help="MCP transport type: stdio or streamable-http (default: stdio)")
+    parser.add_argument(
+        "--transport", default="stdio", help="MCP transport type: stdio or streamable-http (default: stdio)"
+    )
     parser.add_argument("--url", help="Remote MCP server URL (when transport is streamable-http)")
     parser.add_argument(
         "-f", "--file", default="access.md", help="Input requirements markdown file (default: access.md)"
@@ -1066,7 +1074,9 @@ def main_create_mcp(args: list[str] | None = None) -> int:
         action="store_true",
         help="Generate schema-pinned MCP policy offline without LLM API calls",
     )
-    parser.add_argument("-provider", "--provider", help="LLM provider (openai, gemini, groq, openrouter, ollama, offline)")
+    parser.add_argument(
+        "-provider", "--provider", help="LLM provider (openai, gemini, groq, openrouter, ollama, offline)"
+    )
     parser.add_argument("-base_url", "--base-url", help="OpenAI-compatible base URL")
     parser.add_argument("-api_key", "--api-key", help="API key")
     parser.add_argument("-model", "--model", help="Model name")

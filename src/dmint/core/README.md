@@ -17,6 +17,7 @@ The core deterministic policy authorization engine and storage subsystem of Dmin
 | [`storage/sqlite.py`](storage/sqlite.py) | Hardened SQLite approval state machine (`SQLiteApprovalStore`). |
 | [`authority.py`](authority.py) | Ed25519 cryptographic approval assertions and signature verification. |
 | [`models.py`](models.py) | Immutable request models (`ToolRequest`, `TrustedContext`, `AuthorizedRequest`). |
+| [`audit.py`](audit.py) | Tamper-evident SHA-256 hash-chained structured audit logger (`AuditLogger`, `verify_audit_chain`). |
 
 ---
 

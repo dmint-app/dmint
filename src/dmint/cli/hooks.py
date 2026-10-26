@@ -196,9 +196,7 @@ _PATCH_HEADER_RE = re.compile(
 def normalize_harness_name(name: str) -> str:
     clean = name.strip().lower()
     if clean not in HARNESS_ALIASES:
-        raise ValueError(
-            f"Unsupported harness '{name}'. Supported harnesses: {', '.join(SUPPORTED_HARNESSES)}"
-        )
+        raise ValueError(f"Unsupported harness '{name}'. Supported harnesses: {', '.join(SUPPORTED_HARNESSES)}")
     return HARNESS_ALIASES[clean]
 
 
@@ -229,7 +227,7 @@ def ensure_harness_policy_file(
             for base_tpl in ("shell", "filesystem"):
                 combined_rules.extend(get_template_dict(base_tpl).get("rules", []))
 
-        for tpl_name in (extra_templates or []):
+        for tpl_name in extra_templates or []:
             clean_tpl = tpl_name.strip().lower()
             if clean_tpl and clean_tpl not in ("shell", "filesystem", norm):
                 tpl_dict = get_template_dict(clean_tpl)
@@ -571,7 +569,13 @@ def _unpack_harness_envelope(
     # 2. Cline VS Code extension envelope: {"preToolUse": {"toolName": "...", "parameters": {...}}}
     cline_ext = payload.get("preToolUse")
     if isinstance(cline_ext, Mapping):
-        t_name = str(cline_ext.get("toolName") or cline_ext.get("tool_name") or cline_ext.get("tool") or cline_ext.get("name") or "").strip()
+        t_name = str(
+            cline_ext.get("toolName")
+            or cline_ext.get("tool_name")
+            or cline_ext.get("tool")
+            or cline_ext.get("name")
+            or ""
+        ).strip()
         raw_params = _dejson(cline_ext.get("parameters") or cline_ext.get("input") or {})
         params_dict: dict[str, Any] = {}
         if isinstance(raw_params, Mapping):
@@ -599,9 +603,12 @@ def _unpack_harness_envelope(
         ti_dict["_mcp_tool_name"] = mcp_tool
         return "beforeMCPExecution", ti_dict, detected_ws
 
-    if hook_event in ("beforeShellExecution", "beforeReadFile", "beforeTabFileRead", "subagentStart") and not payload.get(
-        "tool_name"
-    ):
+    if hook_event in (
+        "beforeShellExecution",
+        "beforeReadFile",
+        "beforeTabFileRead",
+        "subagentStart",
+    ) and not payload.get("tool_name"):
         args_copy: dict[str, Any] = {}
         for k in ("command", "cwd", "file_path", "subagent_type", "task", "subagent_model"):
             if k in payload:
@@ -610,11 +617,7 @@ def _unpack_harness_envelope(
 
     # 5. Standard Claude Code / Codex / OpenCode / Cursor preToolUse / Generic envelope
     raw_tool_name = (
-        payload.get("tool_name")
-        or payload.get("tool")
-        or payload.get("name")
-        or payload.get("capability")
-        or ""
+        payload.get("tool_name") or payload.get("tool") or payload.get("name") or payload.get("capability") or ""
     )
     if not isinstance(raw_tool_name, str) or not raw_tool_name.strip():
         if "command" in payload or "command_line" in payload:
@@ -683,7 +686,11 @@ def normalize_harness_payload(
         server_id = str(args.get("server_name") or args.get("_mcp_server_name") or "mcp").strip()
         mcp_action = str(args.get("tool_name") or args.get("_mcp_tool_name") or "execute").strip()
         sub_args = _dejson(args.get("arguments") if "arguments" in args else args)
-        merged_args = {k: v for k, v in (dict(sub_args) if isinstance(sub_args, Mapping) else dict(args)).items() if not str(k).startswith("_mcp_")}
+        merged_args = {
+            k: v
+            for k, v in (dict(sub_args) if isinstance(sub_args, Mapping) else dict(args)).items()
+            if not str(k).startswith("_mcp_")
+        }
         res = explicit_resource or _extract_path_from_args(merged_args, eff_ws)
         if policy is not None:
             if any(r.tool == server_id and r.action == mcp_action for r in policy.rules):
@@ -757,7 +764,7 @@ def _evaluate_dual_policy(
     *,
     norm_req: ToolRequest,
     native_tool_name: str,
-) -> tuple[Decision, str]:
+) -> tuple[Decision, str | None]:
     """Evaluate policy against both canonical capability (e.g. shell.execute) and native tool name (e.g. Bash.execute).
 
     Enforces strict Dmint precedence across all matching rules:
@@ -782,7 +789,7 @@ def _evaluate_dual_policy(
                 )
             )
 
-    decisions: list[tuple[Decision, str]] = []
+    decisions: list[tuple[Decision, str | None]] = []
     for cand in candidates:
         has_match = any(r.matches_tool_action(cand) and r.matches(cand) for r in policy.rules)
         dec, code = policy.evaluate_detailed(cand)
@@ -816,6 +823,7 @@ def evaluate_hook_request(
 ) -> dict[str, Any]:
     """Evaluate a pre-tool hook event deterministically against policy and approval store."""
     import time as _time
+
     _t0 = _time.perf_counter()
     norm_harness = normalize_harness_name(harness)
     raw_native_tool, unpacked_args, detected_ws = _unpack_harness_envelope(payload)
@@ -858,14 +866,11 @@ def evaluate_hook_request(
         if len(all_paths) > 1:
             candidate_resources = list(all_paths)
 
-    effective_agent = (
-        agent_id
-        or str(payload.get("agent_id") or f"{norm_harness}-agent").strip()
-    )
+    effective_agent = agent_id or str(payload.get("agent_id") or f"{norm_harness}-agent").strip()
 
     chosen_req: ToolRequest | None = None
     decision = Decision.ALLOW
-    code = "DMT_ALLOWED"
+    code: str | None = "DMT_ALLOWED"
 
     # First check full unsplit shell lines against explicit DENY rules (e.g. "* | sh", "* | bash", "* *.env*")
     for full_line in full_shell_lines:
@@ -949,6 +954,7 @@ def evaluate_hook_request(
         orig_dec: Decision | None = None,
     ) -> dict[str, Any]:
         from dmint.core.audit import AuditLogger
+
         lat_ms = (_time.perf_counter() - _t0) * 1000.0
         target_audit = Path(audit_log_path).resolve() if audit_log_path else (base / ".dmint" / "audit.jsonl")
         try:
@@ -1076,6 +1082,7 @@ def evaluate_hook_request(
                     pass
             elif trusted_issuers:
                 from dmint.core.errors import ApprovalConsumedError, ApprovalError
+
                 verifier = ApprovalVerifier(
                     trusted_issuers=trusted_issuers,
                     audience=assertion.audience,
@@ -1198,9 +1205,9 @@ def _build_hook_result(
                 "permissionDecision": codex_perm,
                 "permissionDecisionReason": reason,
             },
-            "decision": "allow" if decision is Decision.ALLOW else (
-                "approval_required" if decision is Decision.APPROVAL_REQUIRED else "deny"
-            ),
+            "decision": "allow"
+            if decision is Decision.ALLOW
+            else ("approval_required" if decision is Decision.APPROVAL_REQUIRED else "deny"),
             "allow": decision is Decision.ALLOW,
             "permission": codex_perm,
             "permissionDecision": codex_perm,
@@ -1315,9 +1322,7 @@ def install_harness_hooks(
 
     # Determine whether caller explicitly asked for a custom non-default single policy file
     default_policy_file = (base / "policy.json").resolve()
-    explicit_custom_policy = (
-        policy_path is not None and Path(policy_path).resolve() != default_policy_file
-    )
+    explicit_custom_policy = policy_path is not None and Path(policy_path).resolve() != default_policy_file
 
     installed: dict[str, Path] = {}
     for norm in norm_harnesses:
@@ -1330,11 +1335,7 @@ def install_harness_hooks(
         else:
             harness_policy_file = resolved_shared_policy
 
-        hook_cmd = (
-            f'dmint hook run --harness {norm} '
-            f'--policy "{harness_policy_file}" '
-            f'--db-path "{resolved_db}"'
-        )
+        hook_cmd = f'dmint hook run --harness {norm} --policy "{harness_policy_file}" --db-path "{resolved_db}"'
 
         if norm == "claude-code":
             settings_file = root_dir / ".claude" / "settings.json"
@@ -1553,18 +1554,12 @@ export default DmintGuardPlugin;
             ext_script = ext_hook_dir / "PreToolUse"
 
             # 2. Cline CLI executable hook: .cline/hooks/PreToolUse.sh
-            cli_hook_dir = (
-                (Path.home() / ".cline" / "hooks")
-                if global_install
-                else (root_dir / ".cline" / "hooks")
-            )
+            cli_hook_dir = (Path.home() / ".cline" / "hooks") if global_install else (root_dir / ".cline" / "hooks")
             cli_hook_dir.mkdir(parents=True, exist_ok=True)
             cli_script = cli_hook_dir / "PreToolUse.sh"
 
             script_body = (
-                "#!/usr/bin/env sh\n"
-                "# Dmint PreToolUse Hook for Cline (VS Code Extension & CLI)\n"
-                f"exec {hook_cmd}\n"
+                f"#!/usr/bin/env sh\n# Dmint PreToolUse Hook for Cline (VS Code Extension & CLI)\nexec {hook_cmd}\n"
             )
             for s_path in (ext_script, cli_script):
                 s_path.write_text(script_body, encoding="utf-8")
@@ -1739,7 +1734,9 @@ def main_hook(args: list[str] | None = None) -> int:
     )
 
     # dmint hook run
-    p_run = sub.add_parser("run", formatter_class=DmintHelpFormatter, help="Evaluate a pre-tool hook JSON payload from stdin or --input")
+    p_run = sub.add_parser(
+        "run", formatter_class=DmintHelpFormatter, help="Evaluate a pre-tool hook JSON payload from stdin or --input"
+    )
     p_run.add_argument(
         "--harness",
         "--agent",
@@ -1774,12 +1771,16 @@ def main_hook(args: list[str] | None = None) -> int:
     )
 
     # dmint hook status
-    p_status = sub.add_parser("status", formatter_class=DmintHelpFormatter, help="Show installed harness hooks in the current workspace")
+    p_status = sub.add_parser(
+        "status", formatter_class=DmintHelpFormatter, help="Show installed harness hooks in the current workspace"
+    )
     p_status.add_argument("--dir", default=None, help="Target workspace directory (default: current directory)")
     p_status.add_argument("--json", dest="output_json", action="store_true", help="Output status as JSON")
 
     # dmint hook uninstall
-    p_un = sub.add_parser("uninstall", formatter_class=DmintHelpFormatter, help="Remove Dmint hooks from harness configuration files")
+    p_un = sub.add_parser(
+        "uninstall", formatter_class=DmintHelpFormatter, help="Remove Dmint hooks from harness configuration files"
+    )
     p_un.add_argument("--harness", "--agent", default="all", help="Harness to uninstall (default: all)")
     p_un.add_argument("--global", dest="global_install", action="store_true", help="Uninstall from user home config")
     p_un.add_argument("--dir", default=None, help="Target workspace directory (default: current directory)")
@@ -1849,8 +1850,8 @@ def main_hook(args: list[str] | None = None) -> int:
     if parsed.subcommand == "uninstall":
         raw_h = parsed.harness.strip().lower()
         targets = None if raw_h == "all" else [x.strip() for x in raw_h.split(",") if x.strip()]
-        ws_dir = Path(parsed.dir).resolve() if parsed.dir else None
-        removed = uninstall_harness_hooks(targets, workspace_dir=ws_dir, global_install=parsed.global_install)
+        uninstall_ws_dir = Path(parsed.dir).resolve() if parsed.dir else None
+        removed = uninstall_harness_hooks(targets, workspace_dir=uninstall_ws_dir, global_install=parsed.global_install)
         if removed:
             print(f"✓ Removed Dmint hooks for: {', '.join(removed)}")
         else:
@@ -1884,7 +1885,17 @@ def main_hook(args: list[str] | None = None) -> int:
             # Fail closed on any malformed input or missing policy
             err_msg = f"Dmint fail-closed hook error: {exc}"
             print(err_msg, file=sys.stderr)
-            print(json.dumps({"decision": "deny", "permission": "deny", "cancel": True, "errorMessage": err_msg, "reason": err_msg}))
+            print(
+                json.dumps(
+                    {
+                        "decision": "deny",
+                        "permission": "deny",
+                        "cancel": True,
+                        "errorMessage": err_msg,
+                        "reason": err_msg,
+                    }
+                )
+            )
             return 2
 
         print(json.dumps(result["harness_output"]))
@@ -1918,7 +1929,9 @@ def main_check(args: list[str] | None = None) -> int:
   dmint check -t postgres.select -a '{"sql":"SELECT * FROM users"}'
 """,
     )
-    parser.add_argument("capability_pos", nargs="?", default=None, help="Optional positional '<tool>.<action>' (alternative to --tool)")
+    parser.add_argument(
+        "capability_pos", nargs="?", default=None, help="Optional positional '<tool>.<action>' (alternative to --tool)"
+    )
     parser.add_argument("--policy", "-p", default="policy.json", help="Path to policy.json (default: policy.json)")
     parser.add_argument(
         "--tool",
@@ -1947,7 +1960,10 @@ def main_check(args: list[str] | None = None) -> int:
         parsed.tool = parsed.capability_pos
     if not parsed.tool:
         parser.print_usage(sys.stderr)
-        print("dmint check: error: the following arguments are required: --tool/-t (or positional <tool.action>)", file=sys.stderr)
+        print(
+            "dmint check: error: the following arguments are required: --tool/-t (or positional <tool.action>)",
+            file=sys.stderr,
+        )
         return 2
 
     try:
@@ -1974,6 +1990,8 @@ def main_check(args: list[str] | None = None) -> int:
             arguments=call_args,
             context=TrustedContext(ctx_data),
         )
+        decision: Decision = Decision.DENY
+        code: str | None = "DMT_DEFAULT_DENY"
         if (tool_name == "shell" or tool_name.lower() in _SHELL_TOOL_NAMES) and isinstance(res_val, str):
             norm_tool = "shell" if tool_name.lower() in _SHELL_TOOL_NAMES else tool_name
             norm_action = "execute" if tool_name.lower() in _SHELL_TOOL_NAMES else action_name
@@ -2043,9 +2061,7 @@ def main_check(args: list[str] | None = None) -> int:
         else:
             decision, code = policy.evaluate_detailed(req)
             matched_rules = [
-                idx + 1
-                for idx, r in enumerate(policy.rules)
-                if r.matches_tool_action(req) and r.matches(req)
+                idx + 1 for idx, r in enumerate(policy.rules) if r.matches_tool_action(req) and r.matches(req)
             ]
     except Exception as exc:
         print(f"Error evaluating policy: {exc}", file=sys.stderr)
@@ -2181,7 +2197,12 @@ def main_doctor(args: list[str] | None = None) -> int:
     )
     parser.add_argument("--dir", default=None, help="Target workspace directory (default: current directory)")
     parser.add_argument("--policy", default="policy.json", help="Path to policy.json (default: policy.json)")
-    parser.add_argument("--harness", "--agent", default=None, help="Optional harness name to verify (e.g. claude-code, codex, opencode, cursor, windsurf, cline)")
+    parser.add_argument(
+        "--harness",
+        "--agent",
+        default=None,
+        help="Optional harness name to verify (e.g. claude-code, codex, opencode, cursor, windsurf, cline)",
+    )
     parser.add_argument("--json", dest="output_json", action="store_true", help="Output diagnostic report as JSON")
 
     try:
@@ -2202,6 +2223,7 @@ def main_doctor(args: list[str] | None = None) -> int:
     # 1. Cryptographic engine & RFC 8785 self-test
     try:
         from dmint.core.canonicalize import canonicalize_bytes
+
         eph_priv = Ed25519PrivateKey.generate()
         msg = canonicalize_bytes({"b": 1, "a": [2, 3]})
         sig = eph_priv.sign(msg)

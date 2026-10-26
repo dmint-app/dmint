@@ -268,9 +268,19 @@ class PinnedAsyncNetworkBackend:
         self._target_host = canonicalize_hostname(target_host)
         self._pinned_ip = pinned_ip
         if base_backend is None:
-            import httpcore2._backends.anyio
+            try:
+                import httpcore2._backends.anyio as _hc2_anyio
 
-            self._base = httpcore2._backends.anyio.AnyIOBackend()
+                self._base = _hc2_anyio.AnyIOBackend()
+            except ImportError:
+                try:
+                    import httpcore._backends.anyio as _hc1_anyio
+
+                    self._base = _hc1_anyio.AnyIOBackend()
+                except ImportError:
+                    import httpcore.backends.auto as _auto_backend
+
+                    self._base = _auto_backend.AutoBackend()
         else:
             self._base = base_backend
 
@@ -318,9 +328,17 @@ def create_pinned_async_transport(
     **kwargs: Any,
 ) -> Any:
     """Create an AsyncHTTPTransport pinned to a specific IP address to defeat DNS rebinding."""
-    import httpx2
+    _httpx_lib: Any
+    try:
+        import httpx2 as _httpx2_mod
 
-    transport = httpx2.AsyncHTTPTransport(verify=verify, **kwargs)
+        _httpx_lib = _httpx2_mod
+    except ImportError:
+        import httpx as _httpx1_mod
+
+        _httpx_lib = _httpx1_mod
+
+    transport = _httpx_lib.AsyncHTTPTransport(verify=verify, **kwargs)
     backend = PinnedAsyncNetworkBackend(target_host, pinned_ip)
     pool = getattr(transport, "_pool", None)
     if pool is None or not hasattr(pool, "_network_backend"):

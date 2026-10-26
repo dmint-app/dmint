@@ -26,6 +26,7 @@ Per-block directives (a comment on one of the two lines above the fence), each w
     <!-- docs-check: skip <reason> -->      {/* docs-check: no-run <reason> */}
     <!-- docs-check: expect-error <reason> -->   (the block is supposed to fail)
 """
+
 from __future__ import annotations
 
 import argparse
@@ -73,7 +74,9 @@ class Verifier:
         for p in extra:
             sys.path.insert(0, p)
         if extra:
-            self.env["PYTHONPATH"] = os.pathsep.join(extra + ([self.env["PYTHONPATH"]] if self.env.get("PYTHONPATH") else []))
+            self.env["PYTHONPATH"] = os.pathsep.join(
+                extra + ([self.env["PYTHONPATH"]] if self.env.get("PYTHONPATH") else [])
+            )
         self.env["COLUMNS"] = "250"
         self.env["NO_COLOR"] = "1"
 
@@ -108,7 +111,9 @@ class Verifier:
                 for a in node.names:
                     mod = load(a.name)
                     if mod is not None:
-                        aliases[a.asname or a.name.split(".")[0]] = importlib.import_module(a.name.split(".")[0]) if not a.asname else mod
+                        aliases[a.asname or a.name.split(".")[0]] = (
+                            importlib.import_module(a.name.split(".")[0]) if not a.asname else mod
+                        )
             elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
                 mod = load(node.module)
                 if mod is not None:
@@ -140,8 +145,9 @@ class Verifier:
         if key in self.help_cache:
             return self.help_cache[key]
         try:
-            r = subprocess.run([*self.cli[cli], *chain, "--help"], capture_output=True, text=True,
-                               timeout=self.a.timeout, env=self.env)
+            r = subprocess.run(
+                [*self.cli[cli], *chain, "--help"], capture_output=True, text=True, timeout=self.a.timeout, env=self.env
+            )
             out = (r.stdout + r.stderr) if r.returncode == 0 else None
         except (FileNotFoundError, subprocess.TimeoutExpired):
             out = NOT_INSTALLED
@@ -158,7 +164,12 @@ class Verifier:
         if top is NOT_INSTALLED or top is None:
             if cli not in self.warned_cli:
                 self.warned_cli.add(cli)
-                self.add("SKIP", "static", where, f"cannot run `{' '.join(self.cli[cli])} --help`; CLI lines for '{cli}' NOT verified")
+                self.add(
+                    "SKIP",
+                    "static",
+                    where,
+                    f"cannot run `{' '.join(self.cli[cli])} --help`; CLI lines for '{cli}' NOT verified",
+                )
             return
         args = tokens[1:]
         chain, helps, parent, i = [], [top], top, 0
@@ -171,7 +182,13 @@ class Verifier:
             parent = nxt
             i += 1
         bad = []
-        if i < len(args) and not args[i].startswith("-") and len(args) > i and chain == [] and re.search(r"\{[\w,-]+\}|commands?:", top, re.I):
+        if (
+            i < len(args)
+            and not args[i].startswith("-")
+            and len(args) > i
+            and chain == []
+            and re.search(r"\{[\w,-]+\}|commands?:", top, re.I)
+        ):
             bad.append(f"'{args[i]}' is not a subcommand of '{cli}'")
         for t in args:
             if t.startswith("-") and t not in {"-", "--"} and not re.fullmatch(r"-\d+(\.\d+)?", t):
@@ -182,7 +199,12 @@ class Verifier:
             for m in bad:
                 self.add("FAIL", "static", where, m)
         else:
-            self.add("PASS", "static", where, f"`{cli} {' '.join(chain)}`: subcommands/flags exist in --help (positional args not checked)")
+            self.add(
+                "PASS",
+                "static",
+                where,
+                f"`{cli} {' '.join(chain)}`: subcommands/flags exist in --help (positional args not checked)",
+            )
 
     # ------------------------------------------------------------------ run
     def run_cmd(self, cmd, cwd, env):
@@ -223,14 +245,27 @@ class Verifier:
                     target.write_text(b.code, encoding="utf-8")
                     code, out, err = self.run_cmd([sys.executable, str(target)], workdir, env)
                     if (code != 0) != expect_err:
-                        self.add("FAIL", "executed", where, f"exit code {code}" + (" (expected failure)" if expect_err else "")
-                                 + f": {(err or out).strip().splitlines()[-1] if (err or out).strip() else ''}")
+                        self.add(
+                            "FAIL",
+                            "executed",
+                            where,
+                            f"exit code {code}"
+                            + (" (expected failure)" if expect_err else "")
+                            + f": {(err or out).strip().splitlines()[-1] if (err or out).strip() else ''}",
+                        )
                     else:
-                        self.add("PASS", "executed", where, "ran" + (" and failed as documented" if expect_err else f" (exit {code})"),
-                                 output=out)
+                        self.add(
+                            "PASS",
+                            "executed",
+                            where,
+                            "ran" + (" and failed as documented" if expect_err else f" (exit {code})"),
+                            output=out,
+                        )
                         produced = out
                 elif ok and self.a.run and norun:
-                    self.add("SKIP", "executed", where, f"no-run directive: {b.directive_reason or '(no reason given)'}")
+                    self.add(
+                        "SKIP", "executed", where, f"no-run directive: {b.directive_reason or '(no reason given)'}"
+                    )
             elif b.lang in SHELL:
                 produced = self.process_shell(b, where, workdir, env, expect_err, norun)
             elif b.lang in OUTPUT and self.a.run and last_output is not None and idx > 0 and last_output[0] == idx - 1:
@@ -241,11 +276,18 @@ class Verifier:
                 if b.lang == "json":
                     try:
                         json.loads(b.code)
-                        self.add("PASS", "static", where, "valid JSON (shape not validated against the project's own loader)")
+                        self.add(
+                            "PASS", "static", where, "valid JSON (shape not validated against the project's own loader)"
+                        )
                     except json.JSONDecodeError as e:
                         self.add("FAIL", "static", where, f"invalid JSON: {e.msg} (block line {e.lineno})")
                 elif b.lang in OUTPUT:
-                    self.add("SKIP", "static", where, "output block not compared with real output (needs --run and a run block right before it)")
+                    self.add(
+                        "SKIP",
+                        "static",
+                        where,
+                        "output block not compared with real output (needs --run and a run block right before it)",
+                    )
                 else:
                     self.add("SKIP", "static", where, f"language '{b.lang or 'none'}' is not verified by this script")
             if title and b.lang not in PYTHON and self.a.run:
@@ -280,13 +322,23 @@ class Verifier:
             while tokens and re.fullmatch(r"[A-Za-z_]\w*=.*", tokens[0]):
                 k, _, v = tokens.pop(0).partition("=")
                 lead[k] = v
-            if tokens and tokens[0] in {"python", "python3"} and len(tokens) > 1 and not tokens[1].startswith("-") \
-                    and (workdir / tokens[1]).is_file():
+            if (
+                tokens
+                and tokens[0] in {"python", "python3"}
+                and len(tokens) > 1
+                and not tokens[1].startswith("-")
+                and (workdir / tokens[1]).is_file()
+            ):
                 if self.a.run and not norun and not any(x in s for x in ("|", "&&", "||", ";", ">", "<", "$(", "`")):
                     code, out, err = self.run_cmd([sys.executable, *tokens[1:]], workdir, {**env, **lead})
                     if (code != 0) != expect_err:
-                        self.add("FAIL", "executed", w, f"exit code {code}"
-                                 + f": {(err or out).strip().splitlines()[-1] if (err or out).strip() else ''}")
+                        self.add(
+                            "FAIL",
+                            "executed",
+                            w,
+                            f"exit code {code}"
+                            + f": {(err or out).strip().splitlines()[-1] if (err or out).strip() else ''}",
+                        )
                     else:
                         self.add("PASS", "executed", w, f"ran {tokens[1]} (exit {code})", output=out)
                         collected.append(out)
@@ -301,8 +353,14 @@ class Verifier:
                 cmd = [*self.cli[tokens[0]], *tokens[1:]]
                 code, out, err = self.run_cmd(cmd, workdir, {**env, **lead})
                 if (code != 0) != expect_err:
-                    self.add("FAIL", "executed", w, f"exit code {code}" + (" (expected failure)" if expect_err else "")
-                             + f": {(err or out).strip().splitlines()[-1] if (err or out).strip() else ''}")
+                    self.add(
+                        "FAIL",
+                        "executed",
+                        w,
+                        f"exit code {code}"
+                        + (" (expected failure)" if expect_err else "")
+                        + f": {(err or out).strip().splitlines()[-1] if (err or out).strip() else ''}",
+                    )
                 else:
                     self.add("PASS", "executed", w, f"ran (exit {code})", output=out)
                     collected.append(out)
@@ -316,7 +374,12 @@ class Verifier:
             return
         for i, (x, y) in enumerate(zip(want + [None] * len(got), got + [None] * len(want))):
             if x != y:
-                self.add("FAIL", "executed", where, f"documented output differs at output line {i + 1}: documented {x!r}, real {y!r}")
+                self.add(
+                    "FAIL",
+                    "executed",
+                    where,
+                    f"documented output differs at output line {i + 1}: documented {x!r}, real {y!r}",
+                )
                 return
 
     # ------------------------------------------------------------------ driver
@@ -324,10 +387,17 @@ class Verifier:
         for p in sorted(self.pkgs):
             try:
                 mod = importlib.import_module(p)
-                self.add("PASS", "static", f"package {p}", f"importable (version attr: {getattr(mod, '__version__', 'n/a')})")
+                self.add(
+                    "PASS", "static", f"package {p}", f"importable (version attr: {getattr(mod, '__version__', 'n/a')})"
+                )
             except Exception as e:  # noqa: BLE001
-                self.add("FAIL", "static", f"package {p}", f"cannot import: {type(e).__name__}: {e}. Install the package "
-                         "(pip install -e .) or pass --pythonpath. Nothing below can be trusted until this passes.")
+                self.add(
+                    "FAIL",
+                    "static",
+                    f"package {p}",
+                    f"cannot import: {type(e).__name__}: {e}. Install the package "
+                    "(pip install -e .) or pass --pythonpath. Nothing below can be trusted until this passes.",
+                )
 
     def run(self):
         docs = Path(self.a.docs_dir).resolve()

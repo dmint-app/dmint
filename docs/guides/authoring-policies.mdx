@@ -9,9 +9,25 @@ Dmint provides command-line wizards to translate natural-language access require
 
 ---
 
-## 1. Authoring for Custom Tools (`dmint create-policy`)
+## 1. Four Ways to Create a Policy (`dmint create-policy`)
 
-When protecting internal functions or APIs, draft your security requirements in a text file named `access.md`:
+`dmint create-policy` supports **3 completely offline modes** (zero API keys required) plus **AI-assisted compilation**:
+
+```bash
+# Mode A: Built-in Domain Templates (100% Offline — shell, filesystem, postgres, github, stripe, aws, kubernetes)
+dmint create-policy --template shell,filesystem,postgres -o policy.json
+
+# Mode B: Inline Rule Flags (100% Offline — repeatable -r <effect>:<tool>.<action>[:<resource>[:<kind>]])
+dmint create-policy -r "allow:postgres.select:users" -r "approval_required:stripe.refund:*" -o policy.json
+
+# Mode C: Interactive Terminal Rule Builder (100% Offline step-by-step prompts)
+dmint create-policy --interactive -o policy.json
+
+# Mode D: Inline Natural-Language Prompt or Markdown Requirements File (AI-Assisted)
+dmint create-policy --prompt "Allow read-only SQL queries, require approval for schema updates" -o policy.json
+```
+
+When protecting internal functions or APIs via a markdown file, draft your security requirements in `access.md`:
 
 ```markdown title="access.md"
 # Database Access Security Requirements
@@ -53,6 +69,13 @@ dmint create-mcp-policy \
   -o policy.json \
   --config-output mcp_protection.json \
   --non-interactive -y
+
+# Or 100% Offline Auto-Classification (no LLM API key required):
+dmint create-mcp-policy \
+  --command npx \
+  --args "-y @modelcontextprotocol/server-postgres postgresql://localhost/mydb" \
+  --integration-id postgres \
+  --offline -y
 ```
 
 ---

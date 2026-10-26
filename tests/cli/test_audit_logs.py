@@ -157,24 +157,64 @@ class TestAuditLoggingEngine(unittest.TestCase):
         pol_path = str(self.tmp_path / ".dmint" / "policies" / "claude-code.policy.json")
         db_path = str(self.tmp_path / ".dmint" / "approvals.sqlite3")
 
-        _run_cli([
-            "hook", "run", "--harness", "claude-code", "--policy", pol_path, "--db-path", db_path,
-            "--input", json.dumps({"tool_name": "Bash", "tool_input": {"command": "git status"}}),
-        ])
-        _run_cli([
-            "hook", "run", "--harness", "claude-code", "--policy", pol_path, "--db-path", db_path,
-            "--input", json.dumps({"tool_name": "Bash", "tool_input": {"command": "rm -rf /"}}),
-        ])
-        _, out_apr, _ = _run_cli([
-            "hook", "run", "--harness", "claude-code", "--policy", pol_path, "--db-path", db_path,
-            "--input", json.dumps({"tool_name": "Bash", "tool_input": {"command": "git push origin main"}}),
-        ])
+        _run_cli(
+            [
+                "hook",
+                "run",
+                "--harness",
+                "claude-code",
+                "--policy",
+                pol_path,
+                "--db-path",
+                db_path,
+                "--input",
+                json.dumps({"tool_name": "Bash", "tool_input": {"command": "git status"}}),
+            ]
+        )
+        _run_cli(
+            [
+                "hook",
+                "run",
+                "--harness",
+                "claude-code",
+                "--policy",
+                pol_path,
+                "--db-path",
+                db_path,
+                "--input",
+                json.dumps({"tool_name": "Bash", "tool_input": {"command": "rm -rf /"}}),
+            ]
+        )
+        _, out_apr, _ = _run_cli(
+            [
+                "hook",
+                "run",
+                "--harness",
+                "claude-code",
+                "--policy",
+                pol_path,
+                "--db-path",
+                db_path,
+                "--input",
+                json.dumps({"tool_name": "Bash", "tool_input": {"command": "git push origin main"}}),
+            ]
+        )
         apr_id = json.loads(out_apr)["dmint"]["approval_id"]
         _run_cli(["approve", apr_id, "--by", "secops@company.com", "--db-path", db_path])
-        _run_cli([
-            "hook", "run", "--harness", "claude-code", "--policy", pol_path, "--db-path", db_path,
-            "--input", json.dumps({"tool_name": "Bash", "tool_input": {"command": "git push origin main"}}),
-        ])
+        _run_cli(
+            [
+                "hook",
+                "run",
+                "--harness",
+                "claude-code",
+                "--policy",
+                pol_path,
+                "--db-path",
+                db_path,
+                "--input",
+                json.dumps({"tool_name": "Bash", "tool_input": {"command": "git push origin main"}}),
+            ]
+        )
 
         rc_v, out_v, _ = _run_cli(["logs", "--verify", "--json"])
         self.assertEqual(rc_v, 0)
@@ -223,40 +263,73 @@ class TestAuditLoggingEngine(unittest.TestCase):
         db_path = str(self.tmp_path / ".dmint" / "approvals.sqlite3")
         audit_path = self.tmp_path / ".dmint" / "audit.jsonl"
 
-        rc1, out1, _ = _run_cli([
-            "hook", "run", "--harness", "claude-code", "--policy", pol_path, "--db-path", db_path,
-            "--mode", "shadow",
-            "--input", json.dumps({"tool_name": "Bash", "tool_input": {"command": "git status"}}),
-        ])
+        rc1, out1, _ = _run_cli(
+            [
+                "hook",
+                "run",
+                "--harness",
+                "claude-code",
+                "--policy",
+                pol_path,
+                "--db-path",
+                db_path,
+                "--mode",
+                "shadow",
+                "--input",
+                json.dumps({"tool_name": "Bash", "tool_input": {"command": "git status"}}),
+            ]
+        )
         self.assertEqual(rc1, 0)
         res1 = json.loads(out1)
         self.assertEqual(res1["hookSpecificOutput"]["permissionDecision"], "allow")
         self.assertFalse(res1["dmint"]["shadow_would_block"])
 
-        rc2, out2, _ = _run_cli([
-            "hook", "run", "--harness", "claude-code", "--policy", pol_path, "--db-path", db_path,
-            "--mode", "shadow",
-            "--input", json.dumps({"tool_name": "Bash", "tool_input": {"command": "git push origin main"}}),
-        ])
+        rc2, out2, _ = _run_cli(
+            [
+                "hook",
+                "run",
+                "--harness",
+                "claude-code",
+                "--policy",
+                pol_path,
+                "--db-path",
+                db_path,
+                "--mode",
+                "shadow",
+                "--input",
+                json.dumps({"tool_name": "Bash", "tool_input": {"command": "git push origin main"}}),
+            ]
+        )
         self.assertEqual(rc2, 0)
         res2 = json.loads(out2)
         self.assertEqual(res2["hookSpecificOutput"]["permissionDecision"], "allow")
         self.assertTrue(res2["dmint"]["shadow_would_block"])
 
-        rc3, out3, _ = _run_cli([
-            "hook", "run", "--harness", "claude-code", "--policy", pol_path, "--db-path", db_path,
-            "--mode", "shadow",
-            "--input", json.dumps({"tool_name": "Bash", "tool_input": {"command": "rm -rf /"}}),
-        ])
+        rc3, out3, _ = _run_cli(
+            [
+                "hook",
+                "run",
+                "--harness",
+                "claude-code",
+                "--policy",
+                pol_path,
+                "--db-path",
+                db_path,
+                "--mode",
+                "shadow",
+                "--input",
+                json.dumps({"tool_name": "Bash", "tool_input": {"command": "rm -rf /"}}),
+            ]
+        )
         self.assertEqual(rc3, 0)
         res3 = json.loads(out3)
         self.assertEqual(res3["hookSpecificOutput"]["permissionDecision"], "allow")
         self.assertTrue(res3["dmint"]["shadow_would_block"])
 
         learned_out = self.tmp_path / "learned_policy.json"
-        rc_lp, out_lp, err_lp = _run_cli([
-            "learn-policy", "--from-logs", str(audit_path), "-o", str(learned_out), "--json"
-        ])
+        rc_lp, out_lp, err_lp = _run_cli(
+            ["learn-policy", "--from-logs", str(audit_path), "-o", str(learned_out), "--json"]
+        )
         self.assertEqual(rc_lp, 0, f"learn-policy failed: {out_lp}\n{err_lp}")
         lp_summary = json.loads(out_lp)
         self.assertGreaterEqual(lp_summary["total_rules"], 5)
@@ -268,9 +341,7 @@ class TestAuditLoggingEngine(unittest.TestCase):
         self.assertEqual(rule_map[("shell", "execute", "rm -rf /")], "deny")
 
         learned_out2 = self.tmp_path / "learned_via_create.json"
-        rc_cp, _, err_cp = _run_cli([
-            "create-policy", "--from-logs", str(audit_path), "-o", str(learned_out2)
-        ])
+        rc_cp, _, err_cp = _run_cli(["create-policy", "--from-logs", str(audit_path), "-o", str(learned_out2)])
         self.assertEqual(rc_cp, 0, f"create-policy --from-logs failed: {err_cp}")
         self.assertTrue(learned_out2.exists())
 

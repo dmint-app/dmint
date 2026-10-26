@@ -88,9 +88,7 @@ def build_router() -> APIRouter:
                 request=request, name=template, context=ctx, status_code=status_code
             )
         except TypeError:
-            return _templates(request).TemplateResponse(
-                template, ctx, status_code=status_code
-            )
+            return _templates(request).TemplateResponse(template, ctx, status_code=status_code)
 
     def _record_display(record: ApprovalRecord) -> dict[str, Any]:
         """Convert an ApprovalRecord to a template-friendly dict."""

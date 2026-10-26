@@ -209,9 +209,16 @@ Ask for the directory or file path containing the tools (e.g., `tools/` or `my_t
 Record what the user wants to permit or restrict in `access.md`.
 
 ### Step 2.3: Execute `dmint create-policy`
-Run the general authoring wizard:
+Run the general authoring wizard (or use `--template` / `--rule` when no LLM API key is configured):
 
 ```bash
+# Offline built-in domain templates (no API key required):
+dmint create-policy --template shell,filesystem,postgres,stripe -o policy.json
+
+# Offline explicit rule flags (no API key required):
+dmint create-policy -r "allow:postgres.select:users" -r "approval_required:stripe.refund:*" -o policy.json
+
+# AI-assisted compilation from access.md:
 dmint create-policy -f access.md -o policy.json --tools "<path_to_tools>" -y
 ```
 

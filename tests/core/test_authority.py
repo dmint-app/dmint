@@ -9,6 +9,7 @@ try:
 except ImportError:
     import types as _types
     from dmint.core.canonicalize import canonicalize_bytes as _cb
+
     rfc8785 = _types.SimpleNamespace(dumps=_cb)  # type: ignore[assignment]
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 

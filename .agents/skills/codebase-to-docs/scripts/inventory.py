@@ -14,6 +14,7 @@ need evidence per references/verification.md.
 Depth: Python is analysed in detail (AST). Node is manifest-level only (package.json).
 Other languages: only docs/CI/manifest detection; read the source yourself.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -39,10 +40,26 @@ NON_PACKAGE_DIRS = {"tests", "test", "docs", "doc", "scripts", "examples", "benc
 ENUM_BASES = {"Enum", "IntEnum", "StrEnum", "Flag", "IntFlag"}
 ENV_CALLS = {"os.environ.get", "os.getenv", "environ.get", "getenv"}
 DOC_CONFIGS = [
-    "mkdocs.yml", "mkdocs.yaml", "docusaurus.config.js", "docusaurus.config.ts", "sidebars.js",
-    "sidebars.ts", "astro.config.mjs", "astro.config.ts", "docs.json", "mint.json", "conf.py",
-    "book.toml", "source.config.ts", "meta.json", "_meta.js", "_meta.json",
-    "vitepress.config.ts", "vitepress.config.js", "next.config.js", "next.config.mjs",
+    "mkdocs.yml",
+    "mkdocs.yaml",
+    "docusaurus.config.js",
+    "docusaurus.config.ts",
+    "sidebars.js",
+    "sidebars.ts",
+    "astro.config.mjs",
+    "astro.config.ts",
+    "docs.json",
+    "mint.json",
+    "conf.py",
+    "book.toml",
+    "source.config.ts",
+    "meta.json",
+    "_meta.js",
+    "_meta.json",
+    "vitepress.config.ts",
+    "vitepress.config.js",
+    "next.config.js",
+    "next.config.mjs",
 ]
 
 
@@ -62,6 +79,7 @@ def git_info(root: Path):
             return r.stdout.strip() if r.returncode == 0 else None
         except Exception:
             return None
+
     sha = run("rev-parse", "HEAD")
     if not sha:
         return None
@@ -69,6 +87,7 @@ def git_info(root: Path):
 
 
 # --------------------------------------------------------------------------- python analysis
+
 
 def doc1(node):
     d = ast.get_docstring(node)
@@ -83,29 +102,47 @@ def signature(node):
 
 def func_info(node):
     return {
-        "name": node.name, "line": node.lineno, "signature": clip(signature(node), 400),
-        "decorators": [clip(ast.unparse(d), 120) for d in node.decorator_list], "doc": doc1(node),
+        "name": node.name,
+        "line": node.lineno,
+        "signature": clip(signature(node), 400),
+        "decorators": [clip(ast.unparse(d), 120) for d in node.decorator_list],
+        "doc": doc1(node),
     }
 
 
 def class_info(node):
     bases = [ast.unparse(b) for b in node.bases]
     info = {
-        "name": node.name, "line": node.lineno, "bases": bases, "doc": doc1(node),
+        "name": node.name,
+        "line": node.lineno,
+        "bases": bases,
+        "doc": doc1(node),
         "decorators": [clip(ast.unparse(d), 120) for d in node.decorator_list],
         "is_enum": any(b.split(".")[-1] in ENUM_BASES for b in bases),
-        "attributes": [], "methods": [],
+        "attributes": [],
+        "methods": [],
     }
     for item in node.body:
         if isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name):
-            info["attributes"].append({
-                "name": item.target.id, "annotation": clip(ast.unparse(item.annotation)),
-                "default": clip(ast.unparse(item.value)) if item.value else None, "line": item.lineno})
+            info["attributes"].append(
+                {
+                    "name": item.target.id,
+                    "annotation": clip(ast.unparse(item.annotation)),
+                    "default": clip(ast.unparse(item.value)) if item.value else None,
+                    "line": item.lineno,
+                }
+            )
         elif isinstance(item, ast.Assign):
             for t in item.targets:
                 if isinstance(t, ast.Name):
-                    info["attributes"].append({"name": t.id, "annotation": None,
-                                               "default": clip(ast.unparse(item.value)), "line": item.lineno})
+                    info["attributes"].append(
+                        {
+                            "name": t.id,
+                            "annotation": None,
+                            "default": clip(ast.unparse(item.value)),
+                            "line": item.lineno,
+                        }
+                    )
         elif isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
             if not item.name.startswith("_") or item.name == "__init__":
                 info["methods"].append(func_info(item))
@@ -143,11 +180,19 @@ class Collector(ast.NodeVisitor):
                 name = ast.unparse(target)
                 last = name.split(".")[-1]
                 if "." in name and last in {"command", "group"}:
-                    first = dec.args[0].value if isinstance(dec, ast.Call) and dec.args and is_str(dec.args[0]) else None
-                    self.cli.append({"framework": "click/typer", "kind": last, "function": node.name,
-                                     "name": first or (kw(dec, "name") if isinstance(dec, ast.Call) else None),
-                                     "help": kw(dec, "help") if isinstance(dec, ast.Call) else None,
-                                     "line": node.lineno})
+                    first = (
+                        dec.args[0].value if isinstance(dec, ast.Call) and dec.args and is_str(dec.args[0]) else None
+                    )
+                    self.cli.append(
+                        {
+                            "framework": "click/typer",
+                            "kind": last,
+                            "function": node.name,
+                            "name": first or (kw(dec, "name") if isinstance(dec, ast.Call) else None),
+                            "help": kw(dec, "help") if isinstance(dec, ast.Call) else None,
+                            "line": node.lineno,
+                        }
+                    )
         self.generic_visit(node)
         self.stack.pop()
 
@@ -170,36 +215,82 @@ class Collector(ast.NodeVisitor):
         last = fname.split(".")[-1]
         if fname in ENV_CALLS and node.args and is_str(node.args[0]):
             default = clip(ast.unparse(node.args[1])) if len(node.args) > 1 else kw(node, "default")
-            self.env.append({"name": node.args[0].value, "default": default, "form": "call",
-                             "line": node.lineno, "in": self.scope()})
+            self.env.append(
+                {
+                    "name": node.args[0].value,
+                    "default": default,
+                    "form": "call",
+                    "line": node.lineno,
+                    "in": self.scope(),
+                }
+            )
         elif last == "add_parser" and node.args and is_str(node.args[0]):
-            self.cli.append({"framework": "argparse", "kind": "subcommand", "name": node.args[0].value,
-                             "help": kw(node, "help"), "line": node.lineno})
+            self.cli.append(
+                {
+                    "framework": "argparse",
+                    "kind": "subcommand",
+                    "name": node.args[0].value,
+                    "help": kw(node, "help"),
+                    "line": node.lineno,
+                }
+            )
         elif last == "add_argument":
-            self.cli.append({"framework": "argparse", "kind": "argument",
-                             "names": [a.value for a in node.args if is_str(a)], "help": kw(node, "help"),
-                             "default": kw(node, "default"), "required": kw(node, "required"),
-                             "action": kw(node, "action"), "choices": kw(node, "choices"), "line": node.lineno})
+            self.cli.append(
+                {
+                    "framework": "argparse",
+                    "kind": "argument",
+                    "names": [a.value for a in node.args if is_str(a)],
+                    "help": kw(node, "help"),
+                    "default": kw(node, "default"),
+                    "required": kw(node, "required"),
+                    "action": kw(node, "action"),
+                    "choices": kw(node, "choices"),
+                    "line": node.lineno,
+                }
+            )
         elif last == "ArgumentParser":
-            self.cli.append({"framework": "argparse", "kind": "parser", "prog": kw(node, "prog"),
-                             "description": kw(node, "description"), "line": node.lineno})
+            self.cli.append(
+                {
+                    "framework": "argparse",
+                    "kind": "parser",
+                    "prog": kw(node, "prog"),
+                    "description": kw(node, "description"),
+                    "line": node.lineno,
+                }
+            )
         elif last in {"option", "argument", "Option", "Argument"} and (
-                fname.split(".")[0] in {"click", "typer"} or fname in {"option", "argument"}):
-            self.cli.append({"framework": "click/typer", "kind": last.lower(),
-                             "names": [a.value for a in node.args if is_str(a)], "help": kw(node, "help"),
-                             "default": kw(node, "default"), "line": node.lineno})
+            fname.split(".")[0] in {"click", "typer"} or fname in {"option", "argument"}
+        ):
+            self.cli.append(
+                {
+                    "framework": "click/typer",
+                    "kind": last.lower(),
+                    "names": [a.value for a in node.args if is_str(a)],
+                    "help": kw(node, "help"),
+                    "default": kw(node, "default"),
+                    "line": node.lineno,
+                }
+            )
         self.generic_visit(node)
 
     def visit_Subscript(self, node):
         if ast.unparse(node.value) in {"os.environ", "environ"} and is_str(node.slice):
-            self.env.append({"name": node.slice.value, "default": None, "form": "subscript",
-                             "line": node.lineno, "in": self.scope()})
+            self.env.append(
+                {
+                    "name": node.slice.value,
+                    "default": None,
+                    "form": "subscript",
+                    "line": node.lineno,
+                    "in": self.scope(),
+                }
+            )
         self.generic_visit(node)
 
     def visit_Constant(self, node):
         if self.env_regex and isinstance(node.value, str) and self.env_regex.fullmatch(node.value):
-            self.env.append({"name": node.value, "default": None, "form": "literal",
-                             "line": node.lineno, "in": self.scope()})
+            self.env.append(
+                {"name": node.value, "default": None, "form": "literal", "line": node.lineno, "in": self.scope()}
+            )
 
 
 def str_list(value):
@@ -214,9 +305,19 @@ def analyze_module(path: Path, root: Path, base: Path, env_regex):
     is_init = parts[-1] == "__init__"
     if is_init:
         parts = parts[:-1]
-    mod = {"module": ".".join(parts), "file": rel(path, root), "is_package_init": is_init, "doc": doc1(tree),
-           "all": None, "all_dynamic": False, "constants": {}, "reexports": [], "classes": [],
-           "functions": [], "exception_classes": []}
+    mod = {
+        "module": ".".join(parts),
+        "file": rel(path, root),
+        "is_package_init": is_init,
+        "doc": doc1(tree),
+        "all": None,
+        "all_dynamic": False,
+        "constants": {},
+        "reexports": [],
+        "classes": [],
+        "functions": [],
+        "exception_classes": [],
+    }
     for node in tree.body:
         if isinstance(node, ast.Assign):
             for t in node.targets:
@@ -227,14 +328,20 @@ def analyze_module(path: Path, root: Path, base: Path, env_regex):
         elif isinstance(node, ast.AugAssign) and isinstance(node.target, ast.Name) and node.target.id == "__all__":
             mod["all_dynamic"] = True
         elif isinstance(node, ast.ImportFrom) and is_init:
-            mod["reexports"].append({"from": "." * node.level + (node.module or ""), "line": node.lineno,
-                                     "names": [{"name": a.name, "as": a.asname} for a in node.names]})
+            mod["reexports"].append(
+                {
+                    "from": "." * node.level + (node.module or ""),
+                    "line": node.lineno,
+                    "names": [{"name": a.name, "as": a.asname} for a in node.names],
+                }
+            )
         elif isinstance(node, ast.ClassDef) and not node.name.startswith("_"):
             ci = class_info(node)
             mod["classes"].append(ci)
             if any(re.search(r"(Error|Exception|Warning)$", b.split(".")[-1]) for b in ci["bases"]):
-                mod["exception_classes"].append({"name": node.name, "bases": ci["bases"], "line": node.lineno,
-                                                 "doc": ci["doc"]})
+                mod["exception_classes"].append(
+                    {"name": node.name, "bases": ci["bases"], "line": node.lineno, "doc": ci["doc"]}
+                )
         elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and not node.name.startswith("_"):
             mod["functions"].append(func_info(node))
     col = Collector(env_regex)
@@ -248,8 +355,13 @@ def discover_packages(root: Path, names):
         if not base.is_dir():
             continue
         for d in sorted(base.iterdir()):
-            if (d.is_dir() and (d / "__init__.py").exists() and d.name not in NON_PACKAGE_DIRS
-                    and not d.name.startswith(".") and (not names or d.name in names)):
+            if (
+                d.is_dir()
+                and (d / "__init__.py").exists()
+                and d.name not in NON_PACKAGE_DIRS
+                and not d.name.startswith(".")
+                and (not names or d.name in names)
+            ):
                 if all(d != f[1] for f in found):
                     found.append((base, d))
     return found
@@ -261,12 +373,18 @@ def read_pyproject(root: Path):
         return None
     data = tomllib.loads(p.read_text(encoding="utf-8"))
     proj = data.get("project", {})
-    return {"file": "pyproject.toml", "name": proj.get("name"), "version": proj.get("version"),
-            "dynamic": proj.get("dynamic"), "requires_python": proj.get("requires-python"),
-            "dependencies": proj.get("dependencies", []),
-            "optional_dependencies": proj.get("optional-dependencies", {}),
-            "scripts": proj.get("scripts", {}), "license": proj.get("license"),
-            "build_backend": data.get("build-system", {}).get("build-backend")}
+    return {
+        "file": "pyproject.toml",
+        "name": proj.get("name"),
+        "version": proj.get("version"),
+        "dynamic": proj.get("dynamic"),
+        "requires_python": proj.get("requires-python"),
+        "dependencies": proj.get("dependencies", []),
+        "optional_dependencies": proj.get("optional-dependencies", {}),
+        "scripts": proj.get("scripts", {}),
+        "license": proj.get("license"),
+        "build_backend": data.get("build-system", {}).get("build-backend"),
+    }
 
 
 def index_tests(root: Path, errors):
@@ -288,13 +406,17 @@ def index_tests(root: Path, errors):
                 if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("test"):
                     names.append(f"{node.name}:{node.lineno}")
                 elif isinstance(node, ast.ClassDef) and node.name.startswith("Test"):
-                    names += [f"{node.name}.{i.name}:{i.lineno}" for i in node.body
-                              if isinstance(i, (ast.FunctionDef, ast.AsyncFunctionDef)) and i.name.startswith("test")]
+                    names += [
+                        f"{node.name}.{i.name}:{i.lineno}"
+                        for i in node.body
+                        if isinstance(i, (ast.FunctionDef, ast.AsyncFunctionDef)) and i.name.startswith("test")
+                    ]
             out[rel(p, root)] = names[:300]
     return out
 
 
 # --------------------------------------------------------------------------- other facts
+
 
 def node_manifest(root: Path):
     p = root / "package.json"
@@ -304,9 +426,18 @@ def node_manifest(root: Path):
         d = json.loads(p.read_text(encoding="utf-8"))
     except Exception as e:
         return {"file": "package.json", "error": str(e)}
-    keep = {k: d.get(k) for k in ("name", "version", "bin", "main", "module", "types", "exports", "engines", "type", "license")}
-    keep.update({"file": "package.json", "scripts": d.get("scripts", {}),
-                 "dependencies": sorted(d.get("dependencies", {})), "devDependencies": sorted(d.get("devDependencies", {}))})
+    keep = {
+        k: d.get(k)
+        for k in ("name", "version", "bin", "main", "module", "types", "exports", "engines", "type", "license")
+    }
+    keep.update(
+        {
+            "file": "package.json",
+            "scripts": d.get("scripts", {}),
+            "dependencies": sorted(d.get("dependencies", {})),
+            "devDependencies": sorted(d.get("devDependencies", {})),
+        }
+    )
     return keep
 
 
@@ -320,9 +451,14 @@ def docs_info(root: Path):
         if b != root and (b / "package.json").exists():
             try:
                 d = json.loads((b / "package.json").read_text(encoding="utf-8"))
-                pkgs.append({"file": rel(b / "package.json", root), "scripts": d.get("scripts", {}),
-                             "dependencies": sorted(d.get("dependencies", {})),
-                             "devDependencies": sorted(d.get("devDependencies", {}))})
+                pkgs.append(
+                    {
+                        "file": rel(b / "package.json", root),
+                        "scripts": d.get("scripts", {}),
+                        "dependencies": sorted(d.get("dependencies", {})),
+                        "devDependencies": sorted(d.get("devDependencies", {})),
+                    }
+                )
             except Exception:
                 pass
     for meta in sorted(root.glob("**/content/docs/**/meta.json")):
@@ -330,10 +466,18 @@ def docs_info(root: Path):
             configs.append(rel(meta, root))
     guess = "plain markdown"
     names = " ".join(c.split("/")[-1] for c in configs) + " " + json.dumps(pkgs)
-    for needle, label in [("docs.json", "docs.json-based (Mintlify or compatible)"), ("mint.json", "Mintlify"),
-                          ("source.config.ts", "Fumadocs"), ("fumadocs", "Fumadocs"), ("docusaurus", "Docusaurus"),
-                          ("mkdocs", "MkDocs"), ("vitepress", "VitePress"), ("nextra", "Nextra"),
-                          ("starlight", "Starlight"), ("holocron", "Holocron (check its docs)")]:
+    for needle, label in [
+        ("docs.json", "docs.json-based (Mintlify or compatible)"),
+        ("mint.json", "Mintlify"),
+        ("source.config.ts", "Fumadocs"),
+        ("fumadocs", "Fumadocs"),
+        ("docusaurus", "Docusaurus"),
+        ("mkdocs", "MkDocs"),
+        ("vitepress", "VitePress"),
+        ("nextra", "Nextra"),
+        ("starlight", "Starlight"),
+        ("holocron", "Holocron (check its docs)"),
+    ]:
         if needle in names:
             guess = label
             break
@@ -341,9 +485,14 @@ def docs_info(root: Path):
     docs_dir = next((root / n for n in ("docs", "doc", "documentation") if (root / n).is_dir()), None)
     if docs_dir:
         files = [rel(p, root) for p in iter_doc_files(docs_dir)][:500]
-    return {"docs_framework_guess": guess, "config_files": configs, "package_jsons": pkgs,
-            "docs_dir": rel(docs_dir, root) if docs_dir else None, "doc_files": files,
-            "root_markdown": sorted(p.name for p in root.glob("*.md"))}
+    return {
+        "docs_framework_guess": guess,
+        "config_files": configs,
+        "package_jsons": pkgs,
+        "docs_dir": rel(docs_dir, root) if docs_dir else None,
+        "doc_files": files,
+        "root_markdown": sorted(p.name for p in root.glob("*.md")),
+    }
 
 
 def ci_info(root: Path):
@@ -371,17 +520,29 @@ def env_example(root: Path):
 
 # --------------------------------------------------------------------------- markdown rendering
 
+
 def render_md(inv) -> str:
     L = ["# Inventory", "", f"Root: `{inv['root']}`", ""]
     if inv["git"]:
-        L += [f"Commit: `{inv['git']['sha']}` ({inv['git']['describe']}){' - WORKING TREE DIRTY' if inv['git']['dirty'] else ''}", ""]
+        L += [
+            f"Commit: `{inv['git']['sha']}` ({inv['git']['describe']}){' - WORKING TREE DIRTY' if inv['git']['dirty'] else ''}",
+            "",
+        ]
     pp = inv["project"]
     if pp:
-        L += ["## Project metadata (pyproject.toml)", "", f"- name: `{pp['name']}`", f"- version: `{pp['version']}`"
-              + (f" (dynamic: {pp['dynamic']})" if pp.get("dynamic") else ""),
-              f"- requires-python: `{pp['requires_python']}`", f"- build backend: `{pp['build_backend']}`", ""]
+        L += [
+            "## Project metadata (pyproject.toml)",
+            "",
+            f"- name: `{pp['name']}`",
+            f"- version: `{pp['version']}`" + (f" (dynamic: {pp['dynamic']})" if pp.get("dynamic") else ""),
+            f"- requires-python: `{pp['requires_python']}`",
+            f"- build backend: `{pp['build_backend']}`",
+            "",
+        ]
         if pp["optional_dependencies"]:
-            L += ["### Extras", ""] + [f"- `{k}`: {', '.join(v)}" for k, v in pp["optional_dependencies"].items()] + [""]
+            L += (
+                ["### Extras", ""] + [f"- `{k}`: {', '.join(v)}" for k, v in pp["optional_dependencies"].items()] + [""]
+            )
         if pp["scripts"]:
             L += ["### Console scripts", ""] + [f"- `{k}` -> `{v}`" for k, v in pp["scripts"].items()] + [""]
     if inv["node"]:
@@ -396,11 +557,16 @@ def render_md(inv) -> str:
         elif m["all_dynamic"]:
             L.append("- `__all__` is built dynamically: read the file")
         for r in m["reexports"]:
-            L.append(f"- re-exports from `{r['from']}` (line {r['line']}): " + ", ".join(n["as"] or n["name"] for n in r["names"]))
+            L.append(
+                f"- re-exports from `{r['from']}` (line {r['line']}): "
+                + ", ".join(n["as"] or n["name"] for n in r["names"])
+            )
         for c in m["classes"]:
-            L.append(f"- class `{c['name']}({', '.join(c['bases'])})` :{c['line']}"
-                     + (f" - {c['doc']}" if c["doc"] else "")
-                     + (" [enum: " + ", ".join(a["name"] for a in c["attributes"]) + "]" if c["is_enum"] else ""))
+            L.append(
+                f"- class `{c['name']}({', '.join(c['bases'])})` :{c['line']}"
+                + (f" - {c['doc']}" if c["doc"] else "")
+                + (" [enum: " + ", ".join(a["name"] for a in c["attributes"]) + "]" if c["is_enum"] else "")
+            )
             for me in c["methods"]:
                 L.append(f"  - `{me['signature']}` :{me['line']}")
         for f in m["functions"]:
@@ -408,21 +574,35 @@ def render_md(inv) -> str:
         L.append("")
     if inv["env_vars"]:
         L += ["## Environment variables", "", "| name | default | form | file:line |", "| --- | --- | --- | --- |"]
-        L += [f"| `{e['name']}` | {e.get('default')} | {e['form']} | {e['file']}:{e['line']} |" for e in inv["env_vars"]] + [""]
+        L += [
+            f"| `{e['name']}` | {e.get('default')} | {e['form']} | {e['file']}:{e['line']} |" for e in inv["env_vars"]
+        ] + [""]
     if inv["cli"]:
         L += ["## CLI definitions (static hints; confirm with `<cli> --help`)", ""]
         for c in inv["cli"]:
-            L.append(f"- {c['framework']} {c['kind']} {c.get('name') or c.get('names') or c.get('prog') or ''} "
-                     f"({c['file']}:{c['line']})" + (f" - {c['help']}" if c.get("help") else ""))
+            L.append(
+                f"- {c['framework']} {c['kind']} {c.get('name') or c.get('names') or c.get('prog') or ''} "
+                f"({c['file']}:{c['line']})" + (f" - {c['help']}" if c.get("help") else "")
+            )
         L.append("")
     if inv["raises"]:
         L += ["## Raise sites", "", "| exception | message | in | file:line |", "| --- | --- | --- | --- |"]
-        L += [f"| `{r['exception']}` | {(r['message'] or '').replace('|', chr(92) + '|')} | {r['in']} | {r['file']}:{r['line']} |"
-              for r in inv["raises"] if r["exception"] != "(re-raise)"] + [""]
+        L += [
+            f"| `{r['exception']}` | {(r['message'] or '').replace('|', chr(92) + '|')} | {r['in']} | {r['file']}:{r['line']} |"
+            for r in inv["raises"]
+            if r["exception"] != "(re-raise)"
+        ] + [""]
     d = inv["docs"]
-    L += ["## Docs tooling", "", f"- framework guess: **{d['docs_framework_guess']}**",
-          f"- config files: {', '.join(d['config_files']) or 'none'}", f"- docs dir: {d['docs_dir']}",
-          f"- doc pages found: {len(d['doc_files'])}", f"- root markdown: {', '.join(d['root_markdown'])}", ""]
+    L += [
+        "## Docs tooling",
+        "",
+        f"- framework guess: **{d['docs_framework_guess']}**",
+        f"- config files: {', '.join(d['config_files']) or 'none'}",
+        f"- docs dir: {d['docs_dir']}",
+        f"- doc pages found: {len(d['doc_files'])}",
+        f"- root markdown: {', '.join(d['root_markdown'])}",
+        "",
+    ]
     if inv["ci"]:
         L += ["## CI matrix lines", ""] + [f"- {c['file']}:{c['line']}: `{c['text']}`" for c in inv["ci"]] + [""]
     L += ["## Tests (names only; usage examples live here)", ""]
@@ -438,8 +618,12 @@ def main():
     ap.add_argument("root")
     ap.add_argument("--out", required=True)
     ap.add_argument("--package", action="append", default=[], help="restrict to these top-level package names")
-    ap.add_argument("--env-prefix", action="append", default=[],
-                    help="also report string literals that look like env vars with this prefix (e.g. MYAPP_)")
+    ap.add_argument(
+        "--env-prefix",
+        action="append",
+        default=[],
+        help="also report string literals that look like env vars with this prefix (e.g. MYAPP_)",
+    )
     a = ap.parse_args()
     root = Path(a.root).resolve()
     out = Path(a.out)
@@ -463,8 +647,16 @@ def main():
             env_vars += [{**e, "file": f} for e in col.env]
             cli += [{**c, "file": f} for c in col.cli]
     for e in env_example(root):
-        env_vars.append({"name": e["name"], "default": None, "form": "env_example", "file": e["file"], "line": e["line"],
-                         "in": "commented out" if e["commented_out"] else ""})
+        env_vars.append(
+            {
+                "name": e["name"],
+                "default": None,
+                "form": "env_example",
+                "file": e["file"],
+                "line": e["line"],
+                "in": "commented out" if e["commented_out"] else "",
+            }
+        )
     seen, uniq = set(), []
     for e in env_vars:
         k = (e["name"], e["form"], e["file"], e["line"])
@@ -472,17 +664,32 @@ def main():
             seen.add(k)
             uniq.append(e)
 
-    inv = {"generated_by": "codebase-to-docs/scripts/inventory.py", "root": str(root), "git": git_info(root),
-           "project": read_pyproject(root), "node": node_manifest(root), "modules": modules, "env_vars": uniq,
-           "cli": cli, "raises": raises, "tests": index_tests(root, errors), "docs": docs_info(root),
-           "ci": ci_info(root), "parse_errors": errors,
-           "limits": ["Namespace packages (no __init__.py) are not discovered",
-                      "CLI definitions are static AST hints; the --help output is the authority",
-                      "Env vars read via helper functions or settings classes are not detected"]}
+    inv = {
+        "generated_by": "codebase-to-docs/scripts/inventory.py",
+        "root": str(root),
+        "git": git_info(root),
+        "project": read_pyproject(root),
+        "node": node_manifest(root),
+        "modules": modules,
+        "env_vars": uniq,
+        "cli": cli,
+        "raises": raises,
+        "tests": index_tests(root, errors),
+        "docs": docs_info(root),
+        "ci": ci_info(root),
+        "parse_errors": errors,
+        "limits": [
+            "Namespace packages (no __init__.py) are not discovered",
+            "CLI definitions are static AST hints; the --help output is the authority",
+            "Env vars read via helper functions or settings classes are not detected",
+        ],
+    }
     (out / "inventory.json").write_text(json.dumps(inv, indent=2), encoding="utf-8")
     (out / "inventory.md").write_text(render_md(inv), encoding="utf-8")
-    print(f"modules={len(modules)} env_vars={len({e['name'] for e in uniq})} cli_defs={len(cli)} "
-          f"raise_sites={len(raises)} test_files={len(inv['tests'])} parse_errors={len(errors)} -> {out}/inventory.{{json,md}}")
+    print(
+        f"modules={len(modules)} env_vars={len({e['name'] for e in uniq})} cli_defs={len(cli)} "
+        f"raise_sites={len(raises)} test_files={len(inv['tests'])} parse_errors={len(errors)} -> {out}/inventory.{{json,md}}"
+    )
 
 
 if __name__ == "__main__":

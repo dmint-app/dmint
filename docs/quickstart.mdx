@@ -36,6 +36,7 @@ Run `dmint init` to generate local signing/integrity keys (`.dmint/`), a starter
 
 ```bash
 dmint init --harness all
+dmint doctor
 ```
 
 Test how your policy evaluates commands from the terminal using `dmint check`:
@@ -56,6 +57,10 @@ When your coding agent triggers an `APPROVAL_REQUIRED` command, approve it from 
 ```bash
 dmint pending
 dmint approve apr_... --by alice@company.com
+
+# Inspect and verify the SHA-256 hash-chained audit log:
+dmint logs
+dmint logs --verify
 ```
 
 ---

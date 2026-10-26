@@ -5,21 +5,26 @@ from __future__ import annotations
 import asyncio
 import os
 from contextlib import AsyncExitStack
-from typing import Any, Iterable
+from typing import TYPE_CHECKING, Any, Iterable
 
-try:
+if TYPE_CHECKING:
     import mcp.types as types
     from mcp import ClientSession, StdioServerParameters, stdio_client
     from mcp.client.streamable_http import httpx2, streamable_http_client
-except ImportError:
-    import httpx as httpx2  # type: ignore[no-redef]
-    from ._stdlib_mcp import (  # type: ignore[assignment]
-        ClientSession,
-        StdioServerParameters,
-        stdio_client,
-        streamable_http_client,
-        types,
-    )
+else:
+    try:
+        import mcp.types as types
+        from mcp import ClientSession, StdioServerParameters, stdio_client
+        from mcp.client.streamable_http import httpx2, streamable_http_client
+    except ImportError:
+        import httpx as httpx2
+        from ._stdlib_mcp import (
+            ClientSession,
+            StdioServerParameters,
+            stdio_client,
+            streamable_http_client,
+            types,
+        )
 
 from .errors import MCPConnectionError, MCPError, MCPProtocolError, MCPTimeoutError
 from .config import MCPIntegrationConfig, MCPTransportType
@@ -136,6 +141,7 @@ class DownstreamMCPClient:
         # 2. Prepare headers (resolving env vars if specified via $VAR)
         headers: dict[str, str] = {}
         import re as _re
+
         for k, v in (self._config.headers or {}).items():
             val = v
             if val.startswith("$"):

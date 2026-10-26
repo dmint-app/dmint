@@ -59,6 +59,54 @@ dmint init [--harness all|claude-code|codex|opencode|cursor|windsurf|cline|none]
 
 ---
 
+## `dmint doctor` & `dmint status`
+
+Run end-to-end local security diagnostics (verifying Ed25519 signing, HMAC store integrity, `0600` key permissions, per-harness policies in `.dmint/policies/*.policy.json`, installed hooks, and 4 live attack simulation vectors) or inspect current hook and policy status:
+
+```bash
+dmint doctor [--dir .] [--policy policy.json] [--json]
+dmint status [--dir .] [--json]
+```
+
+---
+
+## `dmint demo` (aliases: `dmint redteam`, `dmint attack-sim`)
+
+Run a live 7-scenario red-team attack and cryptographic enforcement simulation (Safe Read, Compound Shell Smuggling, Symlink Escape, Multi-File Patch Smuggling, Ed25519 Single-Use Approval Lifecycle, Post-Approval RFC 8785 Parameter Tampering, and Replay + Rogue Key Forgery) against the real Dmint engine in an isolated workspace:
+
+```bash
+dmint demo [--json] [--keep-dir ./demo_workspace]
+```
+
+---
+
+## `dmint logs` (alias: `dmint audit`)
+
+Inspect, filter, live-tail, export, and cryptographically verify the tamper-evident SHA-256 hash-chained audit trail (`.dmint/audit.jsonl`).
+
+```bash
+dmint logs                                   # Show the last 50 audit entries
+dmint logs --level WARNING                   # Filter by minimum level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+dmint logs --denied                          # Show only blocked (DENY) tool calls
+dmint logs --harness claude-code --tool bash # Filter by coding harness and tool
+dmint logs --verify                          # Cryptographically verify the SHA-256 hash chain from genesis (#1)
+dmint logs --stats                           # Show decision, level, and top-blocked breakdown
+dmint logs --follow                          # Live-tail new agent tool calls in real time
+dmint logs --export audit_report.csv         # Export filtered audit trail to CSV or JSON
+```
+
+---
+
+## `dmint learn-policy`
+
+Synthesize a verified, least-privilege `policy.json` from observed agent activity in `.dmint/audit.jsonl` (recorded in `--mode shadow` or `--mode enforce`). Destructive and secret targets (`.env*`, `*.key`, `rm -rf`, `sudo`) are strictly emitted as `deny` rules.
+
+```bash
+dmint learn-policy [--from-logs .dmint/audit.jsonl] [-o policy.json] [--json]
+```
+
+---
+
 ## `dmint check` (alias: `dmint test-policy`)
 
 Simulate and test how a `policy.json` evaluates a tool call directly from your terminal. Outputs structured JSON with `"verdict"` (`ALLOW`, `APPROVAL_REQUIRED`, or `DENY`), `"code"`, and `"matched_rules"`.
@@ -108,8 +156,12 @@ dmint create-policy [options]
 
 | Flag | Default | Description |
 |---|---|---|
-| `-f`, `--file` | **Required** | Path to input requirements file (e.g. `access.md`). |
-| `-o`, `--output` | **Required** | Path to destination policy JSON file (e.g. `policy.json`). |
+| `-t`, `--template` | None | Offline built-in domain templates (`shell,filesystem,postgres,github,stripe,aws,kubernetes`). |
+| `-r`, `--rule` | None | Repeatable offline inline rule (`<effect>:<tool>.<action>[:<resource>[:<kind>]]`). |
+| `-i`, `--interactive` | `False` | Launch the 100% offline step-by-step interactive rule builder. |
+| `-p`, `--prompt` | None | Inline natural-language policy description (avoids needing `-f`). |
+| `-f`, `--file` | None | Path to input requirements file (e.g. `access.md`). |
+| `-o`, `--output` | `policy.json` | Path to destination policy JSON file (default: `policy.json`). |
 | `-provider`, `--provider` | `openai` | LLM provider: `openai`, `gemini`, `groq`, `openrouter`, `ollama`. |
 | `-model`, `--model` | Provider default | Specific model name (e.g. `gpt-4o-mini`, `gemini-1.5-flash`). |
 | `-api_key`, `--api-key` | Env var | API key (or set `OPENAI_API_KEY`, `GEMINI_API_KEY`). |
@@ -162,12 +214,9 @@ dmint create-mcp-policy [options]
 | `-f`, `--file` | Path to requirements file (default: `access.md`). |
 | `-o`, `--output` | Destination policy file (default: `policy.json`). |
 | `--config-output` | Destination protection config (default: `mcp_protection.json`). |
+| `--offline`, `--auto-classify` | 100% offline deterministic tool classification and SHA-256 `schema_hash` pinning (no LLM API key required). |
 | `--non-interactive` | Skip interactive prompt dialogues. |
 | `-y`, `--yes` | Automatically accept generated configuration. |
-
-<Note>
-**Capability Naming Compatibility**: In the current release, `dmint create-mcp-policy` outputs tool capabilities prefixed with `mcp.` (e.g. `"capability": "mcp.postgres.query"`). To ensure runtime policy matching against rules with `tool="postgres"`, ensure your `mcp_protection.json` capability is configured as `"<integration>.<action>"` (e.g. `"postgres.query"`).
-</Note>
 
 ---
 
@@ -426,6 +475,7 @@ dmint init-keys [options]
 
 | Flag | Default | Description |
 |---|---|---|
+| `--dir`, `-d` | `~/.config/dmint` | Directory in which to generate `signing.key` and `integrity.key`. |
 | `--key-file` | `~/.config/dmint/signing.key` | Destination path for the private signing key file. |
 | `--integrity-key-file` | `integrity.key` next to key-file | Destination path for the HMAC storage integrity key file. |
 | `--issuer-id` | `dmint-authority` (or `DMINT_ISSUER_ID`) | Issuer identifier to associate with this key. |
@@ -445,7 +495,9 @@ dmint export-public-key [options]
 
 | Flag | Default | Description |
 |---|---|---|
+| `--dir`, `-d` | `~/.config/dmint` | Directory containing `signing.key`. |
 | `--key-file` | `~/.config/dmint/signing.key` | Path to the private key file. |
+| `--json` | `False` | Shorthand for `--format json`. |
 | `--issuer-id` | `dmint-authority` (or `DMINT_ISSUER_ID`) | Issuer ID label to display. |
 | `--format` | `both` | Output format: `hex`, `pem`, `both`, `json`. |
 

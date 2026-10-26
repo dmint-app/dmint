@@ -22,10 +22,10 @@ Start the dashboard pointing to your Core SQLite database:
 
 ```bash
 # Using dmint CLI:
-dmint dashboard --db-path ./approvals.sqlite3 --deployment-epoch prod-v1 --port 8080
+dmint dashboard --db-path ./approvals.sqlite3 --deployment-epoch prod-v1 --approver-id secops@company.com --port 8080
 
 # Or using the dedicated entrypoint:
-dmint-dashboard --db-path ./approvals.sqlite3 --deployment-epoch prod-v1 --port 8080
+dmint-dashboard --db-path ./approvals.sqlite3 --deployment-epoch prod-v1 --approver-id secops@company.com --port 8080
 ```
 
 > **Important**: The `--deployment-epoch` parameter must match the `deployment_epoch` configured in the application runtime. Dmint uses deployment epochs to isolate environments—requests and approvals across mismatched epochs fail closed to prevent cross-environment replay attacks.
@@ -39,4 +39,4 @@ Open your browser at **http://127.0.0.1:8080** to view and act upon pending requ
 - **Zero Direct SQL**: The dashboard contains zero direct SQL queries and does not import `sqlite3`. It interacts with persistent storage strictly through Core public APIs (`list_pending()`, `approve_pending()`, `reject_pending()`).
 - **Single Database Ownership**: `dmint.core` owns the SQLite schema; the dashboard never creates, alters, or directly manipulates database tables.
 - **5-Second Short Polling**: Refreshes data automatically via `/api/dashboard` with in-flight lockouts and tab-visibility awareness (no WebSockets or complex background workers).
-- **Local-Only Binding**: Binds to `127.0.0.1` by default without user authentication. Do not expose directly to public networks without an authenticating reverse proxy.
+- **Authenticated Local-Only Binding**: Binds to `127.0.0.1` by default and enforces bearer/session token authentication (`--token-file`, `DMINT_DASHBOARD_TOKEN`, or an auto-generated 256-bit startup token), CSRF tokens, and host/origin validation.

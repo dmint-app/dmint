@@ -10,6 +10,7 @@ That matches most docs sites; if yours differs, use --url-suffix or fix the link
 Page order follows docs.json navigation when present, otherwise index first, then alphabetical.
 Only text already in the pages is used: nothing is generated or summarised.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -44,6 +45,7 @@ def nav_order(docs: Path):
                 elif isinstance(o, list):
                     for it in o:
                         walk(it)
+
             try:
                 walk(json.loads(f.read_text(encoding="utf-8")).get("navigation", {}))
             except json.JSONDecodeError:
@@ -72,9 +74,15 @@ def main():
         elif route.endswith("/index"):
             route = route[: -len("/index")]
         h1 = next((raw for _, lvl, raw in headings(body) if lvl == 1), None)
-        pages.append({"route": route, "key": p.relative_to(docs).with_suffix("").as_posix(),
-                      "title": fm_value(fm, "title") or h1 or p.stem, "desc": fm_value(fm, "description") or "",
-                      "body": body.strip()})
+        pages.append(
+            {
+                "route": route,
+                "key": p.relative_to(docs).with_suffix("").as_posix(),
+                "title": fm_value(fm, "title") or h1 or p.stem,
+                "desc": fm_value(fm, "description") or "",
+                "body": body.strip(),
+            }
+        )
     order = nav_order(docs)
     rank = {k: i for i, k in enumerate(order)}
     pages.sort(key=lambda x: (rank.get(x["key"], len(rank) + 1), x["key"] != "index", x["key"]))

@@ -75,6 +75,7 @@ _LAZY_MAP: dict[str, tuple[str, str]] = {
     "perform_oauth_flow": (".mcp_oauth", "perform_oauth_flow"),
 }
 
+
 def __getattr__(name: str) -> Any:
     if name in _LAZY_MAP:
         mod_name, attr_name = _LAZY_MAP[name]
@@ -86,6 +87,7 @@ def __getattr__(name: str) -> Any:
         globals()[name] = val
         return val
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 __all__ = [
     "APIError",

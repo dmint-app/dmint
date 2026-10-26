@@ -44,6 +44,14 @@ from .canonicalize import (
 )
 from .enforcement import AuthorizedRequest, Dmint, InvocationSnapshot
 from .redaction import redact_database_url
+from .audit import (
+    AuditLogger,
+    AuditVerificationResult,
+    parse_log_level,
+    read_audit_entries,
+    summarize_audit_entries,
+    verify_audit_chain,
+)
 from .errors import (
     ApprovalAlgorithmUnsupportedError,
     ApprovalAudienceInvalidError,
@@ -209,6 +217,12 @@ __all__ = [
     "canonicalize_bytes",
     "canonicalize_request",
     "redact_database_url",
+    "AuditLogger",
+    "AuditVerificationResult",
+    "parse_log_level",
+    "read_audit_entries",
+    "summarize_audit_entries",
+    "verify_audit_chain",
     "canonical_request_binding",
     "request_fingerprint",
     "request_binding_envelope",

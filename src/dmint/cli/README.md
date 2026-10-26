@@ -1,80 +1,97 @@
 # `dmint.cli`
 
-Developer CLI and policy authoring toolkit for Dmint.
+Developer CLI, agent harness hook manager, and policy authoring toolkit for Dmint (`v2.0.4`).
 
-`dmint.cli` provides command-line tools for compiling natural language access requirements (`access.md`) into validated Dmint policies (`policy.json`), scanning policies for security vulnerabilities, discovering MCP tools, managing OAuth credentials, and launching the local human review dashboard.
+`dmint.cli` provides a fast, unified command-line interface for bootstrapping project security (`dmint init`), running end-to-end security diagnostics (`dmint doctor`), managing pre-tool hooks across 6 AI coding harnesses (`dmint hook`), authoring policies via 4 offline or AI-assisted modes (`dmint create-policy` and `dmint create-mcp-policy`), managing human approvals (`dmint pending`, `dmint approve`, `dmint reject`), and managing Ed25519/HMAC keys (`dmint init-keys`, `dmint export-public-key`).
 
 ---
 
 ## Installation
 
-Included by default in the base `dmint` distribution:
-
 ```bash
 pip install dmint
-```
-
-Verify installation:
-```bash
 dmint --version
 # Output: dmint 2.0.4
 ```
 
 ---
 
-## Command Reference
+## Primary Commands
 
-### 1. `dmint create-policy`
-Compiles natural language access requirements or discovers local Python tool functions into a strict, validated policy file:
-
+### 1. `dmint init` & `dmint doctor`
 ```bash
-# Interactive mode:
-dmint create-policy -f access.md -o policy.json
+# Bootstrap keys (.dmint/), per-harness policies (.dmint/policies/<harness>.policy.json), and hooks:
+dmint init --harness all --templates shell,filesystem,postgres
 
-# Non-interactive mode (for CI/CD pipelines):
-dmint create-policy -f access.md -o policy.json -y --provider openai
+# Run 4-vector security self-test, cryptographic check, and hook/policy verification:
+dmint doctor
 ```
 
-### 2. `dmint create-mcp-policy`
-Connects to live downstream MCP servers, performs tool discovery, handles OAuth authentication, and outputs matching `policy.json` and `mcp_protection.json` configuration files:
-
+### 2. `dmint check`
+Simulate how `policy.json` evaluates any tool call directly from your terminal:
 ```bash
-dmint create-mcp-policy --url https://mcp.example.com/api --output-dir ./config
+dmint check shell.execute -r "git status"           # -> ALLOW (exit 0)
+dmint check shell.execute -r "git push origin main" # -> APPROVAL_REQUIRED (exit 1)
+dmint check shell.execute -r "rm -rf /"             # -> DENY (exit 2)
 ```
 
-### 3. `dmint verify-policy`
-Performs 100% offline schema validation, capability validation, and secret scanning on a `policy.json` file. Zero network traffic, zero LLM dependencies:
-
+### 3. `dmint create-policy` (4 Policy Creation Modes)
 ```bash
-dmint verify-policy policy.json
+# Mode 1: Built-in domain templates (100% offline, instant)
+dmint create-policy --template shell,filesystem,postgres,stripe -o policy.json
+
+# Mode 2: Repeatable inline rule flags (100% offline, scriptable)
+dmint create-policy -r "allow:postgres.select:users" -r "approval_required:stripe.refund:*" -o policy.json
+
+# Mode 3: Interactive terminal rule builder (100% offline)
+dmint create-policy --interactive -o policy.json
+
+# Mode 4: AI-assisted natural language prompt or markdown file (OpenAI / Gemini / Groq / Ollama)
+dmint create-policy --prompt "Allow read-only SQL queries, require approval for schema changes" -o policy.json
+dmint create-policy -f access.md -o policy.json -y
 ```
 
-Output:
-```text
-✓ Verified policy.json: 3 rule(s)
-  [ALLOW] tool='database', action='select', resource='*'
-  [APPROVAL_REQUIRED] tool='database', action='update', resource='*'
-  [DENY] tool='database', action='drop', resource='*'
+### 4. `dmint create-mcp-policy` (Offline Auto-Classification or AI-Assisted)
+```bash
+# 100% Offline mode (discovers live MCP tools, pins SHA-256 schema_hash, auto-classifies effects without an API key):
+dmint create-mcp-policy --command npx --args -y @modelcontextprotocol/server-postgres --integration-id postgres --offline -y
+
+# AI-assisted mode with natural-language requirements:
+dmint create-mcp-policy --url https://mcp.example.com/api -f access.md -o policy.json --config-output mcp_protection.json
 ```
 
-### 4. `dmint compile-policy`
-Canonicalizes and compiles policy rules into deterministic, production-ready JSON artifacts:
-
+### 5. `dmint verify-policy` & `dmint policy-digest`
 ```bash
-dmint compile-policy policy.json -o compiled_policy.json
+dmint verify-policy policy.json [--json]
+dmint policy-digest policy.json [--json]
 ```
 
-### 5. `dmint dashboard`
-Starts the local human approval web dashboard connected to a Core SQLite store:
-
+### 6. `dmint pending`, `dmint approve`, `dmint reject` (`deny`), & `dmint dashboard`
 ```bash
-dmint dashboard --db-path ./approvals.sqlite3 --deployment-epoch prod-v1 --port 8080
+dmint pending [--json]
+dmint approve <approval_id> --by alice@company.com --reason "Approved production action"
+dmint reject <approval_id> --by alice@company.com --reason "Blocked"
+dmint dashboard --db-path ./.dmint/approvals.sqlite3 --port 8080
 ```
 
-### 6. `dmint install-skill`
-Installs the official `dmint-policy-manager` AI agent skill into the current workspace for Cursor, Claude Code, or Antigravity:
-
+### 7. `dmint init-keys` & `dmint export-public-key`
 ```bash
-dmint install-skill -y
-# Installs to: .agents/skills/dmint-policy-manager/SKILL.md
+dmint init-keys --dir /etc/dmint/keys
+dmint export-public-key --dir /etc/dmint/keys --json
+```
+
+### 8. `dmint logs` (`dmint audit`), `dmint demo` (`dmint redteam`), & `dmint learn-policy`
+```bash
+# View, filter, tail, export, and cryptographically verify .dmint/audit.jsonl:
+dmint logs --level WARNING
+dmint logs --denied
+dmint logs --verify
+dmint logs --stats
+dmint logs --follow
+
+# Run the 7-scenario live red-team attack simulation:
+dmint demo
+
+# Auto-learn a verified least-privilege policy.json from observed shadow/enforce logs:
+dmint learn-policy --from-logs .dmint/audit.jsonl -o policy.json
 ```

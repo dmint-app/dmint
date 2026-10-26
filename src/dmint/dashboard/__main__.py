@@ -105,6 +105,7 @@ def main(argv: list[str] | None = None, prog: str | None = None) -> None:
         )
 
     from pathlib import Path
+
     if not args.db_path and not args.database_url:
         if Path(".dmint/approvals.sqlite3").is_file():
             args.db_path = ".dmint/approvals.sqlite3"
@@ -121,6 +122,7 @@ def main(argv: list[str] | None = None, prog: str | None = None) -> None:
     if not approver_id:
         if args.db_path and (Path(args.db_path).resolve().parent / "signing.key").is_file():
             import getpass
+
             try:
                 approver_id = getpass.getuser() or "dashboard-admin"
             except Exception:

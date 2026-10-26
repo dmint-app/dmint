@@ -10,32 +10,43 @@ import os
 from pathlib import Path
 import threading
 from collections.abc import Callable, Collection, Mapping
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-try:
+if TYPE_CHECKING:
     import mcp.types as types
     from mcp.server import Server
     from mcp.server.context import ServerRequestContext
     from mcp.server.stdio import stdio_server
     from mcp.shared.exceptions import MCPError as SDKMCPError, ErrorData
     from mcp.server.transport_security import TransportSecuritySettings
-except ImportError:
-    from ._stdlib_mcp import (  # type: ignore[assignment]
-        ErrorData,
-        MCPError as SDKMCPError,
-        Server,
-        TransportSecuritySettings,
-        stdio_server,
-        types,
-    )
-    ServerRequestContext = Any  # type: ignore[assignment, misc]
-
-try:
     from starlette.applications import Starlette
     import uvicorn
-except ImportError:
-    Starlette = None  # type: ignore[assignment, misc]
-    uvicorn = None  # type: ignore[assignment]
+else:
+    try:
+        import mcp.types as types
+        from mcp.server import Server
+        from mcp.server.context import ServerRequestContext
+        from mcp.server.stdio import stdio_server
+        from mcp.shared.exceptions import MCPError as SDKMCPError, ErrorData
+        from mcp.server.transport_security import TransportSecuritySettings
+    except ImportError:
+        from ._stdlib_mcp import (
+            ErrorData,
+            MCPError as SDKMCPError,
+            Server,
+            TransportSecuritySettings,
+            stdio_server,
+            types,
+        )
+
+        ServerRequestContext = Any
+
+    try:
+        from starlette.applications import Starlette
+        import uvicorn
+    except ImportError:
+        Starlette = None
+        uvicorn = None
 
 from dmint.core.canonicalize import canonicalize_bytes
 
@@ -200,7 +211,7 @@ class MCPGateway:
             )
         else:
             self._approval_verifier = None
-            candidate_keys = []
+            candidate_keys: list[Path] = []
             if config.approval_store_path:
                 candidate_keys.append(Path(config.approval_store_path).resolve().parent / "signing.key")
             candidate_keys.append(Path(".dmint/signing.key"))
@@ -209,6 +220,7 @@ class MCPGateway:
                 if ck.is_file():
                     try:
                         from dmint.core.keys import load_private_key_from_file
+
                         pub = load_private_key_from_file(ck).public_key()
                         self._approval_verifier = ApprovalVerifier(
                             trusted_issuers={

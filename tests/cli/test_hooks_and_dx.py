@@ -361,17 +361,38 @@ class TestHooksAndDX(unittest.TestCase):
             dmint.retry(large_refund, None, "ord_2", 250)
         self.assertEqual(replay_ctx.exception.code, "DMT_APPROVAL_CONSUMED")
 
-
-
     def test_hook_run_blocks_tampered_arguments_and_supports_mcp_tools(self) -> None:
         """Verify that modifying command arguments after approval does not consume the approval, and mcp__ tools work."""
-        _run_cli(["init", "--harness", "claude-code", "--templates", "shell,filesystem,postgres", "--dir", str(self.tmp_path)])
+        _run_cli(
+            [
+                "init",
+                "--harness",
+                "claude-code",
+                "--templates",
+                "shell,filesystem,postgres",
+                "--dir",
+                str(self.tmp_path),
+            ]
+        )
         policy_path = str(self.tmp_path / "policy.json")
         db_path = str(self.tmp_path / ".dmint" / "approvals.sqlite3")
 
         # 1. Request approval for "docker ps"
         req_docker_ps = json.dumps({"tool_name": "Bash", "tool_input": {"command": "docker ps"}})
-        rc1, out1, _ = _run_cli(["hook", "run", "--harness", "claude-code", "--policy", policy_path, "--db-path", db_path, "--input", req_docker_ps])
+        rc1, out1, _ = _run_cli(
+            [
+                "hook",
+                "run",
+                "--harness",
+                "claude-code",
+                "--policy",
+                policy_path,
+                "--db-path",
+                db_path,
+                "--input",
+                req_docker_ps,
+            ]
+        )
         self.assertEqual(rc1, 0)
         apr_id = json.loads(out1)["dmint"]["approval_id"]
 
@@ -381,29 +402,79 @@ class TestHooksAndDX(unittest.TestCase):
 
         # 3. Agent tampers with command ("docker run --privileged alpine") -> MUST NOT consume apr_id!
         req_tampered = json.dumps({"tool_name": "Bash", "tool_input": {"command": "docker run --privileged alpine"}})
-        rc_tamp, out_tamp, _ = _run_cli(["hook", "run", "--harness", "claude-code", "--policy", policy_path, "--db-path", db_path, "--input", req_tampered])
+        rc_tamp, out_tamp, _ = _run_cli(
+            [
+                "hook",
+                "run",
+                "--harness",
+                "claude-code",
+                "--policy",
+                policy_path,
+                "--db-path",
+                db_path,
+                "--input",
+                req_tampered,
+            ]
+        )
         self.assertEqual(rc_tamp, 0)
         resp_tamp = json.loads(out_tamp)
         self.assertEqual(resp_tamp["hookSpecificOutput"]["permissionDecision"], "ask")
         self.assertNotEqual(resp_tamp["dmint"]["approval_id"], apr_id)
 
         # 4. Original "docker ps" approval is still intact and succeeds once
-        rc_orig, out_orig, _ = _run_cli(["hook", "run", "--harness", "claude-code", "--policy", policy_path, "--db-path", db_path, "--input", req_docker_ps])
+        rc_orig, out_orig, _ = _run_cli(
+            [
+                "hook",
+                "run",
+                "--harness",
+                "claude-code",
+                "--policy",
+                policy_path,
+                "--db-path",
+                db_path,
+                "--input",
+                req_docker_ps,
+            ]
+        )
         self.assertEqual(rc_orig, 0)
         self.assertEqual(json.loads(out_orig)["hookSpecificOutput"]["permissionDecision"], "allow")
 
         # 5. MCP tool call via Claude Code (mcp__postgres__select -> postgres.select)
         mcp_allow = json.dumps({"tool_name": "mcp__postgres__select", "tool_input": {"resource": "users"}})
-        rc_mcp1, out_mcp1, _ = _run_cli(["hook", "run", "--harness", "claude-code", "--policy", policy_path, "--db-path", db_path, "--input", mcp_allow])
+        rc_mcp1, out_mcp1, _ = _run_cli(
+            [
+                "hook",
+                "run",
+                "--harness",
+                "claude-code",
+                "--policy",
+                policy_path,
+                "--db-path",
+                db_path,
+                "--input",
+                mcp_allow,
+            ]
+        )
         self.assertEqual(rc_mcp1, 0)
         self.assertEqual(json.loads(out_mcp1)["hookSpecificOutput"]["permissionDecision"], "allow")
 
         mcp_deny = json.dumps({"tool_name": "mcp__postgres__drop_table", "tool_input": {"resource": "users"}})
-        rc_mcp2, out_mcp2, _ = _run_cli(["hook", "run", "--harness", "claude-code", "--policy", policy_path, "--db-path", db_path, "--input", mcp_deny])
+        rc_mcp2, out_mcp2, _ = _run_cli(
+            [
+                "hook",
+                "run",
+                "--harness",
+                "claude-code",
+                "--policy",
+                policy_path,
+                "--db-path",
+                db_path,
+                "--input",
+                mcp_deny,
+            ]
+        )
         self.assertEqual(rc_mcp2, 2)
         self.assertEqual(json.loads(out_mcp2)["hookSpecificOutput"]["permissionDecision"], "deny")
-
-
 
     def test_per_harness_dedicated_policies_and_official_hook_schemas(self) -> None:
         """Each harness must get its own .dmint/policies/<harness>.policy.json and official hook format."""
@@ -616,8 +687,6 @@ class TestHooksAndDX(unittest.TestCase):
         self.assertTrue(parsed_cl_batch["cancel"])
         self.assertIn("DMT_POLICY_DENIED", parsed_cl_batch["errorMessage"])
 
-
-
     def test_compound_shell_command_smuggling_and_symlink_escape_blocked(self) -> None:
         """Compound shell commands (&&, ;, |, $()) and relative symlinks to secrets must never bypass policy."""
         _run_cli(["init", "--harness", "claude-code", "--dir", str(self.tmp_path)])
@@ -724,7 +793,9 @@ class TestHooksAndDX(unittest.TestCase):
     def test_blackbox_manual_qa_e2e_regressions(self) -> None:
         """Verify all 6 edge cases uncovered during black-box manual QA E2E testing."""
         # 1. dmint init --templates all --harness all
-        rc_init, _, err_init = _run_cli(["init", "--templates", "all", "--harness", "all", "--dir", str(self.tmp_path), "--force"])
+        rc_init, _, err_init = _run_cli(
+            ["init", "--templates", "all", "--harness", "all", "--dir", str(self.tmp_path), "--force"]
+        )
         self.assertEqual(rc_init, 0, err_init)
         pol_path = str(self.tmp_path / "policy.json")
         claude_pol = str(self.tmp_path / ".dmint" / "policies" / "claude-code.policy.json")
@@ -741,39 +812,96 @@ class TestHooksAndDX(unittest.TestCase):
         self.assertEqual(rc_fs, 0)
         self.assertEqual(json.loads(out_fs)["decision"], "ALLOW")
 
-        rc_pg, out_pg, _ = _run_cli(["check", "-p", pol_path, "-t", "postgres.select", "-r", "db://app/users", "-a", '{"sql":"SELECT 1"}', "--json"])
+        rc_pg, out_pg, _ = _run_cli(
+            [
+                "check",
+                "-p",
+                pol_path,
+                "-t",
+                "postgres.select",
+                "-r",
+                "db://app/users",
+                "-a",
+                '{"sql":"SELECT 1"}',
+                "--json",
+            ]
+        )
         self.assertEqual(rc_pg, 0)
         self.assertEqual(json.loads(out_pg)["decision"], "ALLOW")
 
         # 4. MultiEdit batch smuggling via 'edits' array without top-level file_path
-        rc_me, out_me, _ = _run_cli([
-            "hook", "run", "--harness", "claude-code", "--policy", claude_pol, "--db-path", db_path,
-            "--input", json.dumps({"tool_name": "MultiEdit", "tool_input": {"edits": [{"file_path": "src/a.py"}, {"file_path": ".env"}]}})
-        ])
+        rc_me, out_me, _ = _run_cli(
+            [
+                "hook",
+                "run",
+                "--harness",
+                "claude-code",
+                "--policy",
+                claude_pol,
+                "--db-path",
+                db_path,
+                "--input",
+                json.dumps(
+                    {
+                        "tool_name": "MultiEdit",
+                        "tool_input": {"edits": [{"file_path": "src/a.py"}, {"file_path": ".env"}]},
+                    }
+                ),
+            ]
+        )
         self.assertEqual(rc_me, 2)
         self.assertEqual(json.loads(out_me)["dmint"]["decision"], "DENY")
 
         # 5. Cursor beforeMCPExecution fallback to APPROVAL_REQUIRED
-        rc_cur, out_cur, _ = _run_cli([
-            "hook", "run", "--harness", "cursor", "--policy", cursor_pol, "--db-path", db_path,
-            "--input", json.dumps({"hook_event_name": "beforeMCPExecution", "tool_name": "postgres.query", "tool_input": {"sql": "SELECT 1"}})
-        ])
+        rc_cur, out_cur, _ = _run_cli(
+            [
+                "hook",
+                "run",
+                "--harness",
+                "cursor",
+                "--policy",
+                cursor_pol,
+                "--db-path",
+                db_path,
+                "--input",
+                json.dumps(
+                    {
+                        "hook_event_name": "beforeMCPExecution",
+                        "tool_name": "postgres.query",
+                        "tool_input": {"sql": "SELECT 1"},
+                    }
+                ),
+            ]
+        )
         self.assertEqual(rc_cur, 2)
         self.assertEqual(json.loads(out_cur)["dmint"]["decision"], "APPROVAL_REQUIRED")
 
         # 6. Cline preToolUse with 'tool' key
-        rc_cl, out_cl, _ = _run_cli([
-            "hook", "run", "--harness", "cline", "--policy", cline_pol, "--db-path", db_path,
-            "--input", json.dumps({"hookName": "PreToolUse", "preToolUse": {"tool": "execute_command", "parameters": {"command": "git status"}}})
-        ])
+        rc_cl, out_cl, _ = _run_cli(
+            [
+                "hook",
+                "run",
+                "--harness",
+                "cline",
+                "--policy",
+                cline_pol,
+                "--db-path",
+                db_path,
+                "--input",
+                json.dumps(
+                    {
+                        "hookName": "PreToolUse",
+                        "preToolUse": {"tool": "execute_command", "parameters": {"command": "git status"}},
+                    }
+                ),
+            ]
+        )
         self.assertEqual(rc_cl, 0)
         self.assertFalse(json.loads(out_cl)["cancel"])
 
 
-
 if __name__ == "__main__":
     unittest.main()
-
 
     def test_10_uncharted_real_world_and_adversarial_edges(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -829,7 +957,9 @@ def test_uncharted_real_world_and_adversarial_edges(tmp_path: Path) -> None:
     # 3. tool_bindings with tool names containing secret/token/password/key + Bearer ${ENV_VAR}
     cfg = parse_protection_config(
         {
-            "policy": {"rules": [{"tool": "vault", "action": "rotate_master_secret", "resource": "*", "effect": "deny"}]},
+            "policy": {
+                "rules": [{"tool": "vault", "action": "rotate_master_secret", "resource": "*", "effect": "deny"}]
+            },
             "integrations": [
                 {
                     "integration_id": "vault",
@@ -935,14 +1065,32 @@ class TestModernCLIUX(unittest.TestCase):
     def test_all_help_screens_and_hook_install_bugfix(self) -> None:
         """Verify all 25 CLI --help / -h / help screens exit 0 including hook install --help and hook list --help."""
         help_cmds = [
-            ["--help"], ["-h"], ["help", "create-policy"], ["help", "hook"],
-            ["init", "--help"], ["check", "--help"], ["status", "--help"], ["doctor", "--help"],
-            ["hook", "--help"], ["hook", "install", "--help"], ["hook", "uninstall", "--help"],
-            ["hook", "status", "--help"], ["hook", "list", "--help"], ["hook", "run", "--help"],
-            ["create-policy", "--help"], ["compile-policy", "--help"], ["create-mcp-policy", "--help"],
-            ["verify-policy", "--help"], ["policy-digest", "--help"],
-            ["approve", "--help"], ["deny", "--help"], ["pending", "--help"], ["dashboard", "--help"],
-            ["init-keys", "--help"], ["export-public-key", "--help"], ["install-skill", "--help"],
+            ["--help"],
+            ["-h"],
+            ["help", "create-policy"],
+            ["help", "hook"],
+            ["init", "--help"],
+            ["check", "--help"],
+            ["status", "--help"],
+            ["doctor", "--help"],
+            ["hook", "--help"],
+            ["hook", "install", "--help"],
+            ["hook", "uninstall", "--help"],
+            ["hook", "status", "--help"],
+            ["hook", "list", "--help"],
+            ["hook", "run", "--help"],
+            ["create-policy", "--help"],
+            ["compile-policy", "--help"],
+            ["create-mcp-policy", "--help"],
+            ["verify-policy", "--help"],
+            ["policy-digest", "--help"],
+            ["approve", "--help"],
+            ["deny", "--help"],
+            ["pending", "--help"],
+            ["dashboard", "--help"],
+            ["init-keys", "--help"],
+            ["export-public-key", "--help"],
+            ["install-skill", "--help"],
         ]
         for cmd in help_cmds:
             rc, out, err = _run_cli(cmd)
@@ -959,13 +1107,19 @@ class TestModernCLIUX(unittest.TestCase):
         self.assertGreaterEqual(len(data1["rules"]), 4)
 
         out_rules = self.tmp_path / "rules_policy.json"
-        rc2, out2, err2 = _run_cli([
-            "create-policy",
-            "-r", "allow:postgres.select:users",
-            "-r", "approval_required:stripe.refund:*",
-            "-r", "deny:shell.exec:*:prefix",
-            "-o", str(out_rules),
-        ])
+        rc2, out2, err2 = _run_cli(
+            [
+                "create-policy",
+                "-r",
+                "allow:postgres.select:users",
+                "-r",
+                "approval_required:stripe.refund:*",
+                "-r",
+                "deny:shell.exec:*:prefix",
+                "-o",
+                str(out_rules),
+            ]
+        )
         self.assertEqual(rc2, 0, f"create-policy -r failed: {out2}\n{err2}")
         data2 = json.loads(out_rules.read_text())
         self.assertEqual(len(data2["rules"]), 3)
@@ -976,6 +1130,7 @@ class TestModernCLIUX(unittest.TestCase):
     def test_create_policy_interactive_offline_builder(self) -> None:
         """Verify dmint create-policy --interactive builds a valid policy offline from prompted rules."""
         from unittest.mock import patch
+
         out_int = self.tmp_path / "interactive_policy.json"
         # Inputs: tool=postgres, action=select, resource=users, effect=1 (allow), more=n, confirm_save=y
         inputs = iter(["postgres", "select", "users", "1", "n", "y"])
@@ -989,20 +1144,28 @@ class TestModernCLIUX(unittest.TestCase):
 
     def test_create_mcp_policy_offline_auto_classify(self) -> None:
         import sys
+
         """Verify dmint create-mcp-policy --offline auto-classifies MCP tools and pins schema hashes without an LLM API key."""
         mock_srv = Path(__file__).resolve().parent.parent / "mcp" / "mock_server.py"
         pol_out = self.tmp_path / "mcp_policy.json"
         cfg_out = self.tmp_path / "mcp_protection.json"
-        rc, out, err = _run_cli([
-            "create-mcp-policy",
-            "--command", sys.executable,
-            "--args", str(mock_srv),
-            "--integration-id", "mockdb",
-            "--offline",
-            "-y",
-            "-o", str(pol_out),
-            "--config-output", str(cfg_out),
-        ])
+        rc, out, err = _run_cli(
+            [
+                "create-mcp-policy",
+                "--command",
+                sys.executable,
+                "--args",
+                str(mock_srv),
+                "--integration-id",
+                "mockdb",
+                "--offline",
+                "-y",
+                "-o",
+                str(pol_out),
+                "--config-output",
+                str(cfg_out),
+            ]
+        )
         self.assertEqual(rc, 0, f"create-mcp-policy --offline failed: {out}\n{err}")
         pol_data = json.loads(pol_out.read_text())
         cfg_data = json.loads(cfg_out.read_text())

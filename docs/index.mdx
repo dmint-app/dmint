@@ -36,7 +36,9 @@ Protect built-in shell and file tools in your coding agent with one command:
 
 ```bash
 pip install dmint
-dmint init --harness all
+dmint demo               # Optional: run the 7-scenario live red-team simulator in 600ms
+dmint init --harness all # Provision .dmint/ keys, per-harness policies, and PreToolUse hooks
+dmint doctor             # Verify keys, policies, hooks, and 4 security vectors
 ```
 
 Test how your generated `policy.json` evaluates commands right from the terminal:

@@ -748,14 +748,14 @@ def policy_digest(policy: Policy | Mapping[str, Any]) -> str:
 def sync_authoritative_policy(store: Any, policy: "Policy", provenance: Any) -> None:
     """Seed or self-heal the authoritative policy snapshot in the shared approval store."""
     import logging
+
     existing = store.get_authoritative_policy()
-    if existing is None:
+    if existing is None or not isinstance(existing, tuple) or len(existing) != 2:
         store.set_authoritative_policy(policy, provenance)
         return
     stored_policy, stored_prov = existing
     same_version = (
-        stored_prov.version_id == provenance.version_id
-        and stored_prov.policy_digest == provenance.policy_digest
+        stored_prov.version_id == provenance.version_id and stored_prov.policy_digest == provenance.policy_digest
     )
     if same_version and stored_policy.to_dict() != policy.to_dict():
         store.set_authoritative_policy(policy, provenance)

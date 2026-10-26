@@ -14,7 +14,7 @@ from typing import Any
 from dmint.cli.ui import DmintHelpFormatter, use_color
 from dmint.core.audit import (
     GENESIS_PREV_HASH,
-     parse_log_level,
+    parse_log_level,
     read_audit_entries,
     resolve_default_audit_log_path,
     summarize_audit_entries,
@@ -130,7 +130,9 @@ def main_logs(argv: Sequence[str] | None = None) -> int:
   dmint logs --export audit_report.csv         # Export filtered audit trail to CSV or JSON
 """,
     )
-    parser.add_argument("--file", "--log-file", dest="log_file", help="Path to audit.jsonl file (default: .dmint/audit.jsonl)")
+    parser.add_argument(
+        "--file", "--log-file", dest="log_file", help="Path to audit.jsonl file (default: .dmint/audit.jsonl)"
+    )
     parser.add_argument("--dir", "-C", default=".", help="Workspace directory containing .dmint/audit.jsonl")
     parser.add_argument(
         "-l",
@@ -149,11 +151,19 @@ def main_logs(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--harness", help="Filter by harness (e.g. claude-code, codex, opencode, cursor, sdk, mcp)")
     parser.add_argument("--agent", help="Filter by agent_id")
     parser.add_argument("--mode", choices=["enforce", "shadow"], help="Filter by enforcement mode (enforce or shadow)")
-    parser.add_argument("-s", "--search", help="Case-insensitive substring search across resource, tool, code, or details")
-    parser.add_argument("-n", "--limit", type=int, default=50, help="Maximum number of recent entries to show (0 for all, default: 50)")
-    parser.add_argument("--verify", action="store_true", help="Verify the cryptographic SHA-256 hash chain from genesis to head")
+    parser.add_argument(
+        "-s", "--search", help="Case-insensitive substring search across resource, tool, code, or details"
+    )
+    parser.add_argument(
+        "-n", "--limit", type=int, default=50, help="Maximum number of recent entries to show (0 for all, default: 50)"
+    )
+    parser.add_argument(
+        "--verify", action="store_true", help="Verify the cryptographic SHA-256 hash chain from genesis to head"
+    )
     parser.add_argument("--stats", action="store_true", help="Display summary statistics across matching audit events")
-    parser.add_argument("-f", "--follow", action="store_true", help="Live-tail new audit log entries as they are recorded")
+    parser.add_argument(
+        "-f", "--follow", action="store_true", help="Live-tail new audit log entries as they are recorded"
+    )
     parser.add_argument("--export", metavar="PATH", help="Export matching entries to a .json or .csv file")
     parser.add_argument("--clear", action="store_true", help="Clear the current audit.jsonl file")
     parser.add_argument("--json", action="store_true", help="Emit output as JSON")
@@ -255,7 +265,9 @@ def main_logs(argv: Sequence[str] | None = None) -> int:
         else:
             print(f"\n=== Dmint Audit Trail Statistics ({log_path}) ===")
             print(f"  Total Matching Events : {summary['total_events']}")
-            print(f"  Chain Integrity       : {'✓ VALID' if chain_check.valid else '✗ BROKEN'} (head: {chain_check.head_hash[:12]}...)")
+            print(
+                f"  Chain Integrity       : {'✓ VALID' if chain_check.valid else '✗ BROKEN'} (head: {chain_check.head_hash[:12]}...)"
+            )
             print(f"  Decisions             : {summary['by_decision']}")
             print(f"  Log Levels            : {summary['by_level']}")
             print(f"  Harnesses             : {summary['by_harness']}")
@@ -337,7 +349,9 @@ def main_learn_policy(argv: Sequence[str] | None = None) -> int:
         help="Path to audit.jsonl file (default: .dmint/audit.jsonl)",
     )
     parser.add_argument("--dir", "-C", default=".", help="Workspace directory containing .dmint/audit.jsonl")
-    parser.add_argument("-o", "--output", default="policy.json", help="Destination policy JSON file (default: policy.json)")
+    parser.add_argument(
+        "-o", "--output", default="policy.json", help="Destination policy JSON file (default: policy.json)"
+    )
     parser.add_argument("--json", action="store_true", help="Output summary as JSON")
 
     try:

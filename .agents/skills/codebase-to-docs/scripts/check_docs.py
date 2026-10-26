@@ -19,6 +19,7 @@ Exempting a flagged absolute/vague/count term: put `lint-ok: claim=<ledger-id>` 
 or previous line (inside an HTML/MDX comment). The id must exist in --ledger with
 status "verified". Filler/hype words cannot be exempted: rewrite them.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -37,26 +38,68 @@ except ModuleNotFoundError:  # Python < 3.11
         tomllib = None  # type: ignore
 
 sys.path.insert(0, str(Path(__file__).parent))
-from _common import (Reporter, extract_blocks, heading_ids, headings, iter_doc_files, load_ledger,  # noqa: E402
-                     prose_lines, split_frontmatter)
+from _common import (
+    Reporter,
+    extract_blocks,
+    heading_ids,
+    headings,
+    iter_doc_files,
+    load_ledger,  # noqa: E402
+    prose_lines,
+    split_frontmatter,
+)
 
 ABSOLUTE = [
-    r"guarantee[sd]?", r"100\s?%", r"zero", r"impossible", r"unbreakable", r"bulletproof", r"foolproof",
-    r"tamper[- ]?proof", r"military[- ]grade", r"(?:completely|fully|totally|absolutely|entirely) (?:secure|safe|protected)",
-    r"prevents? (?:all|every|any)", r"(?:all|any|every) attacks?", r"eliminates?", r"never", r"always",
-    r"cannot be (?:bypassed|tampered|circumvented|forged)", r"immune", r"no way to",
+    r"guarantee[sd]?",
+    r"100\s?%",
+    r"zero",
+    r"impossible",
+    r"unbreakable",
+    r"bulletproof",
+    r"foolproof",
+    r"tamper[- ]?proof",
+    r"military[- ]grade",
+    r"(?:completely|fully|totally|absolutely|entirely) (?:secure|safe|protected)",
+    r"prevents? (?:all|every|any)",
+    r"(?:all|any|every) attacks?",
+    r"eliminates?",
+    r"never",
+    r"always",
+    r"cannot be (?:bypassed|tampered|circumvented|forged)",
+    r"immune",
+    r"no way to",
 ]
 VAGUE = [r"secure[sd]?", r"safe(?:ly)?"]
 HYPE = [
-    r"seamless(?:ly)?", r"robust", r"powerful", r"cutting[- ]edge", r"state[- ]of[- ]the[- ]art", r"game[- ]chang\w+",
-    r"blazing[- ]fast", r"world[- ]class", r"enterprise[- ]grade", r"production[- ]ready", r"battle[- ]tested",
-    r"best[- ]in[- ]class", r"next[- ]gen", r"supercharge[sd]?", r"effortless(?:ly)?", r"comprehensive", r"leverag\w+",
-    r"utili[sz]\w+", r"delve", r"in today's", r"it'?s important to note", r"it is worth noting",
+    r"seamless(?:ly)?",
+    r"robust",
+    r"powerful",
+    r"cutting[- ]edge",
+    r"state[- ]of[- ]the[- ]art",
+    r"game[- ]chang\w+",
+    r"blazing[- ]fast",
+    r"world[- ]class",
+    r"enterprise[- ]grade",
+    r"production[- ]ready",
+    r"battle[- ]tested",
+    r"best[- ]in[- ]class",
+    r"next[- ]gen",
+    r"supercharge[sd]?",
+    r"effortless(?:ly)?",
+    r"comprehensive",
+    r"leverag\w+",
+    r"utili[sz]\w+",
+    r"delve",
+    r"in today's",
+    r"it'?s important to note",
+    r"it is worth noting",
 ]
 CRUTCH = [r"simply", r"just", r"easily", r"easy", r"obviously", r"of course"]
 COUNT_RE = re.compile(
     r"\b\d[\d,]*\+?\s+(?:passing\s+)?(?:tests?|files?|pages?|commands?|rules?|invariants?|modules?|tools?|"
-    r"integrations?|endpoints?|checks?|policies|packages?|source files?)\b", re.I)
+    r"integrations?|endpoints?|checks?|policies|packages?|source files?)\b",
+    re.I,
+)
 VERSION_RE = re.compile(r"(?<![\w.-])v?\d+\.\d+\.\d+(?:[-+][\w.]+)?(?![\w.-])")
 VERSION_OK_FILES = re.compile(r"changelog|migration|release|upgrad|history", re.I)
 PLACEHOLDER_RE = re.compile(r"\b(TODO|TBD|FIXME|XXX|WIP)\b|lorem ipsum|coming soon", re.I)
@@ -97,8 +140,11 @@ class Checker:
             for e in errs:
                 self.rep.add("ERROR", "ledger", e)
         self.glossary = json.loads(Path(args.glossary).read_text(encoding="utf-8")) if args.glossary else {}
-        self.required_fm = [] if args.require_frontmatter.lower() == "none" else [
-            k.strip() for k in args.require_frontmatter.split(",") if k.strip()]
+        self.required_fm = (
+            []
+            if args.require_frontmatter.lower() == "none"
+            else [k.strip() for k in args.require_frontmatter.split(",") if k.strip()]
+        )
         self.all_text = ""
         self._prepare_inventory()
 
@@ -178,7 +224,9 @@ class Checker:
         for lineno, level, raw in hs:
             key = (level, raw.lower())
             if key in seen:
-                self.rep.add("WARN", f"{rel}:{lineno}", f"duplicate heading {raw!r} (first at line {seen[key]}); anchors collide")
+                self.rep.add(
+                    "WARN", f"{rel}:{lineno}", f"duplicate heading {raw!r} (first at line {seen[key]}); anchors collide"
+                )
             seen.setdefault(key, lineno)
 
     def check_fences_and_blocks(self, path, rel):
@@ -227,14 +275,26 @@ class Checker:
             return
         tops = {m.split(".")[0] for m in self.pkg_known}
         for node in ast.walk(tree):
-            if isinstance(node, ast.ImportFrom) and node.level == 0 and node.module and node.module.split(".")[0] in tops:
+            if (
+                isinstance(node, ast.ImportFrom)
+                and node.level == 0
+                and node.module
+                and node.module.split(".")[0] in tops
+            ):
                 if node.module not in self.pkg_exports:
                     self.rep.add("WARN", w, f"module '{node.module}' not found in inventory")
                     continue
                 for a in node.names:
-                    if a.name != "*" and a.name not in self.pkg_exports[node.module] \
-                            and f"{node.module}.{a.name}" not in self.pkg_known:
-                        self.rep.add("WARN", w, f"'{a.name}' not found in '{node.module}' per inventory (verify with verify_snippets.py)")
+                    if (
+                        a.name != "*"
+                        and a.name not in self.pkg_exports[node.module]
+                        and f"{node.module}.{a.name}" not in self.pkg_known
+                    ):
+                        self.rep.add(
+                            "WARN",
+                            w,
+                            f"'{a.name}' not found in '{node.module}' per inventory (verify with verify_snippets.py)",
+                        )
             elif isinstance(node, ast.Import):
                 for a in node.names:
                     if a.name.split(".")[0] in tops and a.name not in self.pkg_known:
@@ -253,15 +313,26 @@ class Checker:
             tokens = re.findall(r"""(?:[^\s"']+|"[^"]*"|'[^']*')+""", s)
             for i, t in enumerate(tokens):
                 if t in self.cli_names:
-                    rest = tokens[i + 1:]
+                    rest = tokens[i + 1 :]
                     first = next((x for x in rest if not x.startswith("-")), None)
                     if self.cli_subs and first and rest and rest[0] == first and first not in self.cli_subs:
-                        self.rep.add("WARN", f"{w}+{off + 1}", f"'{t} {first}': '{first}' is not a subcommand found in source")
+                        self.rep.add(
+                            "WARN", f"{w}+{off + 1}", f"'{t} {first}': '{first}' is not a subcommand found in source"
+                        )
                     for x in rest:
                         flag = x.split("=")[0]
-                        if flag.startswith("--") and self.cli_flags and flag not in self.cli_flags and flag != "--help" \
-                                and flag != "--version":
-                            self.rep.add("WARN", f"{w}+{off + 1}", f"flag '{flag}' not defined in any CLI definition found in source")
+                        if (
+                            flag.startswith("--")
+                            and self.cli_flags
+                            and flag not in self.cli_flags
+                            and flag != "--help"
+                            and flag != "--version"
+                        ):
+                            self.rep.add(
+                                "WARN",
+                                f"{w}+{off + 1}",
+                                f"flag '{flag}' not defined in any CLI definition found in source",
+                            )
                     break
 
     # ------------------------------------------------------------------ links
@@ -283,7 +354,13 @@ class Checker:
         for base in bases:
             for r in rels:
                 full = base / r
-                for c in (full, Path(str(full) + ".md"), Path(str(full) + ".mdx"), full / "index.md", full / "index.mdx"):
+                for c in (
+                    full,
+                    Path(str(full) + ".md"),
+                    Path(str(full) + ".mdx"),
+                    full / "index.md",
+                    full / "index.mdx",
+                ):
                     if c.is_file():
                         return c, anchor, "ok"
         return None, anchor, "rooted" if rooted else "relative"
@@ -297,11 +374,19 @@ class Checker:
                 found, anchor, state = self.resolve(path, target)
                 if found is None:
                     level = "WARN" if state == "rooted" else "ERROR"
-                    self.rep.add(level, f"{rel}:{lineno}", f"link target not found: {target}"
-                                 + (" (site-root link; confirm the route exists)" if state == "rooted" else ""))
+                    self.rep.add(
+                        level,
+                        f"{rel}:{lineno}",
+                        f"link target not found: {target}"
+                        + (" (site-root link; confirm the route exists)" if state == "rooted" else ""),
+                    )
                 elif anchor and found.suffix.lower() in {".md", ".mdx"} and anchor not in self.anchors_of(found):
-                    self.rep.add("ERROR", f"{rel}:{lineno}", f"anchor #{anchor} not found in {found.name} "
-                                 "(slug rules differ per site generator; confirm in the built site)")
+                    self.rep.add(
+                        "ERROR",
+                        f"{rel}:{lineno}",
+                        f"anchor #{anchor} not found in {found.name} "
+                        "(slug rules differ per site generator; confirm in the built site)",
+                    )
 
     # ------------------------------------------------------------------ prose lint
     def exempt(self, lines, idx, label):
@@ -330,23 +415,37 @@ class Checker:
             idx = lineno - 1
             for m in ABS_RE.finditer(line):
                 if not self.exempt(raw_lines, idx, m.group(0)):
-                    self.rep.add("WARN", f"{rel}:{lineno}", f"absolute wording '{m.group(0)}': needs a verified ledger entry "
-                                 "(lint-ok: claim=<id>) or a bounded rewrite ('when X, Y')")
+                    self.rep.add(
+                        "WARN",
+                        f"{rel}:{lineno}",
+                        f"absolute wording '{m.group(0)}': needs a verified ledger entry "
+                        "(lint-ok: claim=<id>) or a bounded rewrite ('when X, Y')",
+                    )
             for m in VAGUE_RE.finditer(line):
                 if not self.exempt(raw_lines, idx, m.group(0)):
                     self.rep.add("WARN", f"{rel}:{lineno}", f"'{m.group(0)}' is vague: say secure/safe against what")
             for m in HYPE_RE.finditer(line):
-                self.rep.add("WARN", f"{rel}:{lineno}", f"filler/hype word '{m.group(0)}': state the concrete behavior instead")
+                self.rep.add(
+                    "WARN", f"{rel}:{lineno}", f"filler/hype word '{m.group(0)}': state the concrete behavior instead"
+                )
             for m in CRUTCH_RE.finditer(line):
                 self.rep.add("WARN", f"{rel}:{lineno}", f"crutch word '{m.group(0)}'")
             for m in COUNT_RE.finditer(line):
                 if not self.exempt(raw_lines, idx, m.group(0)):
-                    self.rep.add("WARN", f"{rel}:{lineno}", f"hard-coded count '{m.group(0)}': generate it from code or remove it")
+                    self.rep.add(
+                        "WARN",
+                        f"{rel}:{lineno}",
+                        f"hard-coded count '{m.group(0)}': generate it from code or remove it",
+                    )
             if not VERSION_OK_FILES.search(base_name):
                 for m in VERSION_RE.finditer(line):
                     if not self.exempt(raw_lines, idx, m.group(0)):
-                        self.rep.add("WARN", f"{rel}:{lineno}", f"hard-coded version '{m.group(0)}': it will go stale; "
-                                     "use install commands without pins or generate it")
+                        self.rep.add(
+                            "WARN",
+                            f"{rel}:{lineno}",
+                            f"hard-coded version '{m.group(0)}': it will go stale; "
+                            "use install commands without pins or generate it",
+                        )
             for term_ok, variants in self.glossary.items():
                 for v in variants:
                     if re.search(r"(?<![\w-])" + re.escape(v) + r"(?![\w-])", line):
@@ -369,8 +468,12 @@ class Checker:
                     for extra in (e.strip() for e in m.group(2).split(",")):
                         if extra and norm(extra) not in self.extras:
                             line = text[: m.start()].count("\n") + 1
-                            self.rep.add("ERROR", f"{rel}:{line}", f"extra '{extra}' is not defined in pyproject.toml "
-                                         f"(defined: {', '.join(sorted(self.extras)) or 'none'})")
+                            self.rep.add(
+                                "ERROR",
+                                f"{rel}:{line}",
+                                f"extra '{extra}' is not defined in pyproject.toml "
+                                f"(defined: {', '.join(sorted(self.extras)) or 'none'})",
+                            )
         for prefix in sorted(self.env_prefixes):
             for m in re.finditer(r"\b(%s[A-Z0-9_]+)\b" % re.escape(prefix), text):
                 if m.group(1) not in self.env_known:
@@ -391,9 +494,15 @@ class Checker:
         scripts = sorted(s for s in self.cli_names if s not in self.all_text)
         if scripts:
             self.rep.add("INFO", "coverage", f"console scripts no page mentions: {', '.join(scripts)}")
-        envs = sorted(e["name"] for e in self.inv["env_vars"] if e["form"] in {"call", "subscript"} and e["name"] not in self.all_text)
+        envs = sorted(
+            e["name"]
+            for e in self.inv["env_vars"]
+            if e["form"] in {"call", "subscript"} and e["name"] not in self.all_text
+        )
         if envs:
-            self.rep.add("INFO", "coverage", f"env vars read in code that no page mentions: {', '.join(sorted(set(envs)))}")
+            self.rep.add(
+                "INFO", "coverage", f"env vars read in code that no page mentions: {', '.join(sorted(set(envs)))}"
+            )
 
     def navigation(self, pages):
         routes = {p.relative_to(self.docs).with_suffix("").as_posix() for p in pages}
@@ -424,13 +533,14 @@ class Checker:
                     elif isinstance(o, list):
                         for it in o:
                             walk(it)
+
                 walk(data.get("navigation", data))
                 prefix = "" if base == self.docs else self.docs.name + "/"
                 for entry in sorted(listed):
-                    e = entry[len(prefix):] if prefix and entry.startswith(prefix) else entry
+                    e = entry[len(prefix) :] if prefix and entry.startswith(prefix) else entry
                     if e not in routes:
                         self.rep.add("ERROR", str(dj.name), f"navigation entry '{entry}' has no page")
-                for r in sorted(routes - {x[len(prefix):] if prefix and x.startswith(prefix) else x for x in listed}):
+                for r in sorted(routes - {x[len(prefix) :] if prefix and x.startswith(prefix) else x for x in listed}):
                     self.rep.add("WARN", r, "page is not listed in docs.json navigation")
                 break
         for meta in sorted(self.docs.rglob("meta.json")):
@@ -444,14 +554,20 @@ class Checker:
                 d = meta.parent
                 names = {x for x in data["pages"] if isinstance(x, str) and not x.startswith(("---", "...", "!", "["))}
                 for n in sorted(names):
-                    if not any((d / (n + s)).exists() for s in ("", ".md", ".mdx")) and not (d / n / "index.mdx").exists():
+                    if (
+                        not any((d / (n + s)).exists() for s in ("", ".md", ".mdx"))
+                        and not (d / n / "index.mdx").exists()
+                    ):
                         self.rep.add("ERROR", str(meta.relative_to(self.docs)), f"pages entry '{n}' has no file")
                 present = {p.stem for p in d.glob("*.md*")} | {p.name for p in d.iterdir() if p.is_dir()}
                 for n in sorted(present - names - {"index"}):
                     self.rep.add("WARN", str(meta.relative_to(self.docs)), f"'{n}' exists but is not listed in pages")
         if not done:
-            self.rep.add("INFO", "navigation", "no docs.json or meta.json found; navigation not checked "
-                         "(mkdocs/sidebars/_meta: compare by hand)")
+            self.rep.add(
+                "INFO",
+                "navigation",
+                "no docs.json or meta.json found; navigation not checked (mkdocs/sidebars/_meta: compare by hand)",
+            )
 
 
 def main():

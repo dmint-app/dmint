@@ -31,7 +31,7 @@ dmint init --harness opencode
 ```
 
 What this creates:
-- `policy.json` — Deterministic rules for `shell.execute` and `filesystem.*` (`read_file`, `write_file`, `delete_file`, `list_directory`).
+- `.dmint/policies/<harness>.policy.json` & `policy.json` — Dedicated per-harness policies covering all built-in tools for Claude Code (`claude-code.policy.json`), Codex (`codex.policy.json`), and OpenCode (`opencode.policy.json`).
 - `.dmint/signing.key` & `.dmint/integrity.key` (`0600` permissions) — Ed25519 approval signing key and HMAC store integrity key.
 - `.claude/settings.json` — Claude Code `PreToolUse` hook matching `Bash|Read|Write|Edit|MultiEdit|NotebookEdit|WebFetch|mcp__.*`.
 - `.codex/hooks.json` & `.codex/dmint-hook.sh` — OpenAI Codex CLI pre-execution hook.

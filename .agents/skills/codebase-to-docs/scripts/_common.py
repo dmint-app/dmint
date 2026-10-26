@@ -1,4 +1,5 @@
 """Shared helpers for the codebase-to-docs scripts. Standard library only."""
+
 from __future__ import annotations
 
 import re
@@ -8,8 +9,21 @@ from typing import Iterator
 
 DOC_SUFFIXES = {".md", ".mdx"}
 SKIP_DIRS = {
-    ".git", ".venv", "venv", "node_modules", "__pycache__", "build", "dist", ".tox",
-    ".mypy_cache", ".ruff_cache", ".pytest_cache", ".next", ".turbo", ".astro", ".cache",
+    ".git",
+    ".venv",
+    "venv",
+    "node_modules",
+    "__pycache__",
+    "build",
+    "dist",
+    ".tox",
+    ".mypy_cache",
+    ".ruff_cache",
+    ".pytest_cache",
+    ".next",
+    ".turbo",
+    ".astro",
+    ".cache",
 }
 
 
@@ -72,7 +86,7 @@ def extract_blocks(path) -> list[Block]:
     lines = path.read_text(encoding="utf-8").splitlines()
     out: list[Block] = []
     for start, end, indent, info, closed in scan_fences(lines):
-        body = [(raw[len(indent):] if raw.startswith(indent) else raw.lstrip()) for raw in lines[start + 1:end]]
+        body = [(raw[len(indent) :] if raw.startswith(indent) else raw.lstrip()) for raw in lines[start + 1 : end]]
         lang = re.split(r"[\s{(\[=]", info, maxsplit=1)[0].lower() if info else ""
         directive, reason = None, ""
         for back in (1, 2):  # directive must sit on one of the two lines above the fence
@@ -148,11 +162,12 @@ def split_frontmatter(text: str):
     if text.startswith("---"):
         m = re.match(r"^---[ \t]*\r?\n(.*?)\r?\n---[ \t]*(?:\r?\n|$)", text, re.S)
         if m:
-            return m.group(1), text[m.end():], m.group(0).count("\n")
+            return m.group(1), text[m.end() :], m.group(0).count("\n")
     return None, text, 0
 
 
 # --------------------------------------------------------------------------- reporting
+
 
 class Reporter:
     ORDER = ["ERROR", "WARN", "INFO", "SKIP", "PASS"]
@@ -182,12 +197,14 @@ class Reporter:
 
 # --------------------------------------------------------------------------- claim ledger
 
+
 def load_ledger(path):
     """Load ledger JSONL file(s). Returns (records_by_id, meta, errors).
 
     A ledger is one JSON object per line. A line {"_meta": {...}} carries repo-level metadata.
     """
     import json
+
     path = Path(path)
     files = sorted(path.rglob("*.jsonl")) if path.is_dir() else [path]
     records, meta, errors = {}, {}, []

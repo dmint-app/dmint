@@ -118,8 +118,6 @@ class CanonicalizationTests(unittest.TestCase):
             )
 
     def test_cross_check_npm_canonicalize(self):
-        if not (Path(__file__).parents[2] / "tests" / "fixtures" / "node_modules" / "canonicalize").exists():
-            self.skipTest("npm canonicalize fixture not installed")
         """Cross-check live output directly against npm 'canonicalize' package."""
         node_script = """
         const canonicalize = require('./tests/fixtures/node_modules/canonicalize').default;

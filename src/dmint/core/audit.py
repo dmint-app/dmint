@@ -39,11 +39,11 @@ DEFAULT_MAX_AUDIT_BYTES = 10 * 1024 * 1024  # 10 MB per log file
 DEFAULT_BACKUP_COUNT = 5
 
 LEVEL_MAP: dict[str, int] = {
-    "DEBUG": logging.DEBUG,        # 10
-    "INFO": logging.INFO,          # 20
-    "WARN": logging.WARNING,       # 30
-    "WARNING": logging.WARNING,    # 30
-    "ERROR": logging.ERROR,        # 40
+    "DEBUG": logging.DEBUG,  # 10
+    "INFO": logging.INFO,  # 20
+    "WARN": logging.WARNING,  # 30
+    "WARNING": logging.WARNING,  # 30
+    "ERROR": logging.ERROR,  # 40
     "CRITICAL": logging.CRITICAL,  # 50
 }
 
@@ -68,9 +68,7 @@ def parse_log_level(level: str | int | None, default: str = "INFO") -> tuple[str
     if raw == "WARN":
         raw = "WARNING"
     if raw not in LEVEL_MAP:
-        raise ValueError(
-            f"Invalid log level '{level}'. Expected one of: DEBUG, INFO, WARNING, ERROR, CRITICAL."
-        )
+        raise ValueError(f"Invalid log level '{level}'. Expected one of: DEBUG, INFO, WARNING, ERROR, CRITICAL.")
     return raw, LEVEL_MAP[raw]
 
 
@@ -568,15 +566,47 @@ def learn_policy_from_audit_logs(
         _add_rule("deny", "shell", "execute", "sudo *")
 
     destructive_tokens = (
-        "rm -rf", "sudo ", "mkfs", "dd if=", "> /dev/", "| sh", "| bash",
-        ".env", ".key", ".pem", "/etc/passwd", "/etc/shadow", ".dmint/",
-        "drop_", "destroy", "terminate", "delete_account", "wipe",
+        "rm -rf",
+        "sudo ",
+        "mkfs",
+        "dd if=",
+        "> /dev/",
+        "| sh",
+        "| bash",
+        ".env",
+        ".key",
+        ".pem",
+        "/etc/passwd",
+        "/etc/shadow",
+        ".dmint/",
+        "drop_",
+        "destroy",
+        "terminate",
+        "delete_account",
+        "wipe",
     )
     mutating_tokens = (
-        "git push", "git reset --hard", "docker ", "kubectl ", "terraform ",
-        "npm install", "pip install", "curl ", "wget ",
-        "write_file", "delete_file", "edit", "write", "apply_patch",
-        "refund", "transfer", "payout", "update", "delete", "insert", "create",
+        "git push",
+        "git reset --hard",
+        "docker ",
+        "kubectl ",
+        "terraform ",
+        "npm install",
+        "pip install",
+        "curl ",
+        "wget ",
+        "write_file",
+        "delete_file",
+        "edit",
+        "write",
+        "apply_patch",
+        "refund",
+        "transfer",
+        "payout",
+        "update",
+        "delete",
+        "insert",
+        "create",
     )
 
     for e in entries:

@@ -37,6 +37,7 @@ from dmint.templates import get_template_policy
 class AuditRegressionTests(unittest.TestCase):
     def setUp(self) -> None:
         import os
+
         self._prev_ikey = os.environ.get("DMINT_INTEGRITY_KEY")
         if not self._prev_ikey:
             os.environ["DMINT_INTEGRITY_KEY"] = "01" * 32
@@ -44,6 +45,7 @@ class AuditRegressionTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         import os
+
         if self._prev_ikey is None:
             os.environ.pop("DMINT_INTEGRITY_KEY", None)
         else:
@@ -297,11 +299,10 @@ class AuditRegressionTests(unittest.TestCase):
                 assert rec is not None
                 self.assertEqual(rec.state, ApprovalState.REJECTED)
 
-
-
     def test_f01b_self_heal_old_lossy_policy_snapshot(self) -> None:
         """sync_authoritative_policy repairs a truncated v2.0.3 snapshot when version_id and digest match."""
         from dmint.core.policy import sync_authoritative_policy
+
         policy = Policy([Rule.allow("fs", "read", resource="/srv/**", resource_kind="path")])
         prov = PolicyProvenance("v1", policy_digest(policy), self.now)
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -309,7 +310,12 @@ class AuditRegressionTests(unittest.TestCase):
             # Simulate old lossy v2.0.3 snapshot missing resource_kind
             store._connection.execute(
                 "INSERT OR REPLACE INTO store_policy (id, version_id, policy_digest, rules_json, updated_at) VALUES (1, ?, ?, ?, ?)",
-                (prov.version_id, prov.policy_digest, '{"rules":[{"action":"read","effect":"allow","resource":"/srv/**","tool":"fs"}]}', self.now.isoformat()),
+                (
+                    prov.version_id,
+                    prov.policy_digest,
+                    '{"rules":[{"action":"read","effect":"allow","resource":"/srv/**","tool":"fs"}]}',
+                    self.now.isoformat(),
+                ),
             )
             store._connection.commit()
             assert store.get_authoritative_policy()[0].rules[0].resource_kind == "exact"

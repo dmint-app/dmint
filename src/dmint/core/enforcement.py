@@ -396,6 +396,7 @@ class Dmint:
                 resolved_policy = Policy.from_file(p_str)
             else:
                 from dmint.templates import AVAILABLE_TEMPLATES, get_template_policy
+
                 if p_str.lower() in AVAILABLE_TEMPLATES:
                     resolved_policy = get_template_policy(p_str.lower())
                 else:
@@ -446,7 +447,12 @@ class Dmint:
 
         priv = load_private_key_from_file(skey_path)
         pub = priv.public_key()
-        trusted_map = {"dmint-cli": pub, "dmint-authority": pub, "dmint-dashboard": pub, "local-authority": pub}
+        trusted_map: dict[str, Any] = {
+            "dmint-cli": pub,
+            "dmint-authority": pub,
+            "dmint-dashboard": pub,
+            "local-authority": pub,
+        }
         default_skey = Path.home() / ".config" / "dmint" / "signing.key"
         if default_skey.exists() and not skey_path.exists():
             try:
@@ -566,9 +572,12 @@ class Dmint:
     def register(
         self,
         function: Callable[..., Any],
-        capability: str,
+        capability: str | None = None,
         *,
+        tool: str | None = None,
+        action: str | None = None,
         resource: ResourceSpec = NO_RESOURCE,
+        resource_param: str | None = None,
     ) -> Callable[..., Any]:
         """Register a target callable for a capability on this Dmint instance."""
 
@@ -578,10 +587,14 @@ class Dmint:
             else:
                 raise RequestValidationError("capability (or both tool and action) must be provided")
         _capability_parts(capability)
-        if isinstance(resource, str):
-            res_str = resource
-            resource = lambda b_args, _r=res_str: str(b_args.get(_r, _r))
-        elif type(resource) is not NoResource and not callable(resource):
+        if resource_param is not None and type(resource) is NoResource:
+            res_param = validate_text(resource_param, "resource_param")
+
+            def _param_resolver(b_args: Mapping[str, Any], _r: str = res_param) -> str:
+                return str(b_args[_r])
+
+            resource = _param_resolver
+        if type(resource) is not NoResource and not callable(resource):
             raise RequestValidationError("resource must be NO_RESOURCE or a resolver over bound arguments")
         target = _validate_function(function)
         raw_target = target.__func__ if isinstance(target, (classmethod, staticmethod)) else target
@@ -794,17 +807,21 @@ class Dmint:
                 args = args[1:]
             elif first_arg is None:
                 sig_params = [
-                    p for name, p in inspect.signature(binding.function).parameters.items()
+                    p
+                    for name, p in inspect.signature(binding.function).parameters.items()
                     if name not in ("self", "cls")
                     and p.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
                 ]
                 if len(args) == len(sig_params) + 1:
                     args = args[1:]
         bound_self = getattr(protected_callable, "__self__", None)
-        call_args = (bound_self, *args) if (bound_self is not None and (not args or args[0] is not bound_self)) else args
+        call_args = (
+            (bound_self, *args) if (bound_self is not None and (not args or args[0] is not bound_self)) else args
+        )
         if approval_credential is None and hasattr(self._approval_store, "get_approved_assertion_for_request"):
             from .request_binding import request_binding_fingerprint
             from .errors import ApprovalConsumedError
+
             _, _, probe_req = self._prepare_call(
                 binding.function,
                 call_args,
@@ -824,17 +841,19 @@ class Dmint:
             )
             if matched is not None:
                 _, approval_credential = matched
-            elif hasattr(self._approval_store, "_connection"):
-                row = self._approval_store._connection.execute(
-                    """
-                    SELECT state FROM approval_records
-                    WHERE request_fingerprint = ? AND principal_id = ? AND integration_id = ?
-                    ORDER BY decision_at DESC, created_at DESC LIMIT 1
-                    """,
-                    (probe_fp, self._agent_id, self._integration_id),
-                ).fetchone()
-                if row is not None and row["state"] == "CONSUMED":
-                    raise ApprovalConsumedError("approval was already consumed")
+            else:
+                raw_conn = getattr(self._approval_store, "_connection", None)
+                if raw_conn is not None:
+                    row = raw_conn.execute(
+                        """
+                        SELECT state FROM approval_records
+                        WHERE request_fingerprint = ? AND principal_id = ? AND integration_id = ?
+                        ORDER BY decision_at DESC, created_at DESC LIMIT 1
+                        """,
+                        (probe_fp, self._agent_id, self._integration_id),
+                    ).fetchone()
+                    if row is not None and row["state"] == "CONSUMED":
+                        raise ApprovalConsumedError("approval was already consumed")
         if type(approval_credential) is bytes:
             try:
                 approval_credential = ApprovalAssertion.from_bytes(approval_credential)
@@ -854,7 +873,7 @@ class Dmint:
             request_id=record.request_id,
         )
         store_policy_info = self._approval_store.get_authoritative_policy()
-        if store_policy_info is not None:
+        if isinstance(store_policy_info, tuple) and len(store_policy_info) == 2:
             store_policy, store_provenance = store_policy_info
             if (
                 record.policy_provenance.version_id != store_provenance.version_id
@@ -925,6 +944,7 @@ class Dmint:
         tool: str | None = None,
         action: str | None = None,
         resource: ResourceSpec = NO_RESOURCE,
+        resource_param: str | None = None,
     ) -> Callable[[F], F]:
         """Decorator that protects a target function with deterministic pre-execution policy enforcement.
 
@@ -947,16 +967,22 @@ class Dmint:
             ```
         """
 
+        explicit_tool_action = False
         if capability is None:
             if tool and action:
                 capability = f"{tool}.{action}"
+                explicit_tool_action = True
             else:
                 raise RequestValidationError("capability (or both tool and action) must be provided")
         _capability_parts(capability)
-        if isinstance(resource, str):
-            res_str = resource
-            resource = lambda b_args, _r=res_str: str(b_args.get(_r, _r))
-        elif type(resource) is not NoResource and not callable(resource):
+        if resource_param is not None and type(resource) is NoResource:
+            res_param = validate_text(resource_param, "resource_param")
+
+            def _prot_param_resolver(b_args: Mapping[str, Any], _r: str = res_param) -> str:
+                return str(b_args[_r])
+
+            resource = _prot_param_resolver
+        if type(resource) is not NoResource and not callable(resource):
             raise RequestValidationError("resource must be NO_RESOURCE or a resolver over bound arguments")
 
         def decorator(function: F) -> F:
@@ -984,9 +1010,16 @@ class Dmint:
                     if class_name not in cap_parts:
                         c_tool, c_action = _capability_parts(effective_capability)
                         cls_action = f"{class_name}.{c_action}"
-                        has_cls_rule = any(r.tool in (c_tool, "*") and r.action == cls_action for r in self._policy.rules)
-                        has_base_rule = any(r.tool in (c_tool, "*") and r.action == c_action for r in self._policy.rules)
-                        if has_cls_rule or not has_base_rule:
+                        if explicit_tool_action:
+                            has_cls_rule = any(
+                                r.tool in (c_tool, "*") and r.action == cls_action for r in self._policy.rules
+                            )
+                            has_base_rule = any(
+                                r.tool in (c_tool, "*") and r.action == c_action for r in self._policy.rules
+                            )
+                            if has_cls_rule or not has_base_rule:
+                                effective_capability = f"{c_tool}.{cls_action}"
+                        else:
                             effective_capability = f"{c_tool}.{cls_action}"
 
             registered_target = self.register(target, effective_capability, resource=resource)

@@ -78,13 +78,17 @@ def main_init_keys(args: list[str] | None = None) -> int:
         )
     else:
         from dmint.core import keys as _keys_mod_def
+
         default_k = _keys_mod_def.DEFAULT_KEY_FILE
         key_path = Path(opts.key_file).expanduser() if opts.key_file else default_k
         integrity_path = (
-            Path(opts.integrity_key_file).expanduser() if opts.integrity_key_file else (key_path.parent / "integrity.key")
+            Path(opts.integrity_key_file).expanduser()
+            if opts.integrity_key_file
+            else (key_path.parent / "integrity.key")
         )
 
     from dmint.core import keys as _keys_mod
+
     try:
         private_key = Ed25519PrivateKey.generate()
         write_private_key_atomic(key_path, private_key, force=opts.force)

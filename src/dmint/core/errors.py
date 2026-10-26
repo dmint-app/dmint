@@ -250,4 +250,5 @@ class KeyExistsError(FileExistsError, DmintError):
 
     code = "DMT_KEY_EXISTS"
 
+
 ApprovalRequired = ApprovalRequiredError

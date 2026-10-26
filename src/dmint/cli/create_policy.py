@@ -7,6 +7,7 @@ import ast
 import getpass
 import json
 import sys
+
 try:
     import questionary
 except ImportError:  # pragma: no cover
@@ -243,7 +244,9 @@ def run_create_policy_wizard(
         print("  1. External MCP server")
         print("  2. Local tools/source")
         print("  3. Interactive rule builder (Offline, no API key required)")
-        print("  4. Built-in domain templates (Offline: shell, filesystem, postgres, github, stripe, aws, kubernetes)\n")
+        print(
+            "  4. Built-in domain templates (Offline: shell, filesystem, postgres, github, stripe, aws, kubernetes)\n"
+        )
         mode_choice = input("Select mode [1-4, default 2]: ").strip()
         if mode_choice == "3":
             built_rules = interactive_rule_builder()
@@ -254,8 +257,18 @@ def run_create_policy_wizard(
             return verified_policy
         if mode_choice == "4":
             from dmint.templates import AVAILABLE_TEMPLATES, deduplicate_policy_dict, get_template_dict
-            tpl_in = input(f"Enter comma-separated templates ({', '.join(AVAILABLE_TEMPLATES)}, or all) [default: shell,filesystem]: ").strip() or "shell,filesystem"
-            names = list(AVAILABLE_TEMPLATES) if tpl_in.lower() == "all" else [x.strip().lower() for x in tpl_in.split(",") if x.strip()]
+
+            tpl_in = (
+                input(
+                    f"Enter comma-separated templates ({', '.join(AVAILABLE_TEMPLATES)}, or all) [default: shell,filesystem]: "
+                ).strip()
+                or "shell,filesystem"
+            )
+            names = (
+                list(AVAILABLE_TEMPLATES)
+                if tpl_in.lower() == "all"
+                else [x.strip().lower() for x in tpl_in.split(",") if x.strip()]
+            )
             combined: list[dict[str, Any]] = []
             for n in names:
                 combined.extend(get_template_dict(n).get("rules", []))
@@ -381,7 +394,9 @@ def run_create_policy_wizard(
         if isinstance(response_data, dict) and "type" not in response_data:
             if isinstance(response_data.get("rules"), list):
                 response_data = {"type": "policy_ready", "rules": response_data["rules"]}
-            elif isinstance(response_data.get("policy"), dict) and isinstance(response_data["policy"].get("rules"), list):
+            elif isinstance(response_data.get("policy"), dict) and isinstance(
+                response_data["policy"].get("rules"), list
+            ):
                 response_data = {"type": "policy_ready", "rules": response_data["policy"]["rules"]}
 
         # Check envelope shape
@@ -648,6 +663,7 @@ def main_create(args: list[str] | None = None) -> int:
                 collected_rules.extend(interactive_rule_builder())
             if parsed.from_logs:
                 from dmint.core.audit import learn_policy_from_audit_logs
+
                 log_p = Path(parsed.from_logs).resolve()
                 if not log_p.exists():
                     raise CLIError(f"Audit log file not found: {log_p}", exit_code=2)

@@ -6,22 +6,30 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 import json
 import logging
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
-try:
+if TYPE_CHECKING:
     import mcp.types as types
     from mcp.server import Server
     from mcp.server.context import ServerRequestContext
     from mcp.server.stdio import stdio_server
     from mcp.shared.exceptions import MCPError as SDKMCPError
-except ImportError:
-    from ._stdlib_mcp import (  # type: ignore[assignment]
-        MCPError as SDKMCPError,
-        Server,
-        stdio_server,
-        types,
-    )
-    ServerRequestContext = Any  # type: ignore[assignment, misc]
+else:
+    try:
+        import mcp.types as types
+        from mcp.server import Server
+        from mcp.server.context import ServerRequestContext
+        from mcp.server.stdio import stdio_server
+        from mcp.shared.exceptions import MCPError as SDKMCPError
+    except ImportError:
+        from ._stdlib_mcp import (
+            MCPError as SDKMCPError,
+            Server,
+            stdio_server,
+            types,
+        )
+
+        ServerRequestContext = Any
 from dmint.core.approvals import ApprovalRecord, ApprovalState, PolicyProvenance
 from dmint.core.verification import ApprovalAssertion, ApprovalVerifier
 from dmint.core.canonicalize import canonicalize_bytes, thaw_json
@@ -470,7 +478,7 @@ class EnforcementGate:
             raise ApprovalRequestMismatchError("approval request fingerprint mismatch")
 
         store_policy_info = self._approval_store.get_authoritative_policy()
-        if store_policy_info is not None:
+        if isinstance(store_policy_info, tuple) and len(store_policy_info) == 2:
             store_policy, store_provenance = store_policy_info
             if (
                 record.policy_provenance.version_id != store_provenance.version_id

@@ -117,15 +117,27 @@ pip install "dmint[all]"
 
 ---
 
-## 60-Second Quickstart: Coding Agents (Claude Code, Codex, OpenCode, Cursor)
+## 10-Second Live Proof (Zero Configuration)
 
-Protect built-in shell commands (`Bash`, `exec_command`), file edits (`Read`, `Write`, `Edit`), and MCP tools across all major AI coding harnesses with one command:
+Want to see Dmint defeat 7 real-world AI agent attacks (compound shell smuggling, symlink escape, multi-file patch smuggling, Ed25519 single-use approval, post-approval parameter tampering, and replay/key forgery) right in your terminal?
 
 ```bash
 pip install dmint
+dmint demo
+```
 
-# Generates .dmint/ keys (0600), starter policy.json (shell + filesystem), and pre-tool hooks:
+---
+
+## 60-Second Quickstart: Coding Agents (Claude Code, Codex, OpenCode, Cursor, Windsurf, Cline)
+
+Protect built-in shell commands (`Bash`, `exec_command`, `run_commands`), file edits (`Read`, `Write`, `Edit`, `apply_patch`), and MCP tools across all 6 major AI coding harnesses with one command:
+
+```bash
+# Generates .dmint/ keys (0600), dedicated per-harness policies (.dmint/policies/<harness>.policy.json), and hooks:
 dmint init --harness all
+
+# Verify cryptographic engine, keys, per-harness policies, hooks, and 4 built-in security vectors:
+dmint doctor
 ```
 
 Supported harnesses out of the box (`--harness all` or comma-separated):
@@ -151,6 +163,17 @@ dmint approve apr_... --by alice@company.com
 
 The next retry automatically verifies the Ed25519 signature against the exact RFC 8785 canonicalized arguments and consumes the approval atomically (`APPROVED -> CONSUMED`). Editing any argument or replaying the call a second time is refused.
 
+Inspect and verify the tamper-evident SHA-256 hash-chained audit trail of every tool call your agent made:
+
+```bash
+dmint logs                  # View color-coded audit table
+dmint logs --denied         # View only blocked (DENY) tool calls
+dmint logs --verify         # Cryptographically verify the SHA-256 hash chain
+dmint logs --follow         # Live-tail agent tool calls in real time
+```
+
+> **Zero-Friction Onboarding (Shadow Mode & Auto-Learn Policy)**: Want to observe what your coding agent does before blocking anything? Run hooks with `--mode shadow` (or `export DMINT_MODE=shadow`), then synthesize a verified least-privilege `policy.json` from your real session logs with `dmint learn-policy`.
+
 ---
 
 ## Quickstart: Python SDK
@@ -162,16 +185,20 @@ For local agents and quick evaluation, `Dmint.local()` automatically creates `.d
 ```python
 from dmint import ApprovalRequiredError, Dmint, Policy, Rule
 
-policy = Policy([
-    Rule.allow("database", "select"),
-    Rule.approval_required("database", "update"),
-    Rule.deny("database", "drop"),
-])
+policy = Policy(
+    [
+        Rule.allow("database", "select"),
+        Rule.approval_required("database", "update"),
+        Rule.deny("database", "drop"),
+    ]
+)
 dmint = Dmint.local(policy)
+
 
 @dmint.protect("database.update")
 def update_user_role(user_id: int, role: str) -> str:
     return f"Updated user {user_id} to {role}"
+
 
 try:
     update_user_role(1, "admin")
@@ -360,22 +387,27 @@ Add Dmint MCP as a stdio server in your client configuration (e.g. `.cursor/mcp.
 
 | Command | Usage | Description |
 | :--- | :--- | :--- |
-| `dmint init` | `dmint init --harness all` | One-command setup: generates `.dmint/` keys, starter `policy.json`, and coding-agent hooks. |
-| `dmint check` | `dmint check -t shell.execute -r "git status"` | Simulates a tool call against `policy.json` (`ALLOW` / `APPROVAL_REQUIRED` / `DENY`). |
-| `dmint hook` | `dmint hook <install\|run\|status\|uninstall>` | Manages and runs pre-tool hooks for Claude Code, Codex, OpenCode, Cursor, Windsurf, and Cline. |
-| `dmint create-policy` | `dmint create-policy -f access.md -o policy.json` | Interactive LLM wizard that converts markdown access requirements into validated policies. |
-| `dmint create-mcp-policy` | `dmint create-mcp-policy --url https://api.example.com/mcp` | Discovers live MCP server tools and generates `policy.json` and `mcp_protection.json`. |
+| `dmint init` | `dmint init --harness all` | One-command setup: generates `.dmint/` keys, per-harness policies (`.dmint/policies/*.policy.json`), and pre-tool hooks. |
+| `dmint doctor` | `dmint doctor [--json]` | Verifies Ed25519/HMAC crypto, keys (`0600`), SQLite store, per-harness policies, hooks, and runs a 4-vector security self-test. |
+| `dmint status` | `dmint status [--json]` | Displays installed coding-agent hooks, per-harness policy paths, and key status. |
+| `dmint demo` | `dmint demo [--json]` | Runs a live 7-scenario red-team attack & cryptographic simulation (`dmint redteam` alias). |
+| `dmint logs` | `dmint logs [--level WARNING] [--verify]` | Inspects, filters, tails (`-f`), exports, and verifies the SHA-256 hash-chained audit trail (`dmint audit` alias). |
+| `dmint learn-policy` | `dmint learn-policy [-o policy.json]` | Auto-learns a verified least-privilege `policy.json` from `.dmint/audit.jsonl` (Shadow or Enforce mode). |
+| `dmint check` | `dmint check shell.execute -r "git status"` | Simulates a tool call against `policy.json` (`ALLOW` / `APPROVAL_REQUIRED` / `DENY`) via positional `<tool.action>` or `-t`/`-a`. |
+| `dmint hook` | `dmint hook <install\|list\|status\|run\|uninstall>` | Manages and runs pre-tool hooks for Claude Code, Codex, OpenCode, Cursor, Windsurf, and Cline. |
+| `dmint create-policy` | `dmint create-policy [-t\|-r\|-i\|-p\|-f] -o policy.json` | Creates a verified `policy.json` via 4 modes: `--template` (`-t`), `--rule` (`-r`), `--interactive` (`-i`), or AI prompt (`-p`/`-f`). |
+| `dmint create-mcp-policy` | `dmint create-mcp-policy --command npx ... [--offline]` | Discovers live MCP server tools, pins SHA-256 `schema_hash` digests, and writes `policy.json` + `mcp_protection.json` (offline or AI). |
 | `dmint protect-mcp` | `dmint protect-mcp --url https://api.example.com/mcp` | Compatibility alias for `dmint create-mcp-policy` (identical options). |
-| `dmint verify-policy` | `dmint verify-policy policy.json` | 100% offline schema and capability validation. Zero network, zero LLM. |
-| `dmint policy-digest` | `dmint policy-digest policy.json` | Computes the SHA-256 digest of the exact policy file bytes (for `DMINT_EXPECTED_POLICY_DIGEST`). |
-| `dmint compile-policy` | `dmint compile-policy -f access.md -o policy.json` | [Compatibility] Legacy LLM wizard delegating to `create-policy` non-interactive mode. |
-| `dmint pending` | `dmint pending` | Lists all approval requests currently in `PENDING` state across SQLite or PostgreSQL. |
-| `dmint approve` | `dmint approve <id> [--reason "..."]` | Signs and approves a pending request via Core Ed25519 primitives after policy re-verification. |
-| `dmint reject` | `dmint reject <id> [--reason "..."]` | Marks a pending request as `REJECTED` with an optional audit reason. |
-| `dmint dashboard` | `dmint dashboard --db-path ./approvals.sqlite3` | Launches the local human approval web dashboard (FastAPI). |
+| `dmint verify-policy` | `dmint verify-policy policy.json [--json]` | 100% offline schema, capability, and invariant validation. Zero network, zero LLM. |
+| `dmint policy-digest` | `dmint policy-digest policy.json [--json]` | Computes the SHA-256 digest of the exact policy file bytes (for `DMINT_EXPECTED_POLICY_DIGEST`). |
+| `dmint compile-policy` | `dmint compile-policy -f access.md -o policy.json` | [Compatibility] Legacy LLM batch compiler delegating to `create-policy` non-interactive mode. |
+| `dmint pending` | `dmint pending [--json]` | Lists all approval requests currently in `PENDING` state across SQLite or PostgreSQL. |
+| `dmint approve` | `dmint approve <id> --by alice@company.com` | Signs and approves a pending request via Core Ed25519 primitives after policy re-verification. |
+| `dmint reject` / `deny` | `dmint reject <id> [--reason "..."]` | Marks a pending request as `REJECTED` with an optional audit reason (`dmint deny` is an alias). |
+| `dmint dashboard` | `dmint dashboard --db-path ./approvals.sqlite3` | Launches the local authenticated human approval web dashboard (FastAPI). |
 | `dmint install-skill` | `dmint install-skill -y` | Installs the `dmint-policy-manager` skill into `.agents/skills/` for AI coding assistants. |
-| `dmint init-keys` | `dmint init-keys` | Generates and persists Ed25519 signing and HMAC integrity keys (`0600`, atomic). |
-| `dmint export-public-key` | `dmint export-public-key --format json` | Prints the public key (hex + PEM) and issuer ID for gateway `trusted_issuers`. |
+| `dmint init-keys` | `dmint init-keys [--dir <path>]` | Generates and persists Ed25519 signing and HMAC integrity keys (`0600`, atomic). |
+| `dmint export-public-key` | `dmint export-public-key [--dir <path>] [--json]` | Prints the public key (hex + PEM + JSON) and issuer ID for gateway `trusted_issuers`. |
 
 ---
 
@@ -438,7 +470,7 @@ For complete vulnerability reporting guidelines and threat boundaries, see [SECU
 > 4. **Dashboard Token Theft**: Reading the dashboard token from configuration files or `/proc/<pid>/environ`.
 > 5. **Client Configuration Replacement**: Overwriting `.cursor/mcp.json` or client settings to bypass `dmint-mcp` entirely and talk to unprotected tools directly.
 >
-> **Protection Guarantee**: Dmint's cryptographic security boundary holds **strictly when the AI agent process runs under a different OS user or in an isolated container** with no filesystem access to Dmint keys, policies, or stores. See [docs/deployment-model.md](docs/deployment-model.md).
+> **Protection Guarantee**: Dmint's cryptographic security boundary holds **strictly when the AI agent process runs under a different OS user or in an isolated container** with no filesystem access to Dmint keys, policies, or stores. See [**`PRODUCTION_SECURITY_GUIDE.md`**](PRODUCTION_SECURITY_GUIDE.md) and [`docs/operations/production-proof.mdx`](docs/operations/production-proof.mdx) for complete step-by-step production key separation, `chattr +i` policy locking, and 3-zone container blueprints.
 
 ---
 
@@ -589,6 +621,7 @@ npm start
 - [`PLAIN.md`](PLAIN.md) — Deep architectural specification, state machine proofs, and 15-section security review checklist.
 - [`.agents/skills/`](.agents/skills/) — AI coding agent skills for security reviews, policy authoring, and adversarial testing.
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — Community contribution guidelines, Conventional Commits format, and PR process.
+- [`PRODUCTION_SECURITY_GUIDE.md`](PRODUCTION_SECURITY_GUIDE.md) — Complete production proof, Ed25519 private/public key placement, HMAC integrity keys, and 3-zone deployment blueprints.
 - [`SECURITY.md`](SECURITY.md) — Security policy, threat boundary definitions, and vulnerability reporting.
 
 ---
@@ -601,7 +634,7 @@ Dmint adheres strictly to **[Semantic Versioning 2.0.0](https://semver.org/)** a
 |---|---|---|
 | **High / Major** | `2.0.4` &rarr; `3.0.0` | Incompatible API changes, breaking policy schema modifications, removed public methods. |
 | **Medium / Minor** | `2.0.4` &rarr; `2.1.0` | Backwards-compatible features, new CLI flags, new integrations. |
-| **Low / Patch** | `2.0.4` &rarr; `2.0.4` | Bug fixes, security hardening, documentation updates, test additions, non-breaking refactors. |
+| **Low / Patch** | `2.0.4` &rarr; `2.0.5` | Bug fixes, security hardening, documentation updates, test additions, non-breaking refactors. |
 
 Every push must include the appropriate version decision and bump. A push carrying any Major change is Major; otherwise any Minor change makes it Minor; otherwise it is Patch. When severity is ambiguous, choose the higher severity and ask before a Major bump.
 

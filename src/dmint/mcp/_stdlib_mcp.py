@@ -7,6 +7,8 @@ Provides full stdio and streamable-HTTP client/server interoperability for:
 
 from __future__ import annotations
 
+from dmint.version import __version__
+
 import asyncio
 import contextlib
 from dataclasses import dataclass, field
@@ -57,7 +59,11 @@ class Tool:
     ) -> None:
         self.name = str(name)
         self.description = description if description is not None else ""
-        schema = inputSchema if inputSchema is not None else (input_schema if input_schema is not None else {"type": "object", "properties": {}})
+        schema = (
+            inputSchema
+            if inputSchema is not None
+            else (input_schema if input_schema is not None else {"type": "object", "properties": {}})
+        )
         self.inputSchema = dict(schema) if isinstance(schema, Mapping) else {"type": "object", "properties": {}}
         self.input_schema = self.inputSchema
         self.annotations = dict(annotations) if isinstance(annotations, Mapping) else {}
@@ -100,7 +106,7 @@ class CallToolResult:
         **extra: Any,
     ) -> None:
         norm_content: list[Any] = []
-        for item in (content or []):
+        for item in content or []:
             if isinstance(item, TextContent):
                 norm_content.append(item)
             elif isinstance(item, Mapping):
@@ -120,7 +126,9 @@ class CallToolResult:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "content": [c.to_dict() if hasattr(c, "to_dict") else {"type": "text", "text": str(c)} for c in self.content],
+            "content": [
+                c.to_dict() if hasattr(c, "to_dict") else {"type": "text", "text": str(c)} for c in self.content
+            ],
             "isError": self.isError,
         }
 
@@ -138,7 +146,7 @@ class ListToolsResult:
         **extra: Any,
     ) -> None:
         norm_tools: list[Tool] = []
-        for t in (tools or []):
+        for t in tools or []:
             if isinstance(t, Tool):
                 norm_tools.append(t)
             elif isinstance(t, Mapping):
@@ -146,7 +154,9 @@ class ListToolsResult:
                     Tool(
                         name=str(t.get("name", "")),
                         description=t.get("description", ""),
-                        inputSchema=t.get("inputSchema") or t.get("input_schema") or {"type": "object", "properties": {}},
+                        inputSchema=t.get("inputSchema")
+                        or t.get("input_schema")
+                        or {"type": "object", "properties": {}},
                         annotations=t.get("annotations"),
                     )
                 )
@@ -179,8 +189,15 @@ class CallToolRequestParams:
         arguments: dict[str, Any] | None = None,
         **extra: Any,
     ) -> None:
+        if arguments is not None and not isinstance(arguments, Mapping):
+            from pydantic import BaseModel
+
+            class _ArgCheck(BaseModel):
+                arguments: dict[str, Any]
+
+            _ArgCheck(arguments=arguments)
         self.name = name
-        self.arguments = arguments
+        self.arguments = dict(arguments) if arguments is not None else None
         self.agent_id = extra.get("agent_id")
         self.model_extra = extra
 
@@ -383,7 +400,7 @@ class ClientSession:
             {
                 "protocolVersion": "2024-11-05",
                 "capabilities": {},
-                "clientInfo": {"name": "dmint-mcp-client", "version": "2.0.4"},
+                "clientInfo": {"name": "dmint-mcp-client", "version": __version__},
             },
         )
         # Send initialized notification
@@ -433,9 +450,71 @@ class Server:
     def __init__(self, name: str) -> None:
         self.name = name
         self._handlers: dict[str, tuple[Any, Callable[..., Any]]] = {}
+        self._registered_tools: dict[str, tuple[Tool, Callable[..., Any]]] = {}
+
+    def tool(
+        self, name: str | None = None, description: str | None = None
+    ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+        import inspect
+
+        def _decorator(fn: Callable[..., Any]) -> Callable[..., Any]:
+            t_name = name or fn.__name__
+            t_desc = description or (inspect.getdoc(fn) or "")
+            sig = inspect.signature(fn)
+            props: dict[str, Any] = {}
+            req: list[str] = []
+            for p_name, param in sig.parameters.items():
+                ann = param.annotation
+                p_type = (
+                    "integer"
+                    if ann in (int, "int")
+                    else ("number" if ann in (float, "float") else ("boolean" if ann in (bool, "bool") else "string"))
+                )
+                props[p_name] = {"type": p_type}
+                if param.default is inspect.Parameter.empty:
+                    req.append(p_name)
+            schema: dict[str, Any] = {"type": "object", "properties": props}
+            if req:
+                schema["required"] = req
+            tool_obj = Tool(name=t_name, description=t_desc, inputSchema=schema)
+            self._registered_tools[t_name] = (tool_obj, fn)
+
+            async def _list_handler(ctx: Any, params: Any) -> ListToolsResult:
+                return ListToolsResult(tools=[t for t, _ in self._registered_tools.values()])
+
+            async def _call_handler(ctx: Any, params: CallToolRequestParams) -> CallToolResult:
+                if params.name not in self._registered_tools:
+                    raise MCPError(code=-32602, message=f"Unknown tool: {params.name}")
+                _, target_fn = self._registered_tools[params.name]
+                kwargs = dict(params.arguments or {})
+                res = target_fn(**kwargs)
+                if inspect.isawaitable(res):
+                    res = await res
+                return CallToolResult(content=[TextContent(type="text", text=str(res))])
+
+            self._handlers["tools/list"] = (PaginatedRequestParams, _list_handler)
+            self._handlers["tools/call"] = (CallToolRequestParams, _call_handler)
+            return fn
+
+        return _decorator
 
     def add_request_handler(self, method: str, param_cls: Any, handler: Callable[..., Any]) -> None:
         self._handlers[method] = (param_cls, handler)
+
+    def get_request_handler(self, method: str) -> Any:
+        if method not in self._handlers:
+            raise KeyError(f"No handler registered for {method}")
+        param_cls, fn = self._handlers[method]
+
+        class _RegisteredHandler:
+            def __init__(self, p_cls: Any, h_fn: Callable[..., Any]) -> None:
+                self.param_cls = p_cls
+                self.handler = h_fn
+
+            def __call__(self, *args: Any, **kwargs: Any) -> Any:
+                return self.handler(*args, **kwargs)
+
+        return _RegisteredHandler(param_cls, fn)
 
     def list_tools(self) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
         def _decorator(fn: Callable[..., Any]) -> Callable[..., Any]:
@@ -460,7 +539,7 @@ class Server:
         return _decorator
 
     def create_initialization_options(self) -> dict[str, Any]:
-        return {"server_name": self.name, "version": "2.0.4"}
+        return {"server_name": self.name, "version": __version__}
 
     async def _dispatch_message(self, raw_line: str, request_obj: Any = None) -> dict[str, Any] | None:
         from .gateway import parse_gateway_request
@@ -490,7 +569,7 @@ class Server:
                 "result": {
                     "protocolVersion": "2024-11-05",
                     "capabilities": {"tools": {}},
-                    "serverInfo": {"name": self.name, "version": "2.0.4"},
+                    "serverInfo": {"name": self.name, "version": __version__},
                 },
             }
 
@@ -501,6 +580,7 @@ class Server:
             param_cls, handler = self._handlers[method]
             if not isinstance(raw_params, Mapping):
                 raw_params = {}
+            params_inst: Any
             if param_cls is CallToolRequestParams:
                 extra = {k: v for k, v in raw_params.items() if k not in ("name", "arguments")}
                 params_inst = CallToolRequestParams(
@@ -513,12 +593,14 @@ class Server:
             else:
                 params_inst = raw_params
 
-            class _Ctx:
-                request = request_obj
-
+            ctx_obj = type("_Ctx", (), {"request": request_obj})()
             try:
-                res = await handler(_Ctx(), params_inst)
-                res_dict = res.to_dict() if hasattr(res, "to_dict") else (res.model_dump() if hasattr(res, "model_dump") else res)
+                res = await handler(ctx_obj, params_inst)
+                res_dict = (
+                    res.to_dict()
+                    if hasattr(res, "to_dict")
+                    else (res.model_dump() if hasattr(res, "model_dump") else res)
+                )
                 return {"jsonrpc": "2.0", "id": msg_id, "result": res_dict}
             except MCPError as exc:
                 return {"jsonrpc": "2.0", "id": msg_id, "error": {"code": exc.code, "message": exc.message}}
@@ -564,13 +646,113 @@ class Server:
         server_ref = self
 
         async def _handle_http_mcp(request: Request) -> Response:
-            body_bytes = request.scope.get("_dmint_cached_body") if "_dmint_cached_body" in request.scope else await request.body()
-            if len(body_bytes) > max_request_body_size:
+            body_bytes = (
+                request.scope.get("_dmint_cached_body")
+                if "_dmint_cached_body" in request.scope
+                else await request.body()
+            )
+            if body_bytes is None:
+                body_bytes = b""
+            raw_body = bytes(body_bytes)
+            if len(raw_body) > max_request_body_size:
                 return JSONResponse({"error": "Request body too large"}, status_code=413)
-            raw_text = body_bytes.decode("utf-8", errors="replace")
+            raw_text = raw_body.decode("utf-8", errors="replace")
             resp = await server_ref._dispatch_message(raw_text, request_obj=request)
             if resp is None:
                 return Response(status_code=202)
             return JSONResponse(resp, status_code=200)
 
         return Starlette(routes=[Route(streamable_http_path, _handle_http_mcp, methods=["POST"])])
+
+
+def register_stdlib_mcp_in_sys_modules() -> None:
+    """Register _stdlib_mcp as fallback 'mcp' package in sys.modules when PyPI mcp is not installed."""
+    import types as _py_types
+
+    if "mcp" in sys.modules:
+        return
+    mcp_pkg = _py_types.ModuleType("mcp")
+    mcp_pkg.ClientSession = ClientSession  # type: ignore[attr-defined]
+    mcp_pkg.StdioServerParameters = StdioServerParameters  # type: ignore[attr-defined]
+    mcp_pkg.stdio_client = stdio_client  # type: ignore[attr-defined]
+    mcp_pkg.types = types  # type: ignore[attr-defined]
+
+    mcp_client_pkg = _py_types.ModuleType("mcp.client")
+    mcp_client_stdio = _py_types.ModuleType("mcp.client.stdio")
+    mcp_client_stdio.StdioServerParameters = StdioServerParameters  # type: ignore[attr-defined]
+    mcp_client_stdio.stdio_client = stdio_client  # type: ignore[attr-defined]
+
+    _httpx_mod: Any = None
+    try:
+        import httpx as _httpx_loaded
+
+        _httpx_mod = _httpx_loaded
+    except ImportError:
+        pass
+    if _httpx_mod is not None and "httpx2" not in sys.modules:
+        sys.modules["httpx2"] = _httpx_mod
+    mcp_client_http = _py_types.ModuleType("mcp.client.streamable_http")
+    mcp_client_http.streamable_http_client = streamable_http_client  # type: ignore[attr-defined]
+    mcp_client_http.httpx = _httpx_mod  # type: ignore[attr-defined]
+    mcp_client_http.httpx2 = _httpx_mod  # type: ignore[attr-defined]
+
+    mcp_client_session = _py_types.ModuleType("mcp.client.session")
+    mcp_client_session.ClientSession = ClientSession  # type: ignore[attr-defined]
+
+    mcp_server_pkg = _py_types.ModuleType("mcp.server")
+    mcp_server_pkg.Server = Server  # type: ignore[attr-defined]
+    mcp_server_stdio = _py_types.ModuleType("mcp.server.stdio")
+    mcp_server_stdio.stdio_server = stdio_server  # type: ignore[attr-defined]
+
+    class _ServerRequestContext:
+        request_id: Any = None
+        meta: Any = None
+        session: Any = None
+        lifespan_context: Any = None
+        request: Any = None
+
+    mcp_server_pkg.__path__ = []  # type: ignore[attr-defined]
+    mcp_server_ctx = _py_types.ModuleType("mcp.server.context")
+    mcp_server_ctx.ServerRequestContext = _ServerRequestContext  # type: ignore[attr-defined]
+    mcp_server_lowlevel = _py_types.ModuleType("mcp.server.lowlevel")
+    mcp_server_lowlevel.__path__ = []  # type: ignore[attr-defined]
+    mcp_server_lowlevel_srv = _py_types.ModuleType("mcp.server.lowlevel.server")
+    mcp_server_lowlevel_srv.ServerRequestContext = _ServerRequestContext  # type: ignore[attr-defined]
+    mcp_server_lowlevel_srv.Server = Server  # type: ignore[attr-defined]
+    mcp_server_lowlevel.server = mcp_server_lowlevel_srv  # type: ignore[attr-defined]
+    mcp_server_pkg.lowlevel = mcp_server_lowlevel  # type: ignore[attr-defined]
+    sys.modules["mcp.server.lowlevel"] = mcp_server_lowlevel
+    sys.modules["mcp.server.lowlevel.server"] = mcp_server_lowlevel_srv
+    mcp_server_mcpserver = _py_types.ModuleType("mcp.server.mcpserver")
+    mcp_server_mcpserver.MCPServer = Server  # type: ignore[attr-defined]
+    mcp_server_pkg.mcpserver = mcp_server_mcpserver  # type: ignore[attr-defined]
+    sys.modules["mcp.server.mcpserver"] = mcp_server_mcpserver
+
+    mcp_shared_pkg = _py_types.ModuleType("mcp.shared")
+    mcp_shared_exc = _py_types.ModuleType("mcp.shared.exceptions")
+    mcp_shared_exc.MCPError = MCPError  # type: ignore[attr-defined]
+
+    mcp_pkg.client = mcp_client_pkg  # type: ignore[attr-defined]
+    mcp_pkg.server = mcp_server_pkg  # type: ignore[attr-defined]
+    mcp_pkg.shared = mcp_shared_pkg  # type: ignore[attr-defined]
+    mcp_client_pkg.stdio = mcp_client_stdio  # type: ignore[attr-defined]
+    mcp_client_pkg.streamable_http = mcp_client_http  # type: ignore[attr-defined]
+    mcp_client_pkg.session = mcp_client_session  # type: ignore[attr-defined]
+    mcp_server_pkg.stdio = mcp_server_stdio  # type: ignore[attr-defined]
+    mcp_server_pkg.context = mcp_server_ctx  # type: ignore[attr-defined]
+    mcp_shared_pkg.exceptions = mcp_shared_exc  # type: ignore[attr-defined]
+
+    sys.modules["mcp"] = mcp_pkg
+    sys.modules["mcp.types"] = types  # type: ignore[assignment]
+    sys.modules["mcp.client"] = mcp_client_pkg
+    sys.modules["mcp.client.stdio"] = mcp_client_stdio
+    sys.modules["mcp.client.streamable_http"] = mcp_client_http
+    sys.modules["mcp.client.session"] = mcp_client_session
+    sys.modules["mcp.server"] = mcp_server_pkg
+    sys.modules["mcp.server.stdio"] = mcp_server_stdio
+    sys.modules["mcp.server.context"] = mcp_server_ctx
+    sys.modules["mcp.shared"] = mcp_shared_pkg
+    sys.modules["mcp.shared.exceptions"] = mcp_shared_exc
+
+
+register_stdlib_mcp_in_sys_modules()

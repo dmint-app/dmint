@@ -126,7 +126,7 @@ dmint-mcp -c mcp_protection.json
 
 ## Complete Documentation Index
 
-For the full, single-file plain-text corpus of all 33 documentation pages, read [llms-full.txt](https://docs.dmint.app/llms-full.txt).
+For the full, single-file plain-text corpus of all 34 documentation pages, read [llms-full.txt](https://docs.dmint.app/llms-full.txt).
 
 ### Get Started
 - [Overview](https://docs.dmint.app/): Dmint is a deterministic authorization layer for AI agent tool calls with cryptographic request binding and single-use human approvals.
@@ -161,6 +161,7 @@ For the full, single-file plain-text corpus of all 33 documentation pages, read 
 - [Custom Python Agents (LangChain, CrewAI, AutoGen)](https://docs.dmint.app/integrations/custom-agents): How to integrate Dmint authorization into LangChain, CrewAI, AutoGen, and custom agent loops.
 
 ### Operations & Security
+- [Production Proof & Zero-Trust Hardening](https://docs.dmint.app/operations/production-proof): Step-by-step production deployment guide: private vs. public key placement, HMAC integrity keys, kernel-immutable policies, 3-zone container isolation, and mathematical proofs against AI agent bypass.
 - [Deployment Model and Process Isolation](https://docs.dmint.app/operations/deployment-model): Process boundaries, OS user separation, key storage permissions, and the same-OS-user threat model.
 - [Security Model and Threat Guarantees](https://docs.dmint.app/operations/security-model): Attacker capabilities, formal cryptographic guarantees, and verified security invariants.
 - [Known Limitations and Non-Goals](https://docs.dmint.app/operations/known-limitations): A blunt list of what Dmint does not do, known boundary constraints, and threat trade-offs.

@@ -398,11 +398,11 @@ async def _discover_stdio_tools(integration: MCPIntegration) -> list[dict[str, A
     args = integration.connection.get("args", [])
     env = integration.connection.get("env")
 
-    try:
-        from mcp import ClientSession, StdioServerParameters
-        from mcp.client.stdio import stdio_client
-    except ImportError:
-        from dmint.mcp._stdlib_mcp import ClientSession, StdioServerParameters, stdio_client
+    from dmint.mcp._stdlib_mcp import register_stdlib_mcp_in_sys_modules
+
+    register_stdlib_mcp_in_sys_modules()
+    from mcp import ClientSession, StdioServerParameters
+    from mcp.client.stdio import stdio_client
 
     params = StdioServerParameters(
         command=str(command) if command is not None else "",
@@ -459,13 +459,12 @@ async def _discover_streamable_http_tools(
     if auth_key and "Authorization" not in headers:
         headers["Authorization"] = f"Bearer {auth_key}"
 
-    try:
-        import httpx2
-        from mcp import ClientSession
-        from mcp.client.streamable_http import streamable_http_client
-    except ImportError:
-        import httpx as httpx2  # type: ignore[no-redef]
-        from dmint.mcp._stdlib_mcp import ClientSession, streamable_http_client
+    from dmint.mcp._stdlib_mcp import register_stdlib_mcp_in_sys_modules
+
+    register_stdlib_mcp_in_sys_modules()
+    import httpx2
+    from mcp import ClientSession
+    from mcp.client.streamable_http import streamable_http_client
 
     # Build an authenticated HTTP client and inject it into the MCP transport.
     # - verify=True: never weaken certificate verification.

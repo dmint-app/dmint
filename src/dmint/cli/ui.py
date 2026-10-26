@@ -9,7 +9,7 @@ import sys
 from typing import Any, Sequence
 
 try:
-    from rich. box import ROUNDED
+    from rich.box import ROUNDED
     from rich.console import Console
     from rich.panel import Panel
     from rich.table import Table
@@ -160,7 +160,9 @@ def interactive_rule_builder(
     idx = 1
     while True:
         try:
-            tool = input(f"Rule #{idx} Tool name (e.g. shell, filesystem, postgres, stripe) [Enter to finish]: ").strip()
+            tool = input(
+                f"Rule #{idx} Tool name (e.g. shell, filesystem, postgres, stripe) [Enter to finish]: "
+            ).strip()
         except EOFError:
             break
         if not tool:
@@ -170,13 +172,19 @@ def interactive_rule_builder(
             continue
 
         try:
-            action = input(f"Rule #{idx} Action for '{tool}' (e.g. execute, read_file, query) [default: *]: ").strip() or "*"
-            resource = input(f"Rule #{idx} Resource pattern (e.g. *, git status *, **/.env) [default: *]: ").strip() or "*"
+            action = (
+                input(f"Rule #{idx} Action for '{tool}' (e.g. execute, read_file, query) [default: *]: ").strip() or "*"
+            )
+            resource = (
+                input(f"Rule #{idx} Resource pattern (e.g. *, git status *, **/.env) [default: *]: ").strip() or "*"
+            )
             effect_in = (
                 input(
                     f"Rule #{idx} Effect for '{tool}.{action}' on '{resource}' "
                     "[1=allow, 2=approval_required, 3=deny, default: 2]: "
-                ).strip().lower()
+                )
+                .strip()
+                .lower()
             )
         except EOFError:
             break

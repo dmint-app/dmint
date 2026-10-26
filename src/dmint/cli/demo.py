@@ -58,16 +58,18 @@ def run_redteam_simulation(workspace_dir: Path | None = None) -> dict[str, Any]:
             audit_log_path=audit_path,
         )
         s1_ms = (time.perf_counter() - s0) * 1000.0
-        scenarios.append({
-            "id": 1,
-            "name": "Safe Workspace Read & Git Status",
-            "attack_vector": "Bash('git status')",
-            "expected": "ALLOW",
-            "actual": r1["decision"],
-            "code": r1["code"],
-            "passed": r1["decision"] == "ALLOW",
-            "latency_ms": round(s1_ms, 2),
-        })
+        scenarios.append(
+            {
+                "id": 1,
+                "name": "Safe Workspace Read & Git Status",
+                "attack_vector": "Bash('git status')",
+                "expected": "ALLOW",
+                "actual": r1["decision"],
+                "code": r1["code"],
+                "passed": r1["decision"] == "ALLOW",
+                "latency_ms": round(s1_ms, 2),
+            }
+        )
 
         # Scenario 2: Compound Shell Command Smuggling (DENY)
         s0 = time.perf_counter()
@@ -80,16 +82,18 @@ def run_redteam_simulation(workspace_dir: Path | None = None) -> dict[str, Any]:
             audit_log_path=audit_path,
         )
         s2_ms = (time.perf_counter() - s0) * 1000.0
-        scenarios.append({
-            "id": 2,
-            "name": "Compound Shell Secret Exfiltration",
-            "attack_vector": "Bash('git status && cat .env')",
-            "expected": "DENY",
-            "actual": r2["decision"],
-            "code": r2["code"],
-            "passed": r2["decision"] == "DENY",
-            "latency_ms": round(s2_ms, 2),
-        })
+        scenarios.append(
+            {
+                "id": 2,
+                "name": "Compound Shell Secret Exfiltration",
+                "attack_vector": "Bash('git status && cat .env')",
+                "expected": "DENY",
+                "actual": r2["decision"],
+                "code": r2["code"],
+                "passed": r2["decision"] == "DENY",
+                "latency_ms": round(s2_ms, 2),
+            }
+        )
 
         # Scenario 3: Symlink Escape Attack to /etc/passwd (DENY)
         s0 = time.perf_counter()
@@ -107,16 +111,18 @@ def run_redteam_simulation(workspace_dir: Path | None = None) -> dict[str, Any]:
             audit_log_path=audit_path,
         )
         s3_ms = (time.perf_counter() - s0) * 1000.0
-        scenarios.append({
-            "id": 3,
-            "name": "Symlink Escape to /etc/passwd",
-            "attack_vector": "Read('harmless_notes.txt -> /etc/passwd')",
-            "expected": "DENY",
-            "actual": r3["decision"],
-            "code": r3["code"],
-            "passed": r3["decision"] == "DENY",
-            "latency_ms": round(s3_ms, 2),
-        })
+        scenarios.append(
+            {
+                "id": 3,
+                "name": "Symlink Escape to /etc/passwd",
+                "attack_vector": "Read('harmless_notes.txt -> /etc/passwd')",
+                "expected": "DENY",
+                "actual": r3["decision"],
+                "code": r3["code"],
+                "passed": r3["decision"] == "DENY",
+                "latency_ms": round(s3_ms, 2),
+            }
+        )
 
         # Scenario 4: Multi-File Patch Smuggling (DENY)
         s0 = time.perf_counter()
@@ -137,24 +143,28 @@ def run_redteam_simulation(workspace_dir: Path | None = None) -> dict[str, Any]:
             audit_log_path=audit_path,
         )
         s4_ms = (time.perf_counter() - s0) * 1000.0
-        scenarios.append({
-            "id": 4,
-            "name": "Multi-File Patch Smuggling (apply_patch)",
-            "attack_vector": "apply_patch(src/app.py + .env.production)",
-            "expected": "DENY",
-            "actual": r4["decision"],
-            "code": r4["code"],
-            "passed": r4["decision"] == "DENY",
-            "latency_ms": round(s4_ms, 2),
-        })
+        scenarios.append(
+            {
+                "id": 4,
+                "name": "Multi-File Patch Smuggling (apply_patch)",
+                "attack_vector": "apply_patch(src/app.py + .env.production)",
+                "expected": "DENY",
+                "actual": r4["decision"],
+                "code": r4["code"],
+                "passed": r4["decision"] == "DENY",
+                "latency_ms": round(s4_ms, 2),
+            }
+        )
 
         # Scenario 5: Single-Use Ed25519 Human Approval Lifecycle
         s0 = time.perf_counter()
-        sdk_policy = Policy([
-            Rule.allow("stripe", "get_balance"),
-            Rule.approval_required("stripe", "issue_refund"),
-            Rule.deny("stripe", "delete_account"),
-        ])
+        sdk_policy = Policy(
+            (
+                Rule.allow("stripe", "get_balance"),
+                Rule.approval_required("stripe", "issue_refund"),
+                Rule.deny("stripe", "delete_account"),
+            )
+        )
         dm = Dmint.local(sdk_policy, state_dir=ws / ".dmint")
 
         @dm.protect("stripe.issue_refund")
@@ -168,25 +178,31 @@ def run_redteam_simulation(workspace_dir: Path | None = None) -> dict[str, Any]:
             apr_id = exc.approval_id
 
         assert apr_id is not None
-        main_approve([
-            apr_id,
-            "--by", "secops@company.com",
-            "--db-path", str(db_path),
-            "--key-file", str(ws / ".dmint" / "signing.key"),
-            "--integrity-key-file", str(ws / ".dmint" / "integrity.key"),
-        ])
+        main_approve(
+            [
+                apr_id,
+                "--by",
+                "secops@company.com",
+                "--db-path",
+                str(db_path),
+                "--key-file",
+                str(ws / ".dmint" / "signing.key"),
+            ]
+        )
         res_exec = dm.retry(issue_refund, None, "ord_500", 500)
         s5_ms = (time.perf_counter() - s0) * 1000.0
-        scenarios.append({
-            "id": 5,
-            "name": "Ed25519 Single-Use Human Approval & Retry",
-            "attack_vector": "stripe.issue_refund('ord_500', 500)",
-            "expected": "APPROVED_AND_CONSUMED",
-            "actual": "APPROVED_AND_CONSUMED" if res_exec == "refunded:ord_500:500" else "FAILED",
-            "code": "DMT_APPROVAL_CONSUMED_ALLOW",
-            "passed": res_exec == "refunded:ord_500:500",
-            "latency_ms": round(s5_ms, 2),
-        })
+        scenarios.append(
+            {
+                "id": 5,
+                "name": "Ed25519 Single-Use Human Approval & Retry",
+                "attack_vector": "stripe.issue_refund('ord_500', 500)",
+                "expected": "APPROVED_AND_CONSUMED",
+                "actual": "APPROVED_AND_CONSUMED" if res_exec == "refunded:ord_500:500" else "FAILED",
+                "code": "DMT_APPROVAL_CONSUMED_ALLOW",
+                "passed": res_exec == "refunded:ord_500:500",
+                "latency_ms": round(s5_ms, 2),
+            }
+        )
 
         # Scenario 6: Post-Approval Parameter Tampering (RFC 8785 JCS Mismatch)
         s0 = time.perf_counter()
@@ -199,13 +215,17 @@ def run_redteam_simulation(workspace_dir: Path | None = None) -> dict[str, Any]:
             audit_log_path=audit_path,
         )
         staging_apr = r6_ask["approval_id"]
-        main_approve([
-            staging_apr,
-            "--by", "secops@company.com",
-            "--db-path", str(db_path),
-            "--key-file", str(ws / ".dmint" / "signing.key"),
-            "--integrity-key-file", str(ws / ".dmint" / "integrity.key"),
-        ])
+        main_approve(
+            [
+                staging_apr,
+                "--by",
+                "secops@company.com",
+                "--db-path",
+                str(db_path),
+                "--key-file",
+                str(ws / ".dmint" / "signing.key"),
+            ]
+        )
         # Agent tampers with approved command ('staging' -> 'main --force')
         r6_tamper = evaluate_hook_request(
             {"tool_name": "Bash", "tool_input": {"command": "git push origin main --force"}},
@@ -217,16 +237,18 @@ def run_redteam_simulation(workspace_dir: Path | None = None) -> dict[str, Any]:
         )
         s6_ms = (time.perf_counter() - s0) * 1000.0
         tamper_blocked = r6_tamper["decision"] != "ALLOW" and r6_tamper.get("approval_id") != staging_apr
-        scenarios.append({
-            "id": 6,
-            "name": "Post-Approval RFC 8785 Parameter Tampering",
-            "attack_vector": "Approved 'staging' -> retried 'main --force'",
-            "expected": "BLOCKED",
-            "actual": "BLOCKED" if tamper_blocked else "BYPASSED",
-            "code": "DMT_FINGERPRINT_ISOLATED",
-            "passed": tamper_blocked,
-            "latency_ms": round(s6_ms, 2),
-        })
+        scenarios.append(
+            {
+                "id": 6,
+                "name": "Post-Approval RFC 8785 Parameter Tampering",
+                "attack_vector": "Approved 'staging' -> retried 'main --force'",
+                "expected": "BLOCKED",
+                "actual": "BLOCKED" if tamper_blocked else "BYPASSED",
+                "code": "DMT_FINGERPRINT_ISOLATED",
+                "passed": tamper_blocked,
+                "latency_ms": round(s6_ms, 2),
+            }
+        )
 
         # Scenario 7: Replay Attack & Rogue Ed25519 Key Forgery
         s0 = time.perf_counter()
@@ -247,13 +269,17 @@ def run_redteam_simulation(workspace_dir: Path | None = None) -> dict[str, Any]:
         )
         rogue_key = ws / ".dmint" / "rogue_attacker.key"
         write_private_key_atomic(rogue_key, Ed25519PrivateKey.generate(), force=True)
-        main_approve([
-            r7_ask["approval_id"],
-            "--by", "attacker@evil.local",
-            "--db-path", str(db_path),
-            "--key-file", str(rogue_key),
-            "--integrity-key-file", str(ws / ".dmint" / "integrity.key"),
-        ])
+        main_approve(
+            [
+                r7_ask["approval_id"],
+                "--by",
+                "attacker@evil.local",
+                "--db-path",
+                str(db_path),
+                "--key-file",
+                str(rogue_key),
+            ]
+        )
         r7_forged = evaluate_hook_request(
             {"tool_name": "Bash", "tool_input": {"command": "docker run --privileged alpine"}},
             harness="claude-code",
@@ -264,16 +290,18 @@ def run_redteam_simulation(workspace_dir: Path | None = None) -> dict[str, Any]:
         )
         s7_ms = (time.perf_counter() - s0) * 1000.0
         s7_passed = (replay_code == "DMT_APPROVAL_CONSUMED") and (r7_forged["decision"] == "DENY")
-        scenarios.append({
-            "id": 7,
-            "name": "Replay Attack & Rogue Ed25519 Key Forgery",
-            "attack_vector": "Replay consumed token + sign with rogue key",
-            "expected": "DENY",
-            "actual": r7_forged["decision"],
-            "code": f"{replay_code} + {r7_forged['code']}",
-            "passed": s7_passed,
-            "latency_ms": round(s7_ms, 2),
-        })
+        scenarios.append(
+            {
+                "id": 7,
+                "name": "Replay Attack & Rogue Ed25519 Key Forgery",
+                "attack_vector": "Replay consumed token + sign with rogue key",
+                "expected": "DENY",
+                "actual": r7_forged["decision"],
+                "code": f"{replay_code} + {r7_forged['code']}",
+                "passed": s7_passed,
+                "latency_ms": round(s7_ms, 2),
+            }
+        )
 
         chain_status = verify_audit_chain(audit_path)
         total_ms = (time.perf_counter() - t_start) * 1000.0
@@ -305,7 +333,9 @@ def main_demo(argv: Sequence[str] | None = None) -> int:
   dmint demo --keep-dir ./demo_workspace
 """,
     )
-    parser.add_argument("--keep-dir", default=None, help="Optional directory to persist the demo workspace, policies, and audit.jsonl")
+    parser.add_argument(
+        "--keep-dir", default=None, help="Optional directory to persist the demo workspace, policies, and audit.jsonl"
+    )
     parser.add_argument("--json", action="store_true", help="Output simulation report as JSON")
 
     try:
@@ -347,7 +377,9 @@ def main_demo(argv: Sequence[str] | None = None) -> int:
             for s in report["scenarios"]:
                 status_str = "[bold green]✓ PASS[/]" if s["passed"] else "[bold red]✗ FAIL[/]"
                 act_str = s["actual"]
-                act_styled = f"[green]{act_str}[/]" if "ALLOW" in act_str or "APPROVED" in act_str else f"[bold red]{act_str}[/]"
+                act_styled = (
+                    f"[green]{act_str}[/]" if "ALLOW" in act_str or "APPROVED" in act_str else f"[bold red]{act_str}[/]"
+                )
                 table.add_row(
                     str(s["id"]),
                     s["name"],

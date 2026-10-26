@@ -180,7 +180,7 @@ def _build_tables(metadata: MetaData) -> tuple[Table, Table, Table]:
         CheckConstraint("id = 1", name="ck_store_recovery_id"),
     )
 
-    assertions = Table(
+    Table(
         "approval_assertions",
         metadata,
         Column("approval_id", Text, primary_key=True),
@@ -358,7 +358,9 @@ class SQLAlchemyApprovalStore(ApprovalStore):
     def _sync_recovery_counter_with_conn(self, conn: Connection, *, increment: bool = False) -> None:
         with self._recovery_lock():
             row = conn.execute(select(self._recovery_table.c.counter).where(self._recovery_table.c.id == 1)).fetchone()
-            db_counter = int(row[0]) if row is not None and row[0] is not None else 0
+            row_value = row[0] if row is not None else None
+            row_missing = row_value is None
+            db_counter = int(row_value) if row_value is not None else 1
 
             sidecar_counter = 0
             if self._recovery_file is not None and self._recovery_file.exists():
@@ -369,10 +371,8 @@ class SQLAlchemyApprovalStore(ApprovalStore):
             if self._recovery_file is not None and db_counter < sidecar_counter:
                 raise ApprovalStoreError("database rollback detected: storage recovery counter mismatch")
 
-            if increment or db_counter == 0:
+            if increment or row_missing:
                 new_counter = max(db_counter, sidecar_counter) + (1 if increment else 0)
-                if new_counter == 0:
-                    new_counter = 1
                 now_str = _timestamp(self._clock())
                 conn.execute(
                     text(
