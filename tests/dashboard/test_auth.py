@@ -507,3 +507,36 @@ class TestDashboardAuthenticationAndSecurity:
         assert resp.status_code == 303
         assert "/login" in resp.headers["location"]
         assert s_id not in app.state.sessions
+
+    def test_expired_session_evicted_by_inline_check_when_prune_disabled(self, client_obj, monkeypatch) -> None:
+        """An expired presented cookie must be popped even when bulk pruning is unavailable."""
+        import time
+
+        from dmint.dashboard import auth as auth_module
+
+        def no_prune(*args, **kwargs) -> int:
+            return 0
+
+        # create_app imports prune_sessions at call time, so patching the auth
+        # module here forces the inline expiration branch to be the only eviction path.
+        monkeypatch.setattr(auth_module, "prune_sessions", no_prune)
+
+        app = create_app(
+            client_obj,
+            auth_token="super-secret-token",
+            allowed_hosts={"localhost", "127.0.0.1", "[::1]", "testserver"},
+        )
+        client = TestClient(app, raise_server_exceptions=False)
+        client.headers["Origin"] = "http://testserver"
+
+        client.post("/login", data={"token": "super-secret-token", "identity": "alice"})
+        session_id = client.cookies.get("dmint_session")
+        assert session_id is not None
+        assert session_id in app.state.sessions
+
+        app.state.sessions[session_id]["expires_at"] = time.time() - 10
+
+        resp = client.get("/", follow_redirects=False)
+        assert resp.status_code == 303
+        assert "/login" in resp.headers["location"]
+        assert session_id not in app.state.sessions
