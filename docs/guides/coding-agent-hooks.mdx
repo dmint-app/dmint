@@ -99,3 +99,58 @@ When a coding agent calls a tool that matches an `approval_required` rule (for e
    - When the agent re-runs `git push origin main`, `dmint hook run` computes the RFC 8785 request fingerprint, finds the matching `APPROVED` assertion in `.dmint/approvals.sqlite3`, verifies the Ed25519 signature, atomically transitions the record from `APPROVED` $\to$ `CONSUMED`, and returns `ALLOW`.
    - **Tamper Resistance**: If the agent alters the command to `git push origin main --force`, the fingerprint does not match `apr_8k9P...` and execution is blocked.
    - **Replay Protection**: If the agent tries to run `git push origin main` a second time, the consumed assertion cannot be reused.
+
+---
+
+## 5. Shadow Mode (Dry-Run Rollout) & Policy Learning
+
+Adopting a policy across an existing repository is safer as a three-phase rollout: observe, review, then enforce. Shadow mode evaluates every hook event and writes the decision to `.dmint/audit.jsonl`, but never blocks the tool call. Use it to discover the real tool and resource surface of a harness before turning on enforcement.
+
+### Phase 1: Observe with shadow mode
+
+Set `DMINT_MODE=shadow` in the environment used by the hook process, or pass `--mode shadow` when invoking `dmint hook run` directly:
+
+```bash
+export DMINT_MODE=shadow
+# The harness continues to call `dmint hook run`; decisions are logged, not enforced.
+```
+
+For a manual invocation:
+
+```bash
+dmint hook run --harness claude-code --mode shadow < payload.json
+```
+
+`dmint hook run` still resolves symlinks, expands batch patches and commands, and evaluates the dedicated harness policy. The difference is that would-be `DENY` and `APPROVAL_REQUIRED` outcomes are recorded with `shadow_would_block: true` and the hook allows the call to proceed.
+
+### Phase 2: Review what would have been blocked
+
+```bash
+# Show shadow-mode entries that would have been DENIED:
+dmint logs --mode shadow --search DMT_POLICY_DENIED
+
+# Show shadow-mode entries that would have required approval:
+dmint logs --mode shadow --search DMT_APPROVAL_REQUIRED
+
+# Show decision, level, shadow-block count, and top-blocked-resource breakdown:
+dmint logs --mode shadow --stats
+
+# Cryptographically verify the SHA-256 audit chain:
+dmint logs --verify
+```
+
+### Phase 3: Learn and verify a least-privilege policy
+
+`dmint learn-policy` reads the observed audit events and emits a starter policy. Safe read-only operations become scoped `ALLOW` rules, mutating operations become `APPROVAL_REQUIRED`, and destructive commands or secret paths are never learned as `ALLOW` (they are emitted as explicit `DENY` rules).
+
+```bash
+# Synthesize a candidate policy without touching the active policy.json:
+dmint learn-policy --from-logs .dmint/audit.jsonl -o policy.learned.json
+
+# Review the diff, then verify the candidate offline:
+diff -u policy.json policy.learned.json
+dmint verify-policy policy.learned.json
+dmint check -p policy.learned.json -t shell.execute -r "git status"
+```
+
+After review, replace `policy.json` (or the harness-specific policy under `.dmint/policies/`) and switch back to enforcement by unsetting `DMINT_MODE` or setting it to `enforce`.

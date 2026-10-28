@@ -17,13 +17,13 @@ ruff format .
 # 2. Lint and check for syntax / rule errors
 ruff check .
 
-# 3. Type check all 79 source files
+# 3. Type check all 86 source files
 mypy src/
 
 # 4. Run targeted tests for what you changed
 PYTHONPATH=src pytest tests/<subsystem>/ -v
 
-# 5. Run full test suite (must be 1515 passed, 0 skipped, 0 failed)
+# 5. Run full test suite (must be 1565 passed, 0 skipped, 0 failed)
 PYTHONPATH=src pytest tests/ -q
 
 # 6. Run pre-commit hooks manually across all files
@@ -62,7 +62,7 @@ Follow these steps in exact order before you run `git commit`:
   ```bash
   mypy src/
   ```
-- **Expected result**: `Success: no issues found in 79 source files`
+- **Expected result**: `Success: no issues found in 86 source files`
 - **Tips for writing type hints**:
   - Always add type annotations to new function arguments and return values:
     ```python
@@ -87,7 +87,7 @@ Follow these steps in exact order before you run `git commit`:
   ```bash
   PYTHONPATH=src pytest tests/ -q
   ```
-- **Expected result**: `1515 passed, 0 failed, 0 skipped` (or higher if you added new tests).
+- **Expected result**: `1565 passed, 0 failed, 0 skipped` (or higher if you added new tests).
 - **Rule**: `skipTest()` is banned. No skipped tests allowed.
 
 ### Step 6: Pre-Commit Hook Check
@@ -119,14 +119,14 @@ Follow these steps in exact order before you run `git commit`:
 - **Severity Guidelines**:
   | Severity | SemVer Bump | Trigger Changes | Examples |
   |---|---|---|---|
-  | **Low / Patch** | `2.0.0` &rarr; `2.0.1` | Bug fixes, documentation updates, internal refactoring, test additions, dependency maintenance. Backwards-compatible. | `fix(mcp): resolve subprocess timeout`<br>`docs: update quickstart guide` |
-  | **Medium / Minor** | `2.0.0` &rarr; `2.1.0` | New backwards-compatible features, new CLI commands, new flags, new framework integrations, new policy operators. | `feat(cli): add interactive export wizard`<br>`feat(mcp): add streamable http transport` |
-  | **High / Major** | `2.0.0` &rarr; `3.0.0` | Breaking changes, modified policy schema, changed cryptographic fingerprint algorithm, removed public APIs, architectural redesign. | `feat!(core): breaking change to policy condition schema` |
+  | **Low / Patch** | `2.0.4` &rarr; `2.0.5` | Bug fixes, documentation updates, internal refactoring, test additions, dependency maintenance. Backwards-compatible. | `fix(mcp): resolve subprocess timeout`<br>`docs: update quickstart guide` |
+  | **Medium / Minor** | `2.0.4` &rarr; `2.1.0` | New backwards-compatible features, new CLI commands, new flags, new framework integrations, new policy operators. | `feat(cli): add interactive export wizard`<br>`feat(mcp): add streamable http transport` |
+  | **High / Major** | `2.0.4` &rarr; `3.0.0` | Breaking changes, modified policy schema, changed cryptographic fingerprint algorithm, removed public APIs, architectural redesign. | `feat!(core): breaking change to policy condition schema` |
 
 - **CRITICAL PROTOCOL (ALWAYS ASK PERMISSION)**:
   1. **Assess Severity**: Look at the changes made and classify them into Patch, Minor, or Major.
   2. **Propose to User**: Suggest the recommended new version with clear rationale, for example:
-     > *"Based on the severity of these changes (new CLI options and bug fixes), I recommend bumping the version from `2.0.0` to `2.0.1` (Patch). Would you like me to update the version and changelog?"*
+     > *"Based on the severity of these changes (new CLI options and bug fixes), I recommend bumping the version from `2.0.4` to `2.0.5` (Patch). Would you like me to update the version and changelog?"*
   3. **Wait for Explicit Permission**: **NEVER** edit version strings or release tags without the user's explicit approval.
   4. **When Approved, Synchronously Update All Canonical Locations**:
      - [ ] `pyproject.toml` (`version = "X.Y.Z"`) — Single source of truth
@@ -312,7 +312,7 @@ Before running `git commit`, confirm every box is checked:
 - [ ] Code linted with `ruff check .` (0 errors)
 - [ ] Types checked with `mypy src/` (0 errors across 71 files)
 - [ ] Subsystem tests pass for touched area
-- [ ] Full test suite passes (`1515 passed, 0 skipped`)
+- [ ] Full test suite passes (`1565 passed, 0 skipped`)
 - [ ] Pre-commit hooks run cleanly (`pre-commit run --all-files`)
 - [ ] If docs/commands changed, `README.md` and `docs/` are updated
 - [ ] If docs touched, `npm run build` succeeds in `docs/`

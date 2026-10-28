@@ -51,9 +51,10 @@ The direct runtime schema requires `{"rules": [...]}`:
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `rules` | array | **Yes** | Non-empty array of rule objects evaluated sequentially using fail-closed semantics. |
+| `rules` | array | **Yes** | Non-empty array of rule objects evaluated with deny-overrides-allow precedence and a fail-closed default. |
 | `strict_arguments` | boolean | No | Optional policy-wide flag (default `false`). When `true`, argument constraints default `additionalProperties` to `false` across all rules. |
 | `tool_schemas` | object | No | Optional mapping of `<tool>.<action>` capability names to pinned SHA-256 JSON Schema digests. |
+| `default` | string | No | Runtime invariant and always `"deny"`. This is not a configurable JSON key: `Policy.from_mapping()` rejects an explicit `default` field. The evaluator applies this fail-closed default when no rule matches. |
 
 ---
 
@@ -71,6 +72,8 @@ Each element in the `rules` array defines an authorization rule for an agent act
 | `case_sensitive` | boolean | No | Case sensitivity for resource matching (defaults to `true`). Only supported for `"path"` and `"exact"` kinds; rejected on `"host"`, `"url"`, and `"identifier"`. Set to `false` on case-insensitive filesystems (macOS, Windows). |
 | `agent_id` | string | No | Optional agent identifier to restrict this rule to a specific agent identity. |
 | `conditions` | array | No | Optional trusted context conditions evaluated against environmental attributes. |
+| `constraints` | object | No | Optional JSON-Schema-like argument constraints for `allow` and `approval_required` rules. Constraints are rejected on `deny` rules. |
+| `schema_hash` | string | No | Pinned SHA-256 (64 lowercase hex characters) of the downstream tool schema for this rule. |
 
 ---
 
@@ -105,12 +108,21 @@ Each element in the `rules` array defines an authorization rule for an agent act
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "DmintPolicy",
+  "description": "The runtime default is always deny; explicit default keys are rejected by Policy.from_mapping().",
+  "default": "deny",
   "type": "object",
   "required": ["rules"],
   "additionalProperties": false,
   "properties": {
     "strict_arguments": {
       "type": "boolean"
+    },
+    "tool_schemas": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{64}$"
+      }
     },
     "rules": {
       "type": "array",
@@ -197,6 +209,10 @@ Each element in the `rules` array defines an authorization rule for an agent act
                 }
               }
             }
+          },
+          "schema_hash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
           }
         }
       }

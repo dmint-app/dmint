@@ -59,7 +59,7 @@ The table below covers the codes emitted by the current package. A normal fail-c
 | `DMT_APPROVAL_ALGORITHM_UNSUPPORTED` | `ApprovalAlgorithmUnsupportedError` | The assertion signature algorithm is not explicitly allowed. |
 | `DMT_APPROVAL_CORRUPT` | `CorruptApprovalRecordError` | HMAC integrity verification failed for a stored row. Treat as tampering/corruption and investigate. |
 | `DMT_APPROVAL_DEPRECATED_FORMAT` | `DeprecatedStorageFormatError` | An unkeyed/deprecated storage format was encountered and rejected. Migrate through a supported path. |
-| `DMT_APPROVAL_STORE_ERROR` | `ApprovalStoreError` | Generic storage failure (I/O, recovery counter, quota, conflict). See the message and logs. |
+| `DMT_APPROVAL_STORE_ERROR` | `ApprovalStoreError` | Generic storage failure (I/O, quota, conflict), or a SQLite database rollback detected when the monotonic `.epoch` sidecar counter is ahead of the store counter. See the message and logs. |
 | `DMT_APPROVAL_STORE_CONFIG_ERROR` | `ApprovalStoreConfigurationError` | Invalid or unreachable configured database. Dmint does not silently fall back to SQLite. |
 
 ---
@@ -85,7 +85,7 @@ The table below covers the codes emitted by the current package. A normal fail-c
 | `DMT_MCP_TOOL_NOT_FOUND` | `MCPMappingError` | Requested tool is not registered in any integration. |
 | `DMT_MCP_TOOL_UNKNOWN` | `MCPMappingError` | Downstream tool has no trusted binding. |
 | `DMT_MCP_TOOL_AMBIGUOUS` | `MCPMappingError` | Multiple integrations expose the same unqualified tool name. |
-| `DMT_MCP_SCHEMA_MISMATCH` | `MCPMappingError` | Downstream schema differs from the pinned `tool_schema_hash`; re-pin deliberately after review. |
+| `DMT_MCP_SCHEMA_MISMATCH` | `MCPMappingError` | Downstream schema differs from the pinned `schema_hash` in `policy.json` (`tool_schemas` or a rule-level `schema_hash`); re-pin deliberately after review. |
 | `DMT_MCP_ARGUMENT_INVALID` | `MCPMappingError` | Arguments fail the mapped tool schema or canonicalization checks. |
 | `DMT_MCP_RESOURCE_INVALID` | `MCPMappingError` | The mapped resource is invalid under the configured `resource_key`. |
 | `DMT_MCP_CONNECTION_ERROR` | `MCPConnectionError` | Downstream connection failed, hostname pin failed, or SSRF protection rejected the destination. |

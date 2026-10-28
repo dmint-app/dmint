@@ -57,7 +57,7 @@ Never run an untrusted AI agent under the same OS user (`UID`) that owns your Ed
 
 ## 2. Complete Cryptographic Key & Digest Reference
 
-When you run `dmint init-keys` (or `dmint init`), Dmint generates two distinct cryptographic keys and supports two SHA-256 pinning digests. Understanding where each key lives and what it does is the foundation of a zero-trust deployment:
+When you run `dmint init-keys` (or `dmint init`), Dmint generates two distinct cryptographic keys and uses several SHA-256 integrity mechanisms. Understanding where each key lives and what it does is the foundation of a zero-trust deployment:
 
 | Artifact | Cryptographic Primitive | Purpose | Who Holds It | Who Must NEVER Have It | Production Location & Mode |
 | :--- | :--- | :--- | :--- | :--- | :--- |
@@ -66,6 +66,7 @@ When you run `dmint init-keys` (or `dmint init`), Dmint generates two distinct c
 | **3. Store Integrity Key** (`integrity.key`) | **HMAC-SHA256** Secret Key (32 bytes, domain `dmint/approval-record-integrity/v2\x00`) | Computes `row_mac` over every row in SQLite/PostgreSQL (`approvals` table) to detect unauthorized SQL edits to request parameters or state columns. | **Zone 2** (Gate) & **Zone 3** (Approver) | **AI Agent (Zone 1)** | `/etc/dmint/shared/integrity.key` (`chmod 0400`) or `DMINT_INTEGRITY_KEY_FILE` |
 | **4. Policy Digest** (`policy_digest`) | **SHA-256** (`dmint/policy-digest/v1\x00` + file SHA-256) | Ensures `policy.json` has not been modified on disk and voids prior approvals if policy rules change. | **Zone 2** & **Zone 3** | Read-only | `export DMINT_EXPECTED_POLICY_DIGEST=$(dmint policy-digest policy.json)` |
 | **5. Tool Schema Hash** (`schema_hash`) | **SHA-256** over RFC 8785 JCS `{"description": ..., "inputSchema": ...}` | Pins exact downstream MCP tool definitions so an MCP server cannot silently alter tool descriptions or parameters ("rug-pull attack"). | **Zone 2** (`dmint-mcp`) | Read-only in `policy.json` | Automatically pinned in `policy.json` (`tool_schemas`) by `dmint create-mcp-policy` |
+| **6. Audit Log Hash Chain** (`audit.jsonl`) | **SHA-256** chain with domain separation (`dmint/audit-log/v1\x00`) | Links every structured audit entry to its predecessor via `prev_hash` and `entry_hash`, so insertion, reordering, mid-chain deletion, or payload edits are detectable. | **Zone 2** (Gate) & **Zone 3** (Approver) | **AI Agent (Zone 1)** | `.dmint/audit.jsonl` (`0600`, append-only, rotated); verify with `dmint logs --verify` |
 
 <Check>
 **Why Separating `signing.key` from `public_key_hex` Guarantees Unforgable Approvals**:
@@ -139,27 +140,33 @@ When protecting **Claude Code**, **OpenAI Codex CLI**, **OpenCode**, **Cursor**,
 
 | Attack Vector | How Dmint + Production Isolation Stops It | Error Code |
 | :--- | :--- | :--- |
-| **1. Signing Key Theft / Self-Approval** | `signing.key` lives in Zone 3 (`dmint-approver`, `0400`). Zone 2 only holds `public_key_hex`. Any forged DB row fails Ed25519 signature verification. | `DMT_APPROVAL_SIGNATURE_INVALID` |
-| **2. Post-Approval Argument Modification** | Ed25519 assertion signs `argument_hash` (RFC 8785 JCS SHA-256). Changing `git push origin staging` to `git push origin main` invalidates the hash. | `DMT_APPROVAL_FINGERPRINT_MISMATCH` |
+| **1. Signing Key Theft / Self-Approval** | `signing.key` lives in Zone 3 (`dmint-approver`, `0400`). Zone 2 only holds `public_key_hex`. Any forged DB row fails Ed25519 signature verification and HMAC row-integrity verification. | `DMT_APPROVAL_SIGNATURE_INVALID` / `DMT_APPROVAL_CORRUPT` |
+| **2. Post-Approval Argument Modification** | Ed25519 assertion signs `argument_hash` (RFC 8785 JCS SHA-256). Changing `git push origin staging` to `git push origin main` invalidates the hash. | `DMT_APPROVAL_REQUEST_MISMATCH` |
 | **3. Replay / Parallel Race Attack** | `consume_approved()` atomically transitions `APPROVED -> CONSUMED` under `BEGIN IMMEDIATE` / `SELECT ... FOR UPDATE` + replay cache. | `DMT_APPROVAL_CONSUMED` |
 | **4. Compound Shell Smuggling (`&&`, `;`, `\|`, `$()`)** | `split_compound_shell_command()` splits compound operators and subshells, evaluating every sub-command independently (`DENY` overrides `ALLOW`). | `DMT_POLICY_DENIED` |
 | **5. Symlink & Path Traversal (`ln -s /etc/passwd`)** | `hooks.py` resolves `Path.resolve()` on symlink targets before evaluation; `resources.py` blocks `..`, `%2e%2e`, `%2f`, and NUL bytes. | `DMT_POLICY_DENIED` / `DMT_RESOURCE_INVALID` |
 | **6. Multi-File Patch Smuggling (`apply_patch`)** | `extract_hook_invocations()` inspects every `*** Add/Update/Delete File:` target in a patch and blocks the entire patch if any target is denied. | `DMT_POLICY_DENIED` |
-| **7. Downstream MCP Rug-Pull & SSRF** | `dmint-mcp` checks `compute_tool_schema_hash()` against pinned `schema_hash` on every call and pins resolved DNS IPs to block SSRF & DNS rebinding. | `DMT_SCHEMA_MISMATCH` / `DMT_SSRF_BLOCKED` |
+| **7. Downstream MCP Rug-Pull & SSRF** | `dmint-mcp` checks `compute_tool_schema_hash()` against pinned `schema_hash` on every call and pins resolved DNS IPs to block SSRF & DNS rebinding. | `DMT_MCP_SCHEMA_MISMATCH` / `DMT_MCP_CONFIG_ERROR` |
 
 ---
 
 ## 5. Production Go-Live Verification
 
-Run the built-in self-test and offline policy verifier in your CI/CD pipeline and on production boot:
+Run the built-in self-test, red-team simulator, audit-chain verifier, and offline policy verifier in your CI/CD pipeline and on production boot:
 
 ```bash
 # 1. Run 4-vector security self-test, crypto check, and hook/policy audit:
 dmint doctor
 
-# 2. Verify all policy files offline:
+# 2. Run the 7-vector attack simulation:
+dmint demo
+
+# 3. Verify the tamper-evident SHA-256 audit chain:
+dmint logs --verify
+
+# 4. Verify all policy files offline:
 dmint verify-policy policy.json
 
-# 3. Pin the exact SHA-256 policy digest:
+# 5. Pin the exact SHA-256 policy digest:
 export DMINT_EXPECTED_POLICY_DIGEST=$(dmint policy-digest policy.json)
 ```

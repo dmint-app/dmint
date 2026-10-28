@@ -1533,6 +1533,61 @@ When a coding agent calls a tool that matches an `approval_required` rule (for e
    - **Tamper Resistance**: If the agent alters the command to `git push origin main --force`, the fingerprint does not match `apr_8k9P...` and execution is blocked.
    - **Replay Protection**: If the agent tries to run `git push origin main` a second time, the consumed assertion cannot be reused.
 
+---
+
+## 5. Shadow Mode (Dry-Run Rollout) & Policy Learning
+
+Adopting a policy across an existing repository is safer as a three-phase rollout: observe, review, then enforce. Shadow mode evaluates every hook event and writes the decision to `.dmint/audit.jsonl`, but never blocks the tool call. Use it to discover the real tool and resource surface of a harness before turning on enforcement.
+
+### Phase 1: Observe with shadow mode
+
+Set `DMINT_MODE=shadow` in the environment used by the hook process, or pass `--mode shadow` when invoking `dmint hook run` directly:
+
+```bash
+export DMINT_MODE=shadow
+# The harness continues to call `dmint hook run`; decisions are logged, not enforced.
+```
+
+For a manual invocation:
+
+```bash
+dmint hook run --harness claude-code --mode shadow < payload.json
+```
+
+`dmint hook run` still resolves symlinks, expands batch patches and commands, and evaluates the dedicated harness policy. The difference is that would-be `DENY` and `APPROVAL_REQUIRED` outcomes are recorded with `shadow_would_block: true` and the hook allows the call to proceed.
+
+### Phase 2: Review what would have been blocked
+
+```bash
+# Show shadow-mode entries that would have been DENIED:
+dmint logs --mode shadow --search DMT_POLICY_DENIED
+
+# Show shadow-mode entries that would have required approval:
+dmint logs --mode shadow --search DMT_APPROVAL_REQUIRED
+
+# Show decision, level, shadow-block count, and top-blocked-resource breakdown:
+dmint logs --mode shadow --stats
+
+# Cryptographically verify the SHA-256 audit chain:
+dmint logs --verify
+```
+
+### Phase 3: Learn and verify a least-privilege policy
+
+`dmint learn-policy` reads the observed audit events and emits a starter policy. Safe read-only operations become scoped `ALLOW` rules, mutating operations become `APPROVAL_REQUIRED`, and destructive commands or secret paths are never learned as `ALLOW` (they are emitted as explicit `DENY` rules).
+
+```bash
+# Synthesize a candidate policy without touching the active policy.json:
+dmint learn-policy --from-logs .dmint/audit.jsonl -o policy.learned.json
+
+# Review the diff, then verify the candidate offline:
+diff -u policy.json policy.learned.json
+dmint verify-policy policy.learned.json
+dmint check -p policy.learned.json -t shell.execute -r "git status"
+```
+
+After review, replace `policy.json` (or the harness-specific policy under `.dmint/policies/`) and switch back to enforcement by unsetting `DMINT_MODE` or setting it to `enforce`.
+
 
 ================================================================================
 DOCUMENT: Python Decorator Integration
@@ -3343,7 +3398,7 @@ Never run an untrusted AI agent under the same OS user (`UID`) that owns your Ed
 
 ## 2. Complete Cryptographic Key & Digest Reference
 
-When you run `dmint init-keys` (or `dmint init`), Dmint generates two distinct cryptographic keys and supports two SHA-256 pinning digests. Understanding where each key lives and what it does is the foundation of a zero-trust deployment:
+When you run `dmint init-keys` (or `dmint init`), Dmint generates two distinct cryptographic keys and uses several SHA-256 integrity mechanisms. Understanding where each key lives and what it does is the foundation of a zero-trust deployment:
 
 | Artifact | Cryptographic Primitive | Purpose | Who Holds It | Who Must NEVER Have It | Production Location & Mode |
 | :--- | :--- | :--- | :--- | :--- | :--- |
@@ -3352,6 +3407,7 @@ When you run `dmint init-keys` (or `dmint init`), Dmint generates two distinct c
 | **3. Store Integrity Key** (`integrity.key`) | **HMAC-SHA256** Secret Key (32 bytes, domain `dmint/approval-record-integrity/v2\x00`) | Computes `row_mac` over every row in SQLite/PostgreSQL (`approvals` table) to detect unauthorized SQL edits to request parameters or state columns. | **Zone 2** (Gate) & **Zone 3** (Approver) | **AI Agent (Zone 1)** | `/etc/dmint/shared/integrity.key` (`chmod 0400`) or `DMINT_INTEGRITY_KEY_FILE` |
 | **4. Policy Digest** (`policy_digest`) | **SHA-256** (`dmint/policy-digest/v1\x00` + file SHA-256) | Ensures `policy.json` has not been modified on disk and voids prior approvals if policy rules change. | **Zone 2** & **Zone 3** | Read-only | `export DMINT_EXPECTED_POLICY_DIGEST=$(dmint policy-digest policy.json)` |
 | **5. Tool Schema Hash** (`schema_hash`) | **SHA-256** over RFC 8785 JCS `{"description": ..., "inputSchema": ...}` | Pins exact downstream MCP tool definitions so an MCP server cannot silently alter tool descriptions or parameters ("rug-pull attack"). | **Zone 2** (`dmint-mcp`) | Read-only in `policy.json` | Automatically pinned in `policy.json` (`tool_schemas`) by `dmint create-mcp-policy` |
+| **6. Audit Log Hash Chain** (`audit.jsonl`) | **SHA-256** chain with domain separation (`dmint/audit-log/v1\x00`) | Links every structured audit entry to its predecessor via `prev_hash` and `entry_hash`, so insertion, reordering, mid-chain deletion, or payload edits are detectable. | **Zone 2** (Gate) & **Zone 3** (Approver) | **AI Agent (Zone 1)** | `.dmint/audit.jsonl` (`0600`, append-only, rotated); verify with `dmint logs --verify` |
 
 <Check>
 **Why Separating `signing.key` from `public_key_hex` Guarantees Unforgable Approvals**:
@@ -3425,28 +3481,34 @@ When protecting **Claude Code**, **OpenAI Codex CLI**, **OpenCode**, **Cursor**,
 
 | Attack Vector | How Dmint + Production Isolation Stops It | Error Code |
 | :--- | :--- | :--- |
-| **1. Signing Key Theft / Self-Approval** | `signing.key` lives in Zone 3 (`dmint-approver`, `0400`). Zone 2 only holds `public_key_hex`. Any forged DB row fails Ed25519 signature verification. | `DMT_APPROVAL_SIGNATURE_INVALID` |
-| **2. Post-Approval Argument Modification** | Ed25519 assertion signs `argument_hash` (RFC 8785 JCS SHA-256). Changing `git push origin staging` to `git push origin main` invalidates the hash. | `DMT_APPROVAL_FINGERPRINT_MISMATCH` |
+| **1. Signing Key Theft / Self-Approval** | `signing.key` lives in Zone 3 (`dmint-approver`, `0400`). Zone 2 only holds `public_key_hex`. Any forged DB row fails Ed25519 signature verification and HMAC row-integrity verification. | `DMT_APPROVAL_SIGNATURE_INVALID` / `DMT_APPROVAL_CORRUPT` |
+| **2. Post-Approval Argument Modification** | Ed25519 assertion signs `argument_hash` (RFC 8785 JCS SHA-256). Changing `git push origin staging` to `git push origin main` invalidates the hash. | `DMT_APPROVAL_REQUEST_MISMATCH` |
 | **3. Replay / Parallel Race Attack** | `consume_approved()` atomically transitions `APPROVED -> CONSUMED` under `BEGIN IMMEDIATE` / `SELECT ... FOR UPDATE` + replay cache. | `DMT_APPROVAL_CONSUMED` |
 | **4. Compound Shell Smuggling (`&&`, `;`, `\|`, `$()`)** | `split_compound_shell_command()` splits compound operators and subshells, evaluating every sub-command independently (`DENY` overrides `ALLOW`). | `DMT_POLICY_DENIED` |
 | **5. Symlink & Path Traversal (`ln -s /etc/passwd`)** | `hooks.py` resolves `Path.resolve()` on symlink targets before evaluation; `resources.py` blocks `..`, `%2e%2e`, `%2f`, and NUL bytes. | `DMT_POLICY_DENIED` / `DMT_RESOURCE_INVALID` |
 | **6. Multi-File Patch Smuggling (`apply_patch`)** | `extract_hook_invocations()` inspects every `*** Add/Update/Delete File:` target in a patch and blocks the entire patch if any target is denied. | `DMT_POLICY_DENIED` |
-| **7. Downstream MCP Rug-Pull & SSRF** | `dmint-mcp` checks `compute_tool_schema_hash()` against pinned `schema_hash` on every call and pins resolved DNS IPs to block SSRF & DNS rebinding. | `DMT_SCHEMA_MISMATCH` / `DMT_SSRF_BLOCKED` |
+| **7. Downstream MCP Rug-Pull & SSRF** | `dmint-mcp` checks `compute_tool_schema_hash()` against pinned `schema_hash` on every call and pins resolved DNS IPs to block SSRF & DNS rebinding. | `DMT_MCP_SCHEMA_MISMATCH` / `DMT_MCP_CONFIG_ERROR` |
 
 ---
 
 ## 5. Production Go-Live Verification
 
-Run the built-in self-test and offline policy verifier in your CI/CD pipeline and on production boot:
+Run the built-in self-test, red-team simulator, audit-chain verifier, and offline policy verifier in your CI/CD pipeline and on production boot:
 
 ```bash
 # 1. Run 4-vector security self-test, crypto check, and hook/policy audit:
 dmint doctor
 
-# 2. Verify all policy files offline:
+# 2. Run the 7-vector attack simulation:
+dmint demo
+
+# 3. Verify the tamper-evident SHA-256 audit chain:
+dmint logs --verify
+
+# 4. Verify all policy files offline:
 dmint verify-policy policy.json
 
-# 3. Pin the exact SHA-256 policy digest:
+# 5. Pin the exact SHA-256 policy digest:
 export DMINT_EXPECTED_POLICY_DIGEST=$(dmint policy-digest policy.json)
 ```
 
@@ -3683,10 +3745,11 @@ Dmint does not manage employee login sessions or organization-wide role hierarch
 ## 2. Storage Limitations and Edge Cases
 
 ### Database Snapshot Rollback & Monotonic Sidecar Counter
-Every record in SQLite or PostgreSQL includes an HMAC-SHA256 integrity tag over the canonical row contents. To defend against an attacker restoring an **older snapshot of the database file** (a full-file rollback), Dmint also maintains a monotonic `store_recovery` counter paired with a `0600` `.recovery` sidecar file protected by cross-process `flock` locking. If the database counter ever lags behind the sidecar counter, Dmint fails closed with `ApprovalRollbackDetectedError` (`DMT_APPROVAL_ROLLBACK_DETECTED`).
+Every record in SQLite or PostgreSQL includes an HMAC-SHA256 integrity tag over the canonical row contents. To defend against an attacker restoring an **older snapshot of the database file** (a full-file rollback), the default SQLite store maintains a monotonic `store_recovery` counter paired with a `0600` `.epoch` sidecar file protected by cross-process `flock` locking. If the database counter ever lags behind the sidecar counter, Dmint fails closed with `ApprovalStoreError` (`DMT_APPROVAL_STORE_ERROR`; message: `database rollback detected: storage recovery counter mismatch`). The sidecar is named `<database>.epoch` (for example, `.dmint/approvals.sqlite3.epoch`), with a matching `.epoch.lock` file.
 - **Defense-in-Depth 1: Short Assertion TTL**: Configure a short `approval_ttl` (e.g. 5 minutes) so old approvals expire quickly.
 - **Defense-in-Depth 2: Deployment Epochs**: Rotating `DMINT_DEPLOYMENT_EPOCH` invalidates approvals from prior deployment lifecycles.
-- **Defense-in-Depth 3: Filesystem Isolation**: Keep `.dmint/` and `.recovery` sidecar files owned by a separate service user (`0600`).
+- **Defense-in-Depth 3: Filesystem Isolation**: Keep `.dmint/` and `.epoch` sidecar files owned by a separate service user (`0600`).
+- **Defense-in-Depth 4: PostgreSQL PITR**: PostgreSQL stores the recovery counter transactionally but does not use a local sidecar; protect backups with managed PITR, access controls, and short approval TTLs.
 
 ### SQLite Concurrent Write Contention
 SQLite serializes write operations at the database level. Although Dmint enables WAL mode (`PRAGMA journal_mode=WAL`) and busy timeouts (`PRAGMA busy_timeout = 5000`), high-concurrency environments with dozens of simultaneous agents requesting approvals may experience lock contention.
@@ -3699,9 +3762,12 @@ SQLite serializes write operations at the database level. Although Dmint enables
 ### Generator Functions Cannot Be Protected
 Python generator functions (`yield`) and asynchronous generators (`yield` in `async def`) cannot be decorated with `@dmint.protect`. Because generators yield control iteratively, atomic pre-execution authorization cannot be enforced across multiple resumed yields. Dmint raises `RequestValidationError` if you attempt to decorate a generator.
 
-### Symlinks are Not Resolved by Path Normalization
-Dmint's `path` resource matcher performs strict lexical normalization (resolving `.` and `..`, stripping trailing slashes, rejecting percent-encoded traversal and NUL bytes). However, lexical normalization cannot inspect the underlying filesystem to resolve symbolic links.
-- **Remediation**: If your application allows users to supply paths that may contain symlinks, your tool resolver must invoke `os.path.realpath()` before passing the resource to Dmint.
+### Symlink Resolution Depends on the Entry Point
+Dmint's `path` resource matcher performs strict lexical normalization (resolving `.` and `..`, stripping trailing slashes, rejecting percent-encoded traversal and NUL bytes). It does not inspect the underlying filesystem, so an in-memory `Policy.evaluate()` call sees the path string exactly as supplied.
+
+`dmint hook run` is different: it canonicalizes hook paths with `Path.resolve()` before policy evaluation, so a symlink pointing outside the workspace or at `.env` / `*.key` is evaluated as its real target.
+
+- **Remediation**: For direct SDK use, invoke `os.path.realpath()` or `Path.resolve()` before passing a path resource. Hook users should rely on `dmint hook run`'s canonicalization and still run the agent in a separate OS user or container.
 
 ---
 
@@ -3709,7 +3775,7 @@ Dmint's `path` resource matcher performs strict lexical normalization (resolving
 
 ### Downstream MCP Schema Drift Requires Explicit Pinning
 Downstream MCP servers may update their tool definitions between restarts. If an external MCP server changes its schema without notice, Dmint will evaluate requests against the existing policy rules.
-- **Remediation**: Enable `tool_schema_hash` in `mcp_protection.json`. When configured, Dmint compares the discovered schema digest against the pinned hash and fails closed if they differ.
+- **Remediation**: Pin the schema in `policy.json` using the top-level `tool_schemas` map or a rule-level `schema_hash`. `dmint create-mcp-policy` records these hashes automatically. On mismatch, the gateway fails closed with `DMT_MCP_SCHEMA_MISMATCH`; review the change and deliberately re-pin with `dmint create-mcp-policy`.
 
 ---
 
@@ -3722,7 +3788,7 @@ Downstream MCP servers may update their tool definitions between restarts. If an
 | Replaying a consumed approval token | **Protected** (Atomic single-use $\to$ `DMT_APPROVAL_CONSUMED`) | None. |
 | Agent modifying local `policy.json` | **Protected** (SHA-256 digest pinning $\to$ `PolicyError`) | Set `DMINT_EXPECTED_POLICY_DIGEST`. |
 | Agent reading private key file under same OS user | **Not Protected** (OS privilege boundary violation) | Run agent in separate container or user UID. |
-| Host restoring full database file backup | **Partially Protected** (Short TTL expires old tokens) | Secure filesystem permissions; short TTLs. |
+| Host restoring full database file backup | **Partially Protected** (SQLite `.epoch` counter detects a DB-only rollback; PostgreSQL relies on PITR/backups; a full-filesystem rollback still requires TTL/epoch defense) | Secure filesystem permissions; keep `.epoch` outside the restored snapshot; short TTLs. |
 
 
 ================================================================================
@@ -4292,9 +4358,11 @@ class Dmint:
     @classmethod
     def local(
         cls,
-        policy: Policy | str | Path,
+        policy: Policy | str | Path = "policy.json",
         *,
+        policy_path: str | Path | None = None,
         db_path: str | Path | None = None,
+        storage: str | Path | None = None,
         state_dir: str | Path | None = None,
         agent_id: str = "local-agent",
         context: TrustedContext | Mapping[str, Any] | None = None,
@@ -4305,7 +4373,7 @@ class Dmint:
     ) -> Dmint: ...
 ```
 
-`Dmint.local(...)` is a zero-config constructor that automatically creates `.dmint/signing.key` (`0600`), `.dmint/integrity.key` (`0600`), and `.dmint/approvals.sqlite3`, and accepts a `Policy` object, a path to `policy.json`, or a built-in template name (e.g. `"shell"`).
+`Dmint.local(...)` is a zero-config constructor that automatically creates `.dmint/signing.key` (`0600`), `.dmint/integrity.key` (`0600`), and `.dmint/approvals.sqlite3`, and accepts a `Policy` object, a path to `policy.json`, or a built-in template name (e.g. `"shell"`). `policy_path` is an explicit alias that overrides `policy`; `storage` is an alias for `db_path` and is ignored when `db_path` is also supplied.
 
 `Dmint` is the synchronous authorization and decorator engine. It evaluates the policy deterministically and never calls an LLM.
 
@@ -4329,8 +4397,22 @@ class Dmint:
 ### Decorators and methods
 
 ```text
-engine.protect(capability: str, *, resource: ResourceSpec = NO_RESOURCE) -> Callable
-engine.protected(capability: str, *, resource: ResourceSpec = NO_RESOURCE) -> Callable
+engine.protect(
+    capability: str | None = None,
+    *,
+    tool: str | None = None,
+    action: str | None = None,
+    resource: ResourceSpec = NO_RESOURCE,
+    resource_param: str | None = None,
+) -> Callable
+engine.protected(
+    capability: str | None = None,
+    *,
+    tool: str | None = None,
+    action: str | None = None,
+    resource: ResourceSpec = NO_RESOURCE,
+    resource_param: str | None = None,
+) -> Callable
 engine.authorize(function: Callable, *args, capability: str, resource: ResourceSpec = NO_RESOURCE, **kwargs) -> AuthorizedRequest
 engine.execute(authorized: AuthorizedRequest) -> Any
 engine.retry(
@@ -4341,7 +4423,7 @@ engine.retry(
 ) -> Any
 ```
 
-`protect` and `protected` are aliases. `resource` may be `NO_RESOURCE` or a callable (`lambda args: ...`) that receives the bound arguments and returns a resource string.
+`protect` and `protected` are aliases. Pass either `capability="tool.action"` or both `tool="..."` and `action="..."`. `resource` may be `NO_RESOURCE` or a callable (`lambda args: ...`) that receives the bound arguments and returns a resource string. `resource_param="path"` is a convenience that resolves the resource from the bound argument named `path`.
 
 The decorated function raises:
 
@@ -4583,7 +4665,95 @@ key = public_key_from_hex("...")
 
 ---
 
-## 7. Dashboard Integration
+## 7. Tamper-Evident Audit Logging (`dmint.core.audit`)
+
+Dmint records structured JSONL audit events to `.dmint/audit.jsonl` by default. Override the path with `DMINT_AUDIT_LOG` or `DMINT_LOG_FILE`. Each entry carries `seq`, `prev_hash`, and `entry_hash`, where `entry_hash` is SHA-256 over `b"dmint/audit-log/v1\x00"` plus the RFC 8785 JCS canonicalization of the entry without `entry_hash`. The chain makes insertion, reordering, mid-chain deletion, and payload edits detectable.
+
+### `AuditLogger`
+
+```python
+class AuditLogger:
+    def __init__(
+        self,
+        log_path: str | Path | None = None,
+        *,
+        min_level: str | int | None = None,
+        max_bytes: int = 10 * 1024 * 1024,
+        backup_count: int = 5,
+        enabled: bool | None = None,
+    ) -> None: ...
+
+    def log_event(
+        self,
+        *,
+        decision: str,
+        tool: str,
+        action: str,
+        resource: str | None = None,
+        code: str = "",
+        harness: str = "sdk",
+        agent_id: str = "default",
+        event_type: str = "tool_evaluation",
+        level: str | None = None,
+        mode: str = "enforce",
+        shadow_would_block: bool = False,
+        approval_id: str | None = None,
+        latency_ms: float | None = None,
+        arguments: Mapping[str, Any] | None = None,
+        details: Mapping[str, Any] | None = None,
+        timestamp: datetime | None = None,
+    ) -> dict[str, Any] | None: ...
+```
+
+`log_event()` appends under a cross-process lock, rotates the active file at `max_bytes`, redacts secrets before persistence, and returns the full entry (or `None` when filtered by `min_level` or `enabled=False`).
+
+### `AuditVerificationResult`
+
+```python
+@dataclass(frozen=True)
+class AuditVerificationResult:
+    valid: bool
+    total_entries: int
+    head_hash: str
+    broken_at_seq: int | None = None
+    broken_at_line: int | None = None
+    error: str | None = None
+
+    def to_dict(self) -> dict[str, Any]: ...
+```
+
+`verify_audit_chain(log_path=None)` returns this result. A missing log is treated as a valid empty chain; a malformed line, sequence gap, broken `prev_hash`, or mismatched `entry_hash` reports `valid=False` with the first failure location.
+
+### Reading, summarizing, and learning
+
+```python
+def read_audit_entries(
+    log_path: str | Path | None = None,
+    *,
+    min_level: str | None = None,
+    decision: str | None = None,
+    tool: str | None = None,
+    harness: str | None = None,
+    agent_id: str | None = None,
+    mode: str | None = None,
+    search: str | None = None,
+    limit: int | None = None,
+) -> list[dict[str, Any]]: ...
+
+def summarize_audit_entries(entries: list[dict[str, Any]]) -> dict[str, Any]: ...
+
+def learn_policy_from_audit_logs(
+    log_path: str | Path | None = None,
+    *,
+    include_baseline_denies: bool = True,
+) -> list[dict[str, Any]]: ...
+```
+
+`read_audit_entries()` filters by level, decision, tool, harness, agent, mode, and free-text search; `limit` returns the most recent matches. `summarize_audit_entries()` returns decision, level, harness, top-capability, top-blocked-resource, and shadow-block counts. `learn_policy_from_audit_logs()` emits rule dictionaries for `Policy.from_mapping()`: read-only activity becomes scoped `allow`, mutating activity becomes `approval_required`, and destructive commands or secret paths are emitted as explicit `deny` rather than learned as allowed.
+
+---
+
+## 8. Dashboard Integration
 
 `dmint.dashboard.CoreClient` is the dashboard’s thin adapter over Core APIs. It is documented here because host integrations may use it for programmatic handoff:
 
@@ -4687,9 +4857,10 @@ The direct runtime schema requires `{"rules": [...]}`:
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `rules` | array | **Yes** | Non-empty array of rule objects evaluated sequentially using fail-closed semantics. |
+| `rules` | array | **Yes** | Non-empty array of rule objects evaluated with deny-overrides-allow precedence and a fail-closed default. |
 | `strict_arguments` | boolean | No | Optional policy-wide flag (default `false`). When `true`, argument constraints default `additionalProperties` to `false` across all rules. |
 | `tool_schemas` | object | No | Optional mapping of `<tool>.<action>` capability names to pinned SHA-256 JSON Schema digests. |
+| `default` | string | No | Runtime invariant and always `"deny"`. This is not a configurable JSON key: `Policy.from_mapping()` rejects an explicit `default` field. The evaluator applies this fail-closed default when no rule matches. |
 
 ---
 
@@ -4707,6 +4878,8 @@ Each element in the `rules` array defines an authorization rule for an agent act
 | `case_sensitive` | boolean | No | Case sensitivity for resource matching (defaults to `true`). Only supported for `"path"` and `"exact"` kinds; rejected on `"host"`, `"url"`, and `"identifier"`. Set to `false` on case-insensitive filesystems (macOS, Windows). |
 | `agent_id` | string | No | Optional agent identifier to restrict this rule to a specific agent identity. |
 | `conditions` | array | No | Optional trusted context conditions evaluated against environmental attributes. |
+| `constraints` | object | No | Optional JSON-Schema-like argument constraints for `allow` and `approval_required` rules. Constraints are rejected on `deny` rules. |
+| `schema_hash` | string | No | Pinned SHA-256 (64 lowercase hex characters) of the downstream tool schema for this rule. |
 
 ---
 
@@ -4741,12 +4914,21 @@ Each element in the `rules` array defines an authorization rule for an agent act
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "DmintPolicy",
+  "description": "The runtime default is always deny; explicit default keys are rejected by Policy.from_mapping().",
+  "default": "deny",
   "type": "object",
   "required": ["rules"],
   "additionalProperties": false,
   "properties": {
     "strict_arguments": {
       "type": "boolean"
+    },
+    "tool_schemas": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{64}$"
+      }
     },
     "rules": {
       "type": "array",
@@ -4833,6 +5015,10 @@ Each element in the `rules` array defines an authorization rule for an agent act
                 }
               }
             }
+          },
+          "schema_hash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
           }
         }
       }
@@ -5376,7 +5562,7 @@ The table below covers the codes emitted by the current package. A normal fail-c
 | `DMT_APPROVAL_ALGORITHM_UNSUPPORTED` | `ApprovalAlgorithmUnsupportedError` | The assertion signature algorithm is not explicitly allowed. |
 | `DMT_APPROVAL_CORRUPT` | `CorruptApprovalRecordError` | HMAC integrity verification failed for a stored row. Treat as tampering/corruption and investigate. |
 | `DMT_APPROVAL_DEPRECATED_FORMAT` | `DeprecatedStorageFormatError` | An unkeyed/deprecated storage format was encountered and rejected. Migrate through a supported path. |
-| `DMT_APPROVAL_STORE_ERROR` | `ApprovalStoreError` | Generic storage failure (I/O, recovery counter, quota, conflict). See the message and logs. |
+| `DMT_APPROVAL_STORE_ERROR` | `ApprovalStoreError` | Generic storage failure (I/O, quota, conflict), or a SQLite database rollback detected when the monotonic `.epoch` sidecar counter is ahead of the store counter. See the message and logs. |
 | `DMT_APPROVAL_STORE_CONFIG_ERROR` | `ApprovalStoreConfigurationError` | Invalid or unreachable configured database. Dmint does not silently fall back to SQLite. |
 
 ---
@@ -5402,7 +5588,7 @@ The table below covers the codes emitted by the current package. A normal fail-c
 | `DMT_MCP_TOOL_NOT_FOUND` | `MCPMappingError` | Requested tool is not registered in any integration. |
 | `DMT_MCP_TOOL_UNKNOWN` | `MCPMappingError` | Downstream tool has no trusted binding. |
 | `DMT_MCP_TOOL_AMBIGUOUS` | `MCPMappingError` | Multiple integrations expose the same unqualified tool name. |
-| `DMT_MCP_SCHEMA_MISMATCH` | `MCPMappingError` | Downstream schema differs from the pinned `tool_schema_hash`; re-pin deliberately after review. |
+| `DMT_MCP_SCHEMA_MISMATCH` | `MCPMappingError` | Downstream schema differs from the pinned `schema_hash` in `policy.json` (`tool_schemas` or a rule-level `schema_hash`); re-pin deliberately after review. |
 | `DMT_MCP_ARGUMENT_INVALID` | `MCPMappingError` | Arguments fail the mapped tool schema or canonicalization checks. |
 | `DMT_MCP_RESOURCE_INVALID` | `MCPMappingError` | The mapped resource is invalid under the configured `resource_key`. |
 | `DMT_MCP_CONNECTION_ERROR` | `MCPConnectionError` | Downstream connection failed, hostname pin failed, or SSRF protection rejected the destination. |
@@ -5459,6 +5645,15 @@ dmint check -p policy.json -t shell.execute -r "git status"
 # 2b. Check installed coding-agent PreToolUse hooks:
 dmint hook status
 
+# 2c. Run the built-in diagnostic self-test:
+dmint doctor
+
+# 2d. Run the 7-vector attack simulation:
+dmint demo
+
+# 2e. Verify the tamper-evident audit chain:
+dmint logs --verify
+
 # 3. Check pending approvals in store:
 dmint pending --db-path approvals.sqlite3
 
@@ -5478,7 +5673,7 @@ ls -la ~/.config/dmint/
 | `DMT_APPROVAL_POLICY_INVALID` | `policy.json` modified after approval issued. | Re-request approval under the updated policy. |
 | `DMT_KEY_PERMISSION_ERROR` | Key file permissions looser than `0600`. | Run `chmod 0600 ~/.config/dmint/*.key`. |
 | `DMT_MCP_PROTOCOL_ERROR: duplicate JSON key` | Inbound MCP JSON contains duplicate keys. | Strip duplicate dictionary keys in caller payload. |
-| `DMT_MCP_SCHEMA_MISMATCH` | Downstream MCP tool schema changed. | Inspect changes and update `tool_schema_hash` in `mcp_protection.json`. |
+| `DMT_MCP_SCHEMA_MISMATCH` | Downstream MCP tool schema changed. | Inspect the change and deliberately re-pin `schema_hash` in `policy.json` (`tool_schemas` or the rule) via `dmint create-mcp-policy`. |
 | `ApprovalStoreConfigurationError: connection refused` | PostgreSQL unreachable on port 5432. | Ensure PostgreSQL container or service is running. |
 | `PolicyError: constraints cannot be applied to DENY rules` | `policy.json` defines constraints on `DENY`. | Remove `constraints` from the `DENY` rule. |
 
@@ -5517,12 +5712,12 @@ dmint.core.errors.KeyPermissionError: key file '/home/user/.config/dmint/signing
 ```text
 dmint.mcp.errors.MCPProxyError: [DMT_MCP_SCHEMA_MISMATCH] downstream tool 'query' schema does not match pinned hash
 ```
-- **What happened**: The downstream MCP server updated its tool description or input schema, differing from `tool_schema_hash` in `mcp_protection.json`.
+- **What happened**: The downstream MCP server updated its tool description or input schema, differing from the pinned `schema_hash` in `policy.json` (`tool_schemas` or a rule-level `schema_hash`).
 - **Fix**:
   1. Review downstream server updates to verify the schema change is expected and safe.
-  2. Re-generate the protection configuration:
+  2. Re-run discovery with the same server command/URL and deliberately re-pin both files:
      ```bash
-     dmint create-mcp-policy --config-output mcp_protection.json
+     dmint create-mcp-policy --command npx --args <server-package> -o policy.json --config-output mcp_protection.json
      ```
 
 ---
@@ -5588,7 +5783,7 @@ Always run your AI agent in a separate container, sandbox, or under a dedicated 
 **No, under normal operational conditions.**
 Approvals transition atomically to `CONSUMED` upon execution. In PostgreSQL, this is enforced by `SELECT ... FOR UPDATE` row locks; in SQLite, it is enforced by immediate serialized transactions. Once a token is marked `CONSUMED`, any subsequent attempt to execute with that token fails closed with `DMT_APPROVAL_CONSUMED`.
 
-The only exception is if an attacker restores a full filesystem snapshot of an older database file. This edge case is mitigated by the 5-minute approval TTL and deployment epoch isolation.
+The default SQLite store also maintains a monotonic `store_recovery` counter mirrored to a `0600` `.epoch` sidecar file. If an attacker restores an older SQLite snapshot, the counter mismatch is detected and the store fails closed with `ApprovalStoreError` (`DMT_APPROVAL_STORE_ERROR`). A short, explicitly configured `approval_ttl` and deployment epoch isolation add further defense in depth. PostgreSQL deployments should rely on managed PITR/backups plus the same TTL and epoch controls.
 
 ---
 
@@ -5599,9 +5794,10 @@ The only exception is if an attacker restores a full filesystem snapshot of an o
 
 ---
 
-## How can I test a policy without executing my real tools?
-Use `dmint verify-policy <file>` to validate schema and invariant correctness offline.
-In Python unit tests, you can instantiate `Policy.from_file()` and call `policy.evaluate(request)` directly, verifying whether decisions evaluate to `ALLOW`, `DENY`, or `APPROVAL_REQUIRED` in pure memory without executing external callables.
+## How can I test or tune a policy without executing my real tools?
+Use `dmint verify-policy <file>` to validate schema and invariant correctness offline, and `dmint check -p policy.json -t shell.execute -r "git status"` to simulate an individual tool call. In Python unit tests, instantiate `Policy.from_file()` and call `policy.evaluate(request)` directly to verify whether decisions evaluate to `ALLOW`, `DENY`, or `APPROVAL_REQUIRED` in memory without executing external callables.
+
+To tune a policy against real agent behavior, run coding-agent hooks with `--mode shadow` (or set `DMINT_MODE=shadow`) so would-be blocks are recorded in `.dmint/audit.jsonl` without blocking. Review aggregate shadow-block counts with `dmint logs --mode shadow --stats`, inspect specific would-be blocks with `dmint logs --mode shadow --search DMT_POLICY_DENIED` (or `--search DMT_APPROVAL_REQUIRED`), and verify the audit chain with `dmint logs --verify`. Then synthesize a least-privilege starter policy from the observed activity with `dmint learn-policy --from-logs .dmint/audit.jsonl -o policy.json`; always review and re-verify the generated policy before enforcing it.
 
 ---
 

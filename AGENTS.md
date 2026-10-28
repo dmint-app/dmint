@@ -96,7 +96,7 @@ ruff check .
 # Format check:
 ruff format --check .
 
-# Type check (all 79 source files must pass):
+# Type check (all 86 source files must pass):
 mypy src/
 ```
 
@@ -104,7 +104,7 @@ mypy src/
 
 - **Always run from `~/dmint`** (the monorepo root).
 - **Always set `PYTHONPATH=src`** so all `dmint.*` imports resolve correctly.
-- **Current baseline:** 1525 tests — 1525 passed, 0 failed, 0 skipped.
+- **Current baseline:** 1565 tests — 1565 passed, 0 failed, 0 skipped.
 - **Any new code must maintain 0 skipped tests.** The `skipTest()` pattern is banned. If a test depends on a file, that file must exist at the exact path (no fallback logic).
 - **PostgreSQL-backed suites must fail, never skip.** They run against `DMINT_TEST_DATABASE_URL` (default `postgresql://postgres:postgres@localhost:5432/dmint_test`) through the shared `tests/postgres_support.py` gate (`require_postgres()`); when the server is unreachable they fail loudly with an actionable error instead of skipping (CI provisions PostgreSQL automatically).
 
@@ -208,8 +208,8 @@ Version is the single source of truth in `pyproject.toml` (`version = "2.0.4"`) 
 ### Version Severity Guidelines (Semantic Versioning)
 When proposing changes, assess severity to recommend the appropriate SemVer bump:
 - **Patch (`2.0.4` → `2.0.5`)**: Bug fixes, documentation improvements, test additions, internal refactoring, non-breaking maintenance (`fix:`, `docs:`, `chore:`, `test:`, `refactor:`).
-- **Minor (`2.0.0` → `2.1.0`)**: Backwards-compatible features, new CLI commands/flags, new integrations, new capabilities (`feat:`).
-- **Major (`2.0.0` → `3.0.0`)**: Incompatible API changes, breaking policy schema modifications, removed public methods (`feat!:`, `fix!:`, `BREAKING CHANGE:`).
+- **Minor (`2.0.4` → `2.1.0`)**: Backwards-compatible features, new CLI commands/flags, new integrations, new capabilities (`feat:`).
+- **Major (`2.0.4` → `3.0.0`)**: Incompatible API changes, breaking policy schema modifications, removed public methods (`feat!:`, `fix!:`, `BREAKING CHANGE:`).
 
 ### Mandatory User Permission Protocol
 > **CRITICAL RULE**: AI agents must NEVER change or bump version numbers silently.

@@ -67,7 +67,7 @@ To make Dmint **100% unbreakable in production**, you enforce **Three Isolated T
 
 ## 2. Complete Cryptographic Key & Digest Architecture (What Every Key Does & Where It Lives)
 
-When you run `dmint init-keys` (or `dmint init`), Dmint generates two distinct cryptographic keys and supports two cryptographic SHA-256 digests. Here is the exact role, algorithm, and production placement of each:
+When you run `dmint init-keys` (or `dmint init`), Dmint generates two distinct cryptographic keys and uses several SHA-256 integrity mechanisms. Here is the exact role, algorithm, and production placement of each:
 
 | Artifact | Cryptographic Primitive | What It Does | Who Needs It | Who Must NEVER Have It | Production Location & Permissions |
 | :--- | :--- | :--- | :--- | :--- | :--- |
@@ -76,6 +76,7 @@ When you run `dmint init-keys` (or `dmint init`), Dmint generates two distinct c
 | **3. Store Integrity Key** (`integrity.key`) | **HMAC-SHA256** Secret Key (32 bytes / 64 hex chars, domain `dmint/approval-record-integrity/v2\x00`) | Computes `row_mac` over every row in SQLite/PostgreSQL (`approvals` table) so nobody can tamper with pending request parameters, timestamps, or state columns in the database. | **Zone 2** (Enforcement Gate) & **Zone 3** (Approval Authority) | **AI Agent (Zone 1)** | `/etc/dmint/shared/integrity.key` (`chmod 0400`, owned by service group) or `DMINT_INTEGRITY_KEY_FILE` |
 | **4. Policy File Digest** (`policy_digest`) | **SHA-256** (domain `dmint/policy-digest/v1\x00` + raw file SHA-256) | Ensures `policy.json` has not been modified on disk since deployment, and invalidates any previously signed approval if the policy changes. | **Zone 2** (`DMINT_EXPECTED_POLICY_DIGEST`) & **Zone 3** | Read-only | Computed via `dmint policy-digest policy.json` and injected as `DMINT_EXPECTED_POLICY_DIGEST` |
 | **5. MCP Tool Schema Hash** (`schema_hash`) | **SHA-256** over RFC 8785 JCS `{"description": ..., "inputSchema": ...}` | Pins the exact tool definition of every downstream MCP tool so a compromised MCP server cannot silently alter tool descriptions or parameters ("rug-pull attack"). | **Zone 2** (`dmint-mcp` Gateway) | Read-only inside `policy.json` | Automatically pinned inside `policy.json` (`tool_schemas`) by `dmint create-mcp-policy` |
+| **6. Audit Log Hash Chain** (`audit.jsonl`) | **SHA-256** chain with domain separation (`dmint/audit-log/v1\x00`) | Links every structured audit entry to its predecessor via `prev_hash` and `entry_hash`, so insertion, reordering, mid-chain deletion, or payload edits are detectable. | **Zone 2** (Gate) & **Zone 3** (Approver) | **AI Agent (Zone 1)** | `.dmint/audit.jsonl` (`0600`, append-only, rotated); verify with `dmint logs --verify` |
 
 ### Why Separating `signing.key` from `public_key_hex` Is the Ultimate Game-Changer
 
@@ -433,13 +434,13 @@ def issue_refund(account_id: str, amount_cents: int, reason: str) -> dict:
 
 | # | Attack Vector Attempted by Jailbroken AI Agent | How Dmint + Production Isolation Defeats It (`100% Fail-Closed`) | Error Code Returned |
 | :--- | :--- | :--- | :--- |
-| **1** | **Self-Signing / Forging an Approval**: Agent tries to sign its own `ApprovalAssertion` or flip `state='APPROVED'` in SQLite/PostgreSQL. | `signing.key` (Ed25519 private key) is stored exclusively in Zone 3 (`dmint-approver`). Zone 2 only holds `public_key_hex`. Any forged or unsigned DB row fails Ed25519 verification + `row_mac` HMAC-SHA256 verification. | `DMT_APPROVAL_SIGNATURE_INVALID` / `DMT_STORE_INTEGRITY_VIOLATION` |
-| **2** | **Argument Tampering After Human Approval**: Agent requests approval for `git push origin staging`, human approves, and agent retries with `git push origin main --force`. | Approval signature binds `argument_hash` (SHA-256 over RFC 8785 JCS canonical arguments) and `request_fingerprint`. Changing 1 byte produces a different hash and refuses consumption of the original approval. | `DMT_APPROVAL_FINGERPRINT_MISMATCH` |
+| **1** | **Self-Signing / Forging an Approval**: Agent tries to sign its own `ApprovalAssertion` or flip `state='APPROVED'` in SQLite/PostgreSQL. | `signing.key` (Ed25519 private key) is stored exclusively in Zone 3 (`dmint-approver`). Zone 2 only holds `public_key_hex`. Any forged or unsigned DB row fails Ed25519 verification + `row_mac` HMAC-SHA256 verification. | `DMT_APPROVAL_SIGNATURE_INVALID` / `DMT_APPROVAL_CORRUPT` |
+| **2** | **Argument Tampering After Human Approval**: Agent requests approval for `git push origin staging`, human approves, and agent retries with `git push origin main --force`. | Approval signature binds `argument_hash` (SHA-256 over RFC 8785 JCS canonical arguments) and `request_fingerprint`. Changing 1 byte produces a different hash and refuses consumption of the original approval. | `DMT_APPROVAL_REQUEST_MISMATCH` |
 | **3** | **Replay Attack**: Agent receives a valid human approval for `issue_refund("acct_1", 5000)` and calls the function 10 times in a parallel loop. | `consume_approved()` uses serialized transactions (`BEGIN IMMEDIATE` in SQLite / `SELECT ... FOR UPDATE` in PostgreSQL) to transition `APPROVED -> CONSUMED` atomically once, plus an in-memory replay cache. Calls 2..10 fail closed. | `DMT_APPROVAL_CONSUMED` |
 | **4** | **Compound Shell Command Smuggling**: Agent runs `git status && cat .env`, `ls; rm -rf /`, `echo $(cat ~/.ssh/id_rsa)`, or `find . -exec sh -c "..."`. | `split_compound_shell_command()` in `hooks.py` decomposes `&&`, `||`, `;`, `|`, `&`, newlines, and detects `$()`, backticks, `eval`, and `-exec`. Every sub-command is evaluated independently; strictest decision (`DENY`) wins. | `DMT_POLICY_DENIED` |
 | **5** | **Symlink & Path Traversal Escape**: Agent creates `ln -s /etc/shadow ./safe_notes.txt` or passes `../../.env` or `%2e%2e%2f.env` to `Read` / `Write`. | `hooks.py` resolves `Path.resolve()` against symlink targets before policy evaluation, and `resources.py` rejects `..`, `%2e%2e`, `%2f`, backslashes, and NUL bytes. Symlinks pointing outside workspace or to `.env`/`*.key` match `DENY`. | `DMT_POLICY_DENIED` / `DMT_RESOURCE_INVALID` |
 | **6** | **Batch Patch Smuggling (`apply_patch` / `read_files`)**: Agent hides `*** Update File: .claude/settings.json` or `.env` inside a 20-file `apply_patch` call. | `extract_hook_invocations()` extracts every `*** Add/Update/Delete File:` header and every batch item, evaluating each against the harness policy and enforcing `DENY > APPROVAL_REQUIRED > ALLOW`. | `DMT_POLICY_DENIED` |
-| **7** | **Downstream MCP Tool Rug-Pull & SSRF**: Compromised remote MCP server changes a tool's schema after policy creation or redirects to `http://169.254.169.254/latest/meta-data/`. | `dmint-mcp` verifies `compute_tool_schema_hash()` against the SHA-256 `schema_hash` pinned in `policy.json` on every call, and `ssrf.py` blocks loopback, RFC 1918, link-local, cloud metadata IPs, and pins resolved DNS socket IPs against TOCTOU rebinding. | `DMT_SCHEMA_MISMATCH` / `DMT_SSRF_BLOCKED` |
+| **7** | **Downstream MCP Tool Rug-Pull & SSRF**: Compromised remote MCP server changes a tool's schema after policy creation or redirects to `http://169.254.169.254/latest/meta-data/`. | `dmint-mcp` verifies `compute_tool_schema_hash()` against the SHA-256 `schema_hash` pinned in `policy.json` on every call, and `ssrf.py` blocks loopback, RFC 1918, link-local, cloud metadata IPs, and pins resolved DNS socket IPs against TOCTOU rebinding. | `DMT_MCP_SCHEMA_MISMATCH` / `DMT_MCP_CONFIG_ERROR` |
 
 ---
 
@@ -456,11 +457,11 @@ dmint demo
 dmint logs --level WARNING
 dmint logs --verify
 
-# 2. Verify all policy files offline (zero network, zero LLM):
+# 3. Verify all policy files offline (zero network, zero LLM):
 dmint verify-policy policy.json
 for p in .dmint/policies/*.policy.json; do dmint verify-policy "$p"; done
 
-# 3. Compute and export your pinned policy digest:
+# 4. Compute and export your pinned policy digest:
 export DMINT_EXPECTED_POLICY_DIGEST=$(dmint policy-digest policy.json)
 echo "Pinned Digest: $DMINT_EXPECTED_POLICY_DIGEST"
 ```
@@ -471,5 +472,6 @@ echo "Pinned Digest: $DMINT_EXPECTED_POLICY_DIGEST"
 - [ ] **Public Key Verification**: Gateway / SDK worker is configured with `trusted_issuers` from `dmint export-public-key --json`.
 - [ ] **Policy & Hook Immutability**: `policy.json`, `.dmint/policies/*.policy.json`, and harness hook files (`.claude/settings.json`, `.codex/hooks.json`, etc.) are owned by `root`, mode `0444`, and mounted `:ro` or locked with `chattr +i`.
 - [ ] **Policy Digest Pinning**: `DMINT_EXPECTED_POLICY_DIGEST` is set in the runtime environment.
+- [ ] **Audit Chain Verified**: `dmint logs --verify` reports a valid SHA-256 chain to the current head.
 - [ ] **Downstream Secret Isolation**: Database URLs and third-party API keys are injected into `dmint-mcp`, never into the AI agent's environment.
 - [ ] **Automated Self-Test**: `dmint doctor` exits with code `0` (`ALL CHECKS PASSED`).

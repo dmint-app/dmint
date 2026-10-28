@@ -33,7 +33,7 @@ Always run your AI agent in a separate container, sandbox, or under a dedicated 
 **No, under normal operational conditions.**
 Approvals transition atomically to `CONSUMED` upon execution. In PostgreSQL, this is enforced by `SELECT ... FOR UPDATE` row locks; in SQLite, it is enforced by immediate serialized transactions. Once a token is marked `CONSUMED`, any subsequent attempt to execute with that token fails closed with `DMT_APPROVAL_CONSUMED`.
 
-The only exception is if an attacker restores a full filesystem snapshot of an older database file. This edge case is mitigated by the 5-minute approval TTL and deployment epoch isolation.
+The default SQLite store also maintains a monotonic `store_recovery` counter mirrored to a `0600` `.epoch` sidecar file. If an attacker restores an older SQLite snapshot, the counter mismatch is detected and the store fails closed with `ApprovalStoreError` (`DMT_APPROVAL_STORE_ERROR`). A short, explicitly configured `approval_ttl` and deployment epoch isolation add further defense in depth. PostgreSQL deployments should rely on managed PITR/backups plus the same TTL and epoch controls.
 
 ---
 
@@ -44,9 +44,10 @@ The only exception is if an attacker restores a full filesystem snapshot of an o
 
 ---
 
-## How can I test a policy without executing my real tools?
-Use `dmint verify-policy <file>` to validate schema and invariant correctness offline.
-In Python unit tests, you can instantiate `Policy.from_file()` and call `policy.evaluate(request)` directly, verifying whether decisions evaluate to `ALLOW`, `DENY`, or `APPROVAL_REQUIRED` in pure memory without executing external callables.
+## How can I test or tune a policy without executing my real tools?
+Use `dmint verify-policy <file>` to validate schema and invariant correctness offline, and `dmint check -p policy.json -t shell.execute -r "git status"` to simulate an individual tool call. In Python unit tests, instantiate `Policy.from_file()` and call `policy.evaluate(request)` directly to verify whether decisions evaluate to `ALLOW`, `DENY`, or `APPROVAL_REQUIRED` in memory without executing external callables.
+
+To tune a policy against real agent behavior, run coding-agent hooks with `--mode shadow` (or set `DMINT_MODE=shadow`) so would-be blocks are recorded in `.dmint/audit.jsonl` without blocking. Review aggregate shadow-block counts with `dmint logs --mode shadow --stats`, inspect specific would-be blocks with `dmint logs --mode shadow --search DMT_POLICY_DENIED` (or `--search DMT_APPROVAL_REQUIRED`), and verify the audit chain with `dmint logs --verify`. Then synthesize a least-privilege starter policy from the observed activity with `dmint learn-policy --from-logs .dmint/audit.jsonl -o policy.json`; always review and re-verify the generated policy before enforcing it.
 
 ---
 

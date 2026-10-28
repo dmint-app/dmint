@@ -52,13 +52,20 @@ Dmint adheres to rigorous cryptographic specifications:
 | **Policy Digest** | SHA-256 with Domain Separation | Domain: `b"dmint/policy-digest/v1\x00"` |
 | **Approval Signatures** | Ed25519 (EdDSA over Curve25519) | Fast, deterministic public-key signatures resistant to side-channel and timing attacks. |
 | **Row Integrity** | HMAC-SHA256 with Domain Separation | Domain: `b"dmint/approval-record-integrity/v2\x00"` over canonical row bytes, state, version, and epoch. |
+| **Audit Log Hash Chain** | SHA-256 with Domain Separation | Domain: `b"dmint/audit-log/v1\x00"` over RFC 8785 canonicalized entries. Each entry stores `seq`, `prev_hash`, and `entry_hash`, forming a tamper-evident chain verified by `dmint logs --verify`. |
+| **MCP Schema Pinning** | SHA-256 over RFC 8785 JCS `{"description": ..., "inputSchema": ...}` | Pins downstream tool definitions in `policy.json` (`tool_schemas` or rule-level `schema_hash`). The MCP gateway fails closed with `DMT_MCP_SCHEMA_MISMATCH` if a server changes its schema. |
 | **Storage State Machine** | SQLite WAL mode + `PRAGMA busy_timeout` / PostgreSQL Row Locks | Enforces atomic, serialized state transitions without approval token replay. |
+
+> Hash chaining is tamper-evident, not tamper-proof: an attacker with write access to both the log and the verification code can recompute the chain. Ship logs to append-only/WORM storage or an external SIEM for an independent anchor.
 
 ### Database Rollback Limitations
 Restoring an older copy of the entire database file (a database rollback) is **not detected by row-level HMACs alone**, because the row MACs in the older snapshot were valid when created. Mitigations include:
-1. **Short assertion TTL** (configured explicitly per deployment via `approval_ttl`; no default) ensuring restored older approvals have already expired.
-2. **Filesystem permissions** (mode 0600) restricting database file write access to the owner UID.
-3. **External append-only audit logging** for secondary verification of consumption events.
+1. **Monotonic recovery counter (SQLite)**: The default SQLite store maintains a `store_recovery` counter mirrored to a `0600` `.epoch` sidecar file protected by cross-process `flock` locking. If the database counter lags the sidecar counter, Dmint fails closed with `ApprovalStoreError` (`DMT_APPROVAL_STORE_ERROR`). PostgreSQL deployments store the counter transactionally but do not use a local sidecar; use managed PITR/backups, short TTLs, and deployment epochs.
+2. **Short assertion TTL** (configured explicitly per deployment via `approval_ttl`; no default) ensuring restored older approvals have already expired.
+3. **Filesystem permissions** (mode 0600) restricting database file write access to the owner UID.
+4. **Tamper-evident audit log**: JSONL entries are SHA-256 hash-chained. Verify the chain with `dmint logs --verify` to detect post-hoc insertion, reordering, mid-chain deletion, or payload edits.
+
+See [`PRODUCTION_SECURITY_GUIDE.md`](PRODUCTION_SECURITY_GUIDE.md) for production key placement and the full 3-zone deployment model.
 
 ---
 

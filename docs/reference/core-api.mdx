@@ -36,9 +36,11 @@ class Dmint:
     @classmethod
     def local(
         cls,
-        policy: Policy | str | Path,
+        policy: Policy | str | Path = "policy.json",
         *,
+        policy_path: str | Path | None = None,
         db_path: str | Path | None = None,
+        storage: str | Path | None = None,
         state_dir: str | Path | None = None,
         agent_id: str = "local-agent",
         context: TrustedContext | Mapping[str, Any] | None = None,
@@ -49,7 +51,7 @@ class Dmint:
     ) -> Dmint: ...
 ```
 
-`Dmint.local(...)` is a zero-config constructor that automatically creates `.dmint/signing.key` (`0600`), `.dmint/integrity.key` (`0600`), and `.dmint/approvals.sqlite3`, and accepts a `Policy` object, a path to `policy.json`, or a built-in template name (e.g. `"shell"`).
+`Dmint.local(...)` is a zero-config constructor that automatically creates `.dmint/signing.key` (`0600`), `.dmint/integrity.key` (`0600`), and `.dmint/approvals.sqlite3`, and accepts a `Policy` object, a path to `policy.json`, or a built-in template name (e.g. `"shell"`). `policy_path` is an explicit alias that overrides `policy`; `storage` is an alias for `db_path` and is ignored when `db_path` is also supplied.
 
 `Dmint` is the synchronous authorization and decorator engine. It evaluates the policy deterministically and never calls an LLM.
 
@@ -73,8 +75,22 @@ class Dmint:
 ### Decorators and methods
 
 ```text
-engine.protect(capability: str, *, resource: ResourceSpec = NO_RESOURCE) -> Callable
-engine.protected(capability: str, *, resource: ResourceSpec = NO_RESOURCE) -> Callable
+engine.protect(
+    capability: str | None = None,
+    *,
+    tool: str | None = None,
+    action: str | None = None,
+    resource: ResourceSpec = NO_RESOURCE,
+    resource_param: str | None = None,
+) -> Callable
+engine.protected(
+    capability: str | None = None,
+    *,
+    tool: str | None = None,
+    action: str | None = None,
+    resource: ResourceSpec = NO_RESOURCE,
+    resource_param: str | None = None,
+) -> Callable
 engine.authorize(function: Callable, *args, capability: str, resource: ResourceSpec = NO_RESOURCE, **kwargs) -> AuthorizedRequest
 engine.execute(authorized: AuthorizedRequest) -> Any
 engine.retry(
@@ -85,7 +101,7 @@ engine.retry(
 ) -> Any
 ```
 
-`protect` and `protected` are aliases. `resource` may be `NO_RESOURCE` or a callable (`lambda args: ...`) that receives the bound arguments and returns a resource string.
+`protect` and `protected` are aliases. Pass either `capability="tool.action"` or both `tool="..."` and `action="..."`. `resource` may be `NO_RESOURCE` or a callable (`lambda args: ...`) that receives the bound arguments and returns a resource string. `resource_param="path"` is a convenience that resolves the resource from the bound argument named `path`.
 
 The decorated function raises:
 
@@ -327,7 +343,95 @@ key = public_key_from_hex("...")
 
 ---
 
-## 7. Dashboard Integration
+## 7. Tamper-Evident Audit Logging (`dmint.core.audit`)
+
+Dmint records structured JSONL audit events to `.dmint/audit.jsonl` by default. Override the path with `DMINT_AUDIT_LOG` or `DMINT_LOG_FILE`. Each entry carries `seq`, `prev_hash`, and `entry_hash`, where `entry_hash` is SHA-256 over `b"dmint/audit-log/v1\x00"` plus the RFC 8785 JCS canonicalization of the entry without `entry_hash`. The chain makes insertion, reordering, mid-chain deletion, and payload edits detectable.
+
+### `AuditLogger`
+
+```python
+class AuditLogger:
+    def __init__(
+        self,
+        log_path: str | Path | None = None,
+        *,
+        min_level: str | int | None = None,
+        max_bytes: int = 10 * 1024 * 1024,
+        backup_count: int = 5,
+        enabled: bool | None = None,
+    ) -> None: ...
+
+    def log_event(
+        self,
+        *,
+        decision: str,
+        tool: str,
+        action: str,
+        resource: str | None = None,
+        code: str = "",
+        harness: str = "sdk",
+        agent_id: str = "default",
+        event_type: str = "tool_evaluation",
+        level: str | None = None,
+        mode: str = "enforce",
+        shadow_would_block: bool = False,
+        approval_id: str | None = None,
+        latency_ms: float | None = None,
+        arguments: Mapping[str, Any] | None = None,
+        details: Mapping[str, Any] | None = None,
+        timestamp: datetime | None = None,
+    ) -> dict[str, Any] | None: ...
+```
+
+`log_event()` appends under a cross-process lock, rotates the active file at `max_bytes`, redacts secrets before persistence, and returns the full entry (or `None` when filtered by `min_level` or `enabled=False`).
+
+### `AuditVerificationResult`
+
+```python
+@dataclass(frozen=True)
+class AuditVerificationResult:
+    valid: bool
+    total_entries: int
+    head_hash: str
+    broken_at_seq: int | None = None
+    broken_at_line: int | None = None
+    error: str | None = None
+
+    def to_dict(self) -> dict[str, Any]: ...
+```
+
+`verify_audit_chain(log_path=None)` returns this result. A missing log is treated as a valid empty chain; a malformed line, sequence gap, broken `prev_hash`, or mismatched `entry_hash` reports `valid=False` with the first failure location.
+
+### Reading, summarizing, and learning
+
+```python
+def read_audit_entries(
+    log_path: str | Path | None = None,
+    *,
+    min_level: str | None = None,
+    decision: str | None = None,
+    tool: str | None = None,
+    harness: str | None = None,
+    agent_id: str | None = None,
+    mode: str | None = None,
+    search: str | None = None,
+    limit: int | None = None,
+) -> list[dict[str, Any]]: ...
+
+def summarize_audit_entries(entries: list[dict[str, Any]]) -> dict[str, Any]: ...
+
+def learn_policy_from_audit_logs(
+    log_path: str | Path | None = None,
+    *,
+    include_baseline_denies: bool = True,
+) -> list[dict[str, Any]]: ...
+```
+
+`read_audit_entries()` filters by level, decision, tool, harness, agent, mode, and free-text search; `limit` returns the most recent matches. `summarize_audit_entries()` returns decision, level, harness, top-capability, top-blocked-resource, and shadow-block counts. `learn_policy_from_audit_logs()` emits rule dictionaries for `Policy.from_mapping()`: read-only activity becomes scoped `allow`, mutating activity becomes `approval_required`, and destructive commands or secret paths are emitted as explicit `deny` rather than learned as allowed.
+
+---
+
+## 8. Dashboard Integration
 
 `dmint.dashboard.CoreClient` is the dashboard’s thin adapter over Core APIs. It is documented here because host integrations may use it for programmatic handoff:
 

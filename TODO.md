@@ -18,6 +18,13 @@ This document tracks shipped milestones and focused near-term priorities for Dmi
 - [x] **`dmint check` / `dmint test-policy`**: Instant offline terminal simulator to test `ALLOW`, `APPROVAL_REQUIRED`, and `DENY` decisions against `policy.json`.
 - [x] **`Dmint.local()`**: Zero-boilerplate Python SDK constructor with automatic `.dmint/` key and SQLite store provisioning, plus credential-free `dmint.retry()` auto-lookup.
 
+### 3. Tamper-Evident Auditing, Shadow Rollouts & Policy Learning
+- [x] **`dmint logs` / `dmint audit`**: Inspect, filter, tail, export, and cryptographically verify the SHA-256 hash-chained `.dmint/audit.jsonl` trail.
+- [x] **`dmint demo` / `dmint redteam`**: One-command 7-vector attack simulation with live audit-chain verification.
+- [x] **Shadow Mode (`--mode shadow` / `DMINT_MODE=shadow`)**: Observe would-be policy blocks without blocking the agent.
+- [x] **`dmint learn-policy`**: Synthesize a least-privilege, verified policy from observed audit logs.
+- [x] **`dmint doctor`**: Diagnose keys, SQLite store, per-harness policies, hooks, and run the 4-vector security self-test.
+
 ---
 
 ## 🎯 Near-Term Priorities (Focused & User-Driven)
@@ -27,7 +34,6 @@ This document tracks shipped milestones and focused near-term priorities for Dmi
 - [ ] **OpenAI Agents SDK / PydanticAI Guard**: Drop-in function decorator adapter with built-in approval polling/webhook callback support.
 
 ### 2. Standards & Policy Ergonomics
-- [ ] **Interactive Policy Diff & Dry-Run Audit Mode**: Log-only mode (`--dry-run`) for `dmint hook run` and `dmint-mcp` so teams can observe which tool calls a new policy would block before enforcing.
 - [ ] **OpenID AuthZEN Alignment**: Optional adapter mapping Dmint's `ToolRequest` and single-use approval records to emerging OpenID AuthZEN tool-authorization payloads.
 
 ---

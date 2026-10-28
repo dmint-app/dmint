@@ -27,10 +27,11 @@ Dmint does not manage employee login sessions or organization-wide role hierarch
 ## 2. Storage Limitations and Edge Cases
 
 ### Database Snapshot Rollback & Monotonic Sidecar Counter
-Every record in SQLite or PostgreSQL includes an HMAC-SHA256 integrity tag over the canonical row contents. To defend against an attacker restoring an **older snapshot of the database file** (a full-file rollback), Dmint also maintains a monotonic `store_recovery` counter paired with a `0600` `.recovery` sidecar file protected by cross-process `flock` locking. If the database counter ever lags behind the sidecar counter, Dmint fails closed with `ApprovalRollbackDetectedError` (`DMT_APPROVAL_ROLLBACK_DETECTED`).
+Every record in SQLite or PostgreSQL includes an HMAC-SHA256 integrity tag over the canonical row contents. To defend against an attacker restoring an **older snapshot of the database file** (a full-file rollback), the default SQLite store maintains a monotonic `store_recovery` counter paired with a `0600` `.epoch` sidecar file protected by cross-process `flock` locking. If the database counter ever lags behind the sidecar counter, Dmint fails closed with `ApprovalStoreError` (`DMT_APPROVAL_STORE_ERROR`; message: `database rollback detected: storage recovery counter mismatch`). The sidecar is named `<database>.epoch` (for example, `.dmint/approvals.sqlite3.epoch`), with a matching `.epoch.lock` file.
 - **Defense-in-Depth 1: Short Assertion TTL**: Configure a short `approval_ttl` (e.g. 5 minutes) so old approvals expire quickly.
 - **Defense-in-Depth 2: Deployment Epochs**: Rotating `DMINT_DEPLOYMENT_EPOCH` invalidates approvals from prior deployment lifecycles.
-- **Defense-in-Depth 3: Filesystem Isolation**: Keep `.dmint/` and `.recovery` sidecar files owned by a separate service user (`0600`).
+- **Defense-in-Depth 3: Filesystem Isolation**: Keep `.dmint/` and `.epoch` sidecar files owned by a separate service user (`0600`).
+- **Defense-in-Depth 4: PostgreSQL PITR**: PostgreSQL stores the recovery counter transactionally but does not use a local sidecar; protect backups with managed PITR, access controls, and short approval TTLs.
 
 ### SQLite Concurrent Write Contention
 SQLite serializes write operations at the database level. Although Dmint enables WAL mode (`PRAGMA journal_mode=WAL`) and busy timeouts (`PRAGMA busy_timeout = 5000`), high-concurrency environments with dozens of simultaneous agents requesting approvals may experience lock contention.
@@ -43,9 +44,12 @@ SQLite serializes write operations at the database level. Although Dmint enables
 ### Generator Functions Cannot Be Protected
 Python generator functions (`yield`) and asynchronous generators (`yield` in `async def`) cannot be decorated with `@dmint.protect`. Because generators yield control iteratively, atomic pre-execution authorization cannot be enforced across multiple resumed yields. Dmint raises `RequestValidationError` if you attempt to decorate a generator.
 
-### Symlinks are Not Resolved by Path Normalization
-Dmint's `path` resource matcher performs strict lexical normalization (resolving `.` and `..`, stripping trailing slashes, rejecting percent-encoded traversal and NUL bytes). However, lexical normalization cannot inspect the underlying filesystem to resolve symbolic links.
-- **Remediation**: If your application allows users to supply paths that may contain symlinks, your tool resolver must invoke `os.path.realpath()` before passing the resource to Dmint.
+### Symlink Resolution Depends on the Entry Point
+Dmint's `path` resource matcher performs strict lexical normalization (resolving `.` and `..`, stripping trailing slashes, rejecting percent-encoded traversal and NUL bytes). It does not inspect the underlying filesystem, so an in-memory `Policy.evaluate()` call sees the path string exactly as supplied.
+
+`dmint hook run` is different: it canonicalizes hook paths with `Path.resolve()` before policy evaluation, so a symlink pointing outside the workspace or at `.env` / `*.key` is evaluated as its real target.
+
+- **Remediation**: For direct SDK use, invoke `os.path.realpath()` or `Path.resolve()` before passing a path resource. Hook users should rely on `dmint hook run`'s canonicalization and still run the agent in a separate OS user or container.
 
 ---
 
@@ -53,7 +57,7 @@ Dmint's `path` resource matcher performs strict lexical normalization (resolving
 
 ### Downstream MCP Schema Drift Requires Explicit Pinning
 Downstream MCP servers may update their tool definitions between restarts. If an external MCP server changes its schema without notice, Dmint will evaluate requests against the existing policy rules.
-- **Remediation**: Enable `tool_schema_hash` in `mcp_protection.json`. When configured, Dmint compares the discovered schema digest against the pinned hash and fails closed if they differ.
+- **Remediation**: Pin the schema in `policy.json` using the top-level `tool_schemas` map or a rule-level `schema_hash`. `dmint create-mcp-policy` records these hashes automatically. On mismatch, the gateway fails closed with `DMT_MCP_SCHEMA_MISMATCH`; review the change and deliberately re-pin with `dmint create-mcp-policy`.
 
 ---
 
@@ -66,4 +70,4 @@ Downstream MCP servers may update their tool definitions between restarts. If an
 | Replaying a consumed approval token | **Protected** (Atomic single-use $\to$ `DMT_APPROVAL_CONSUMED`) | None. |
 | Agent modifying local `policy.json` | **Protected** (SHA-256 digest pinning $\to$ `PolicyError`) | Set `DMINT_EXPECTED_POLICY_DIGEST`. |
 | Agent reading private key file under same OS user | **Not Protected** (OS privilege boundary violation) | Run agent in separate container or user UID. |
-| Host restoring full database file backup | **Partially Protected** (Short TTL expires old tokens) | Secure filesystem permissions; short TTLs. |
+| Host restoring full database file backup | **Partially Protected** (SQLite `.epoch` counter detects a DB-only rollback; PostgreSQL relies on PITR/backups; a full-filesystem rollback still requires TTL/epoch defense) | Secure filesystem permissions; keep `.epoch` outside the restored snapshot; short TTLs. |

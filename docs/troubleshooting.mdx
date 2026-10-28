@@ -24,6 +24,15 @@ dmint check -p policy.json -t shell.execute -r "git status"
 # 2b. Check installed coding-agent PreToolUse hooks:
 dmint hook status
 
+# 2c. Run the built-in diagnostic self-test:
+dmint doctor
+
+# 2d. Run the 7-vector attack simulation:
+dmint demo
+
+# 2e. Verify the tamper-evident audit chain:
+dmint logs --verify
+
 # 3. Check pending approvals in store:
 dmint pending --db-path approvals.sqlite3
 
@@ -43,7 +52,7 @@ ls -la ~/.config/dmint/
 | `DMT_APPROVAL_POLICY_INVALID` | `policy.json` modified after approval issued. | Re-request approval under the updated policy. |
 | `DMT_KEY_PERMISSION_ERROR` | Key file permissions looser than `0600`. | Run `chmod 0600 ~/.config/dmint/*.key`. |
 | `DMT_MCP_PROTOCOL_ERROR: duplicate JSON key` | Inbound MCP JSON contains duplicate keys. | Strip duplicate dictionary keys in caller payload. |
-| `DMT_MCP_SCHEMA_MISMATCH` | Downstream MCP tool schema changed. | Inspect changes and update `tool_schema_hash` in `mcp_protection.json`. |
+| `DMT_MCP_SCHEMA_MISMATCH` | Downstream MCP tool schema changed. | Inspect the change and deliberately re-pin `schema_hash` in `policy.json` (`tool_schemas` or the rule) via `dmint create-mcp-policy`. |
 | `ApprovalStoreConfigurationError: connection refused` | PostgreSQL unreachable on port 5432. | Ensure PostgreSQL container or service is running. |
 | `PolicyError: constraints cannot be applied to DENY rules` | `policy.json` defines constraints on `DENY`. | Remove `constraints` from the `DENY` rule. |
 
@@ -82,12 +91,12 @@ dmint.core.errors.KeyPermissionError: key file '/home/user/.config/dmint/signing
 ```text
 dmint.mcp.errors.MCPProxyError: [DMT_MCP_SCHEMA_MISMATCH] downstream tool 'query' schema does not match pinned hash
 ```
-- **What happened**: The downstream MCP server updated its tool description or input schema, differing from `tool_schema_hash` in `mcp_protection.json`.
+- **What happened**: The downstream MCP server updated its tool description or input schema, differing from the pinned `schema_hash` in `policy.json` (`tool_schemas` or a rule-level `schema_hash`).
 - **Fix**:
   1. Review downstream server updates to verify the schema change is expected and safe.
-  2. Re-generate the protection configuration:
+  2. Re-run discovery with the same server command/URL and deliberately re-pin both files:
      ```bash
-     dmint create-mcp-policy --config-output mcp_protection.json
+     dmint create-mcp-policy --command npx --args <server-package> -o policy.json --config-output mcp_protection.json
      ```
 
 ---
