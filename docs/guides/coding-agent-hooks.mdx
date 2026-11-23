@@ -154,3 +154,21 @@ dmint check -p policy.learned.json -t shell.execute -r "git status"
 ```
 
 After review, replace `policy.json` (or the harness-specific policy under `.dmint/policies/`) and switch back to enforcement by unsetting `DMINT_MODE` or setting it to `enforce`.
+
+---
+
+## 6. Public-Key-Only Verification (3-Zone Deployments)
+
+`dmint init` writes `.dmint/trusted_issuer.json` next to `.dmint/signing.key`. The JSON contains only the Ed25519 **public** key and issuer ID, so it is safe to deploy to the enforcement zone. To create or refresh it explicitly:
+
+```bash
+dmint export-public-key --dir .dmint --json > .dmint/trusted_issuer.json
+```
+
+Move `signing.key` to the approver's protected vault and remove it from the gateway/host that runs `dmint hook run`. The hook loads public keys from `.dmint/trusted_issuer.json`, `.dmint/public.key`, `DMINT_TRUSTED_PUBLIC_KEY_HEX`, or `DMINT_TRUSTED_ISSUERS_FILE`. Set strict mode to guarantee that no private-key fallback is used:
+
+```bash
+export DMINT_STRICT_PUBLIC_KEY_ONLY=1
+```
+
+The hook does not recreate `signing.key` during enforcement. Approval requests are still persisted locally, but approval verification succeeds only when the assertion's issuer matches a configured public key; missing or malformed key material fails closed.

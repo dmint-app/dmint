@@ -4,7 +4,7 @@ This document tracks shipped milestones and focused near-term priorities for Dmi
 
 ---
 
-## ✅ Shipped in v2.0.4
+## ✅ Shipped in v2.0.4 & v2.0.5
 
 ### 1. Multi-Harness Pre-Tool Execution Hooks (`dmint hook`)
 - [x] **Claude Code (`PreToolUse`)**: Native `.claude/settings.json` hook intercepting `Bash`, `Read`, `Write`, `Edit`, `MultiEdit`, `NotebookEdit`, `WebFetch`, and `mcp__*` calls.
@@ -24,6 +24,10 @@ This document tracks shipped milestones and focused near-term priorities for Dmi
 - [x] **Shadow Mode (`--mode shadow` / `DMINT_MODE=shadow`)**: Observe would-be policy blocks without blocking the agent.
 - [x] **`dmint learn-policy`**: Synthesize a least-privilege, verified policy from observed audit logs.
 - [x] **`dmint doctor`**: Diagnose keys, SQLite store, per-harness policies, hooks, and run the 4-vector security self-test.
+
+### 4. 3-Zone Verification & MCP Transport Hardening (v2.0.5)
+- [x] **Public-Key-Only Approval Verification**: `load_trusted_issuers_from_public_sources()` loads Ed25519 public keys from environment variables, `trusted_issuer.json`, or `public.key`; hooks and the MCP gateway no longer require private signing keys in the enforcement zone.
+- [x] **Streaming MCP Body Limits**: Bearer authentication runs before body buffering, chunked bodies are capped incrementally, malformed `Content-Length` is rejected, and gateway JSON parsing enforces a direct byte limit.
 
 ---
 

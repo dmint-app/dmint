@@ -168,7 +168,7 @@ For the full, single-file plain-text corpus of all 34 documentation pages, read 
 
 ### Reference
 - [CLI Command Reference](https://docs.dmint.app/reference/cli): Comprehensive command-line interface documentation for the dmint CLI.
-- [Python Core API Reference](https://docs.dmint.app/reference/core-api): Public classes, signatures, methods, and parameters in the dmint 2.0.4 package.
+- [Python Core API Reference](https://docs.dmint.app/reference/core-api): Public classes, signatures, methods, and parameters in the dmint 2.0.5 package.
 - [Policy Schema Specification](https://docs.dmint.app/reference/policy-schema): Formal specification and schema for Dmint Core policy.json mappings.
 - [Policy Templates](https://docs.dmint.app/reference/policy-templates): Production-ready, schema-compliant security policies for shell, filesystem, Postgres, GitHub, Stripe, AWS, and Kubernetes
 - [MCP Protection Schema](https://docs.dmint.app/reference/mcp-protection-schema): Configuration specification for mcp_protection.json used by the dmint-mcp gateway.

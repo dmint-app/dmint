@@ -1,6 +1,6 @@
 ---
 title: "Python Core API Reference"
-description: "Public classes, signatures, methods, and parameters in the dmint 2.0.4 package."
+description: "Public classes, signatures, methods, and parameters in the dmint 2.0.5 package."
 ---
 
 # Python Core API Reference (`dmint`)
@@ -340,6 +340,20 @@ raw = assertion.to_bytes()
 from dmint.core import public_key_from_hex, public_key_from_pem
 key = public_key_from_hex("...")
 ```
+
+For 3-Zone deployments, the enforcement gate can discover public keys without reading `signing.key`:
+
+```python
+from dmint.core.verification import load_trusted_issuers_from_public_sources
+
+trusted = load_trusted_issuers_from_public_sources(
+    workspace_dir=".",
+    extra_issuer_ids=("my-gateway",),
+)
+verifier = ApprovalVerifier(trusted_issuers=trusted, audience="dmint/dashboard/v1")
+```
+
+`load_trusted_issuers_from_public_sources(workspace_dir=None, *, extra_issuer_ids=())` reads `DMINT_TRUSTED_PUBLIC_KEY_HEX` / `DMINT_AUTHORITY_PUBLIC_KEY_HEX`, `DMINT_TRUSTED_ISSUERS_FILE`, `.dmint/trusted_issuer.json`, `.dmint/public.key`, `/etc/dmint/shared/trusted_issuer.json`, `/etc/dmint/gate/public.key`, and `~/.config/dmint/trusted_issuer.json`. It accepts JSON issuer mappings/lists, raw 64-character public-key hex, or PEM. Malformed sources are ignored rather than trusted; if no key is found, configure one explicitly because approval verification cannot succeed. Hooks additionally support `DMINT_STRICT_PUBLIC_KEY_ONLY=1` to forbid fallback to a local private key.
 
 ---
 

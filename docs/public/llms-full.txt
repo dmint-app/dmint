@@ -180,7 +180,7 @@ dmint --version
 ```
 
 ```text
-dmint 2.0.4
+dmint 2.0.5
 ```
 
 ---
@@ -1587,6 +1587,24 @@ dmint check -p policy.learned.json -t shell.execute -r "git status"
 ```
 
 After review, replace `policy.json` (or the harness-specific policy under `.dmint/policies/`) and switch back to enforcement by unsetting `DMINT_MODE` or setting it to `enforce`.
+
+---
+
+## 6. Public-Key-Only Verification (3-Zone Deployments)
+
+`dmint init` writes `.dmint/trusted_issuer.json` next to `.dmint/signing.key`. The JSON contains only the Ed25519 **public** key and issuer ID, so it is safe to deploy to the enforcement zone. To create or refresh it explicitly:
+
+```bash
+dmint export-public-key --dir .dmint --json > .dmint/trusted_issuer.json
+```
+
+Move `signing.key` to the approver's protected vault and remove it from the gateway/host that runs `dmint hook run`. The hook loads public keys from `.dmint/trusted_issuer.json`, `.dmint/public.key`, `DMINT_TRUSTED_PUBLIC_KEY_HEX`, or `DMINT_TRUSTED_ISSUERS_FILE`. Set strict mode to guarantee that no private-key fallback is used:
+
+```bash
+export DMINT_STRICT_PUBLIC_KEY_ONLY=1
+```
+
+The hook does not recreate `signing.key` during enforcement. Approval requests are still persisted locally, but approval verification succeeds only when the assertion's issuer matches a configured public key; missing or malformed key material fails closed.
 
 
 ================================================================================
@@ -3403,7 +3421,7 @@ When you run `dmint init-keys` (or `dmint init`), Dmint generates two distinct c
 | Artifact | Cryptographic Primitive | Purpose | Who Holds It | Who Must NEVER Have It | Production Location & Mode |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **1. Private Signing Key** (`signing.key`) | **Ed25519** Private Seed (RFC 8032, 32 bytes) | Signs single-use `ApprovalAssertion` tokens when a human runs `dmint approve <id>` or approves in `dmint dashboard`. | **Zone 3 Only** (Human Approver / Dashboard Authority) | **AI Agent (Zone 1)** and **Enforcement Gate (Zone 2)** | `/etc/dmint/authority/signing.key` (`chown dmint-approver`, `chmod 0400`, dir `0700`) |
-| **2. Public Verification Key** (`public_key_hex` / `PEM`) | **Ed25519** Public Key (32 bytes / 64 hex chars) | Verifies that an `APPROVED` assertion was signed by `signing.key` over the exact `(request_id, argument_hash, policy_digest, capability_id, deployment_epoch, expires_at, nonce)`. | **Zone 2** (`Dmint` Gate, `dmint-mcp`, `dmint hook run`, `ApprovalVerifier`) | Safe to be public (cannot sign or forge anything) | Exported via `dmint export-public-key --json` into `trusted_issuers` |
+| **2. Public Verification Key** (`public_key_hex` / `PEM`) | **Ed25519** Public Key (32 bytes / 64 hex chars) | Verifies that an `APPROVED` assertion was signed by `signing.key` over the canonical `dmint/approval-assertion/v2` RFC 8785 envelope (exact request fingerprint, principal, integration, policy provenance, expiry, issuer, audience, nonce, and approver identity). | **Zone 2** (`Dmint` Gate, `dmint-mcp`, `dmint hook run`, `ApprovalVerifier`) | Safe to be public (cannot sign or forge anything) | Exported via `dmint export-public-key --json`; loaded from `DMINT_TRUSTED_PUBLIC_KEY_HEX`, `DMINT_TRUSTED_ISSUERS_FILE`, `.dmint/trusted_issuer.json`, or `/etc/dmint/gate/public.key` |
 | **3. Store Integrity Key** (`integrity.key`) | **HMAC-SHA256** Secret Key (32 bytes, domain `dmint/approval-record-integrity/v2\x00`) | Computes `row_mac` over every row in SQLite/PostgreSQL (`approvals` table) to detect unauthorized SQL edits to request parameters or state columns. | **Zone 2** (Gate) & **Zone 3** (Approver) | **AI Agent (Zone 1)** | `/etc/dmint/shared/integrity.key` (`chmod 0400`) or `DMINT_INTEGRITY_KEY_FILE` |
 | **4. Policy Digest** (`policy_digest`) | **SHA-256** (`dmint/policy-digest/v1\x00` + file SHA-256) | Ensures `policy.json` has not been modified on disk and voids prior approvals if policy rules change. | **Zone 2** & **Zone 3** | Read-only | `export DMINT_EXPECTED_POLICY_DIGEST=$(dmint policy-digest policy.json)` |
 | **5. Tool Schema Hash** (`schema_hash`) | **SHA-256** over RFC 8785 JCS `{"description": ..., "inputSchema": ...}` | Pins exact downstream MCP tool definitions so an MCP server cannot silently alter tool descriptions or parameters ("rug-pull attack"). | **Zone 2** (`dmint-mcp`) | Read-only in `policy.json` | Automatically pinned in `policy.json` (`tool_schemas`) by `dmint create-mcp-policy` |
@@ -4322,7 +4340,7 @@ dmint-mcp [action] [options]
 DOCUMENT: Python Core API Reference
 URL: https://docs.dmint.app/reference/core-api
 SECTION: Reference
-SUMMARY: Public classes, signatures, methods, and parameters in the dmint 2.0.4 package.
+SUMMARY: Public classes, signatures, methods, and parameters in the dmint 2.0.5 package.
 ================================================================================
 
 # Python Core API Reference (`dmint`)
@@ -4662,6 +4680,20 @@ raw = assertion.to_bytes()
 from dmint.core import public_key_from_hex, public_key_from_pem
 key = public_key_from_hex("...")
 ```
+
+For 3-Zone deployments, the enforcement gate can discover public keys without reading `signing.key`:
+
+```python
+from dmint.core.verification import load_trusted_issuers_from_public_sources
+
+trusted = load_trusted_issuers_from_public_sources(
+    workspace_dir=".",
+    extra_issuer_ids=("my-gateway",),
+)
+verifier = ApprovalVerifier(trusted_issuers=trusted, audience="dmint/dashboard/v1")
+```
+
+`load_trusted_issuers_from_public_sources(workspace_dir=None, *, extra_issuer_ids=())` reads `DMINT_TRUSTED_PUBLIC_KEY_HEX` / `DMINT_AUTHORITY_PUBLIC_KEY_HEX`, `DMINT_TRUSTED_ISSUERS_FILE`, `.dmint/trusted_issuer.json`, `.dmint/public.key`, `/etc/dmint/shared/trusted_issuer.json`, `/etc/dmint/gate/public.key`, and `~/.config/dmint/trusted_issuer.json`. It accepts JSON issuer mappings/lists, raw 64-character public-key hex, or PEM. Malformed sources are ignored rather than trusted; if no key is found, configure one explicitly because approval verification cannot succeed. Hooks additionally support `DMINT_STRICT_PUBLIC_KEY_ONLY=1` to forbid fallback to a local private key.
 
 ---
 
@@ -5583,7 +5615,7 @@ The table below covers the codes emitted by the current package. A normal fail-c
 |---|---|---|
 | `DMT_MCP_ERROR` | `MCPError` | Base MCP gateway error. |
 | `DMT_MCP_CONFIG_ERROR` | `MCPConfigurationError` | Invalid `mcp_protection.json`, unsupported transport, invalid URL, or unsafe configuration. |
-| `DMT_MCP_PROTOCOL_ERROR` | `MCPProtocolError` | Malformed JSON-RPC, duplicate JSON keys, invalid UTF-8, or protocol violation. |
+| `DMT_MCP_PROTOCOL_ERROR` | `MCPProtocolError` | Malformed JSON-RPC, duplicate JSON keys, invalid UTF-8, oversized request body, or protocol violation. |
 | `DMT_MCP_REQUEST_INVALID` | `MCPMappingError` | Unknown/invalid tool mapping or request shape. |
 | `DMT_MCP_TOOL_NOT_FOUND` | `MCPMappingError` | Requested tool is not registered in any integration. |
 | `DMT_MCP_TOOL_UNKNOWN` | `MCPMappingError` | Downstream tool has no trusted binding. |

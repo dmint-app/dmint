@@ -1,6 +1,6 @@
 # Dmint: codebase overview
 
-Snapshot: commit `8e54b57`, 2026-10-27, package version `2.0.4`, Python `>=3.10`.
+Snapshot: release `v2.0.5`, 2026-11-23, Python `>=3.10`.
 
 ---
 
@@ -14,6 +14,7 @@ Snapshot: commit `8e54b57`, 2026-10-27, package version `2.0.4`, Python `>=3.10`
 6. Storage is SQLite by default or PostgreSQL via `DMINT_DATABASE_URL`; both implement the same approval state machine.
 7. Audit events are written as a SHA-256 hash-chained JSONL trail and verified with `dmint logs --verify`.
 8. Shadow mode (`--mode shadow` / `DMINT_MODE=shadow`) records would-be blocks without blocking, and `dmint learn-policy` can synthesize a reviewed least-privilege policy from those observations.
+9. The enforcement zone can verify approvals using public keys only via `load_trusted_issuers_from_public_sources()`; the MCP gateway no longer reads private signing keys.
 
 ---
 
@@ -47,7 +48,7 @@ Top-level compatibility shims (`dmint.canonicalize`, `dmint.enforcement`, `dmint
 - 86 Python source files under `src/dmint/`.
 - 24 core modules (including the SQLite/PostgreSQL storage layer).
 - 24 CLI modules, 12 MCP modules, and 6 dashboard modules.
-- 128 test modules under `tests/` (45 core, 41 CLI, 32 MCP, 8 dashboard, 2 skills).
+- 130 test modules under `tests/` (46 core, 41 CLI, 33 MCP, 8 dashboard, 2 skills).
 - 70 mutation-testing targets in `scripts/mutation/mutations.json`.
 
 ---
@@ -235,7 +236,7 @@ mypy src/
 cd docs && npm run build
 ```
 
-Current test result: **1,565 passed, 0 failed, 0 skipped** across 128 test modules (run with the PostgreSQL integration test server available).
+Current test result: **1,578 passed, 0 failed, 0 skipped** across 130 test modules (run with the PostgreSQL integration test server available).
 
 Mutation testing targets: **70** entries in `scripts/mutation/mutations.json`.
 
@@ -251,7 +252,7 @@ Do not hand-edit `docs/public/llms-full.txt`; regenerate it.
 
 ## 10. Versioning and compatibility
 
-- Current package version: `2.0.4` (`pyproject.toml`, `src/dmint/version.py`, subsystem `__init__.py` files).
+- Current package version: `2.0.5` (`pyproject.toml`, `src/dmint/version.py`, subsystem `__init__.py` files).
 - Python support: `>=3.10`.
 - Deprecated top-level shims remain until v3.0.0.
 - Version bumps require explicit user approval and follow SemVer: patch for fixes/docs, minor for backward-compatible features, major for breaking API/schema changes.

@@ -779,6 +779,61 @@ class TestHooksAndDX(unittest.TestCase):
         self.assertEqual(json.loads(out_sym)["dmint"]["decision"], "DENY")
         self.assertEqual(json.loads(out_sym)["dmint"]["code"], "DMT_POLICY_DENIED")
 
+    def test_3zone_public_key_only_hook_verification_without_signing_key(self) -> None:
+        """Verify 3-Zone production setup: deleting .dmint/signing.key neither recreates it nor blocks public-key verification."""
+        vault_dir = self.tmp_path / "vault"
+        vault_dir.mkdir(mode=0o700)
+        vault_signing_key = vault_dir / "signing.key"
+        ws_dir = self.tmp_path / "workspace"
+        ws_dir.mkdir()
+
+        # 1. Initialize workspace and move signing.key to isolated vault
+        rc_init, _, err_init = _run_cli(["init", "--harness", "claude-code", "--dir", str(ws_dir)])
+        self.assertEqual(rc_init, 0, err_init)
+        ws_signing_key = ws_dir / ".dmint" / "signing.key"
+        ws_trusted_json = ws_dir / ".dmint" / "trusted_issuer.json"
+        self.assertTrue(ws_signing_key.exists())
+        self.assertTrue(ws_trusted_json.exists())
+
+        ws_signing_key.replace(vault_signing_key)
+        self.assertFalse(ws_signing_key.exists())
+
+        pol_path = str(ws_dir / "policy.json")
+        db_path = str(ws_dir / ".dmint" / "approvals.sqlite3")
+        payload = json.dumps({"tool_name": "Bash", "tool_input": {"command": "git push origin main"}})
+
+        # 2. First hook run -> APPROVAL_REQUIRED (and must NOT recreate .dmint/signing.key)
+        rc1, out1, _ = _run_cli(
+            ["hook", "run", "--harness", "claude-code", "--policy", pol_path, "--db-path", db_path, "--input", payload]
+        )
+        self.assertEqual(rc1, 0)
+        self.assertFalse(ws_signing_key.exists(), "hook run must never recreate .dmint/signing.key")
+        apr_id = json.loads(out1)["dmint"]["approval_id"]
+
+        # 3. Approver signs using vault_signing_key
+        rc_ap, out_ap, err_ap = _run_cli(
+            [
+                "approve",
+                apr_id,
+                "--key-file",
+                str(vault_signing_key),
+                "--db-path",
+                db_path,
+                "--by",
+                "secops@company.com",
+            ]
+        )
+        self.assertEqual(rc_ap, 0, f"{out_ap}\n{err_ap}")
+
+        # 4. Retry hook run with DMINT_STRICT_PUBLIC_KEY_ONLY=1 -> verifies via trusted_issuer.json and allows once
+        os.environ["DMINT_STRICT_PUBLIC_KEY_ONLY"] = "1"
+        rc2, out2, _ = _run_cli(
+            ["hook", "run", "--harness", "claude-code", "--policy", pol_path, "--db-path", db_path, "--input", payload]
+        )
+        self.assertEqual(rc2, 0)
+        self.assertEqual(json.loads(out2)["dmint"]["decision"], "ALLOW")
+        self.assertFalse(ws_signing_key.exists(), "hook retry must never recreate .dmint/signing.key")
+
     def test_dmint_doctor_end_to_end_self_test(self) -> None:
         """dmint doctor should verify crypto engine, keys, per-harness policies, hooks, and 4 security vectors."""
         _run_cli(["init", "--harness", "all", "--dir", str(self.tmp_path)])

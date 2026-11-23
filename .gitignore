@@ -131,3 +131,15 @@ node_modules
 .holocron
 **/.holocron
 **/.holocron/**
+
+# SQLite WAL/SHM, recovery locks, and local audit/public-key files
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite3-wal
+*.sqlite3-shm
+*.db-wal
+*.db-shm
+*.epoch.lock
+*.recovery
+.dmint/audit.jsonl*
+.dmint/trusted_issuer.json

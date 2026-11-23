@@ -193,6 +193,51 @@ class TestAgentAuthMiddleware(unittest.IsolatedAsyncioTestCase):
             self.assertNotIn("secret@db.local", resp.text)
             self.assertNotIn("Traceback", resp.text)
 
+    async def test_chunked_oversize_body_without_content_length_rejected_with_413(self):
+        transport = httpx2.ASGITransport(app=self.app)
+        async with httpx2.AsyncClient(transport=transport, base_url="http://testserver") as client:
+
+            async def chunk_gen():
+                for _ in range(4):
+                    yield b"X" * 400  # 1600 bytes total > 1024 byte limit
+
+            resp = await client.post(
+                "/test",
+                content=chunk_gen(),
+                headers={"Authorization": "Bearer token_alice", "Content-Type": "application/json"},
+            )
+            self.assertEqual(resp.status_code, 413)
+            self.assertEqual(resp.json()["error"], "payload_too_large")
+
+    async def test_malformed_or_negative_content_length_rejected_with_400(self):
+        transport = httpx2.ASGITransport(app=self.app)
+        async with httpx2.AsyncClient(transport=transport, base_url="http://testserver") as client:
+            resp_bad = await client.post(
+                "/test",
+                content=b"{}",
+                headers={"Authorization": "Bearer token_alice", "Content-Length": "not-a-number"},
+            )
+            self.assertEqual(resp_bad.status_code, 400)
+            self.assertEqual(resp_bad.json()["error"], "invalid_request")
+
+            resp_neg = await client.post(
+                "/test",
+                content=b"{}",
+                headers={"Authorization": "Bearer token_alice", "Content-Length": "-5"},
+            )
+            self.assertEqual(resp_neg.status_code, 400)
+            self.assertEqual(resp_neg.json()["error"], "invalid_request")
+
+    async def test_unauthenticated_oversize_request_rejected_with_401_before_buffering(self):
+        transport = httpx2.ASGITransport(app=self.app)
+        async with httpx2.AsyncClient(transport=transport, base_url="http://testserver") as client:
+            resp = await client.post(
+                "/test",
+                content=b"X" * 2048,
+                headers={"Authorization": "Bearer wrong_token"},
+            )
+            self.assertEqual(resp.status_code, 401)
+
 
 if __name__ == "__main__":
     unittest.main()

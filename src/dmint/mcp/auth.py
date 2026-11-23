@@ -178,44 +178,7 @@ class AgentAuthMiddleware(BaseHTTPMiddleware):
         request: Request,
         call_next: RequestResponseEndpoint,
     ) -> Response:
-        # 1. Enforce payload size limit from Content-Length header
-        content_length_header = request.headers.get("content-length")
-        if content_length_header is not None:
-            try:
-                cl = int(content_length_header)
-                if cl > self.max_request_body_size:
-                    return JSONResponse(
-                        {
-                            "error": "payload_too_large",
-                            "message": f"Request body exceeds maximum permitted size of {self.max_request_body_size} bytes",
-                        },
-                        status_code=413,
-                    )
-            except ValueError:
-                pass
-
-        # 1.5. Validate JSON body syntax and reject duplicate keys
-        if request.method in ("POST", "PUT", "PATCH"):
-            body = await request.body()
-            request.scope["_dmint_cached_body"] = body
-            if body:
-                content_type = request.headers.get("content-type", "")
-                if "application/json" in content_type or body.lstrip()[:1] in (b"{", b"["):
-                    try:
-                        from .gateway import parse_gateway_request
-
-                        parse_gateway_request(body)
-                    except MCPProtocolError as exc:
-                        return JSONResponse(
-                            {
-                                "error": "invalid_request",
-                                "code": getattr(exc, "code", "DMT_MCP_PROTOCOL_ERROR"),
-                                "message": str(exc),
-                            },
-                            status_code=400,
-                        )
-
-        # 2. Enforce Bearer authentication if authenticator is configured
+        # 1. Enforce Bearer authentication first before reading or buffering any request body
         if self.authenticator is not None and self.authenticator.has_tokens:
             auth_header = request.headers.get("authorization")
             agent_id = self.authenticator.authenticate_header(auth_header)
@@ -231,6 +194,71 @@ class AgentAuthMiddleware(BaseHTTPMiddleware):
             effective_agent_id = agent_id
         else:
             effective_agent_id = self.default_agent_id
+
+        # 2. Enforce payload size limit from Content-Length header (reject malformed/negative headers)
+        content_length_header = request.headers.get("content-length")
+        if content_length_header is not None:
+            try:
+                cl = int(content_length_header)
+            except ValueError:
+                return JSONResponse(
+                    {
+                        "error": "invalid_request",
+                        "code": "DMT_MCP_PROTOCOL_ERROR",
+                        "message": "Malformed Content-Length header",
+                    },
+                    status_code=400,
+                )
+            if cl < 0:
+                return JSONResponse(
+                    {
+                        "error": "invalid_request",
+                        "code": "DMT_MCP_PROTOCOL_ERROR",
+                        "message": "Negative Content-Length header",
+                    },
+                    status_code=400,
+                )
+            if cl > self.max_request_body_size:
+                return JSONResponse(
+                    {
+                        "error": "payload_too_large",
+                        "message": f"Request body exceeds maximum permitted size of {self.max_request_body_size} bytes",
+                    },
+                    status_code=413,
+                )
+
+        # 3. Stream body incrementally with hard byte cap and validate JSON syntax / duplicate keys
+        if request.method in ("POST", "PUT", "PATCH"):
+            buf = bytearray()
+            async for chunk in request.stream():
+                buf.extend(chunk)
+                if len(buf) > self.max_request_body_size:
+                    return JSONResponse(
+                        {
+                            "error": "payload_too_large",
+                            "message": f"Request body exceeds maximum permitted size of {self.max_request_body_size} bytes",
+                        },
+                        status_code=413,
+                    )
+            body = bytes(buf)
+            request._body = body
+            request.scope["_dmint_cached_body"] = body
+            if body:
+                content_type = request.headers.get("content-type", "")
+                if "application/json" in content_type or body.lstrip()[:1] in (b"{", b"["):
+                    try:
+                        from .gateway import parse_gateway_request
+
+                        parse_gateway_request(body, max_bytes=self.max_request_body_size)
+                    except MCPProtocolError as exc:
+                        return JSONResponse(
+                            {
+                                "error": "invalid_request",
+                                "code": getattr(exc, "code", "DMT_MCP_PROTOCOL_ERROR"),
+                                "message": str(exc),
+                            },
+                            status_code=400,
+                        )
 
         # 3. Bind authoritative identity to request state and contextvar
         request.state.agent_id = effective_agent_id

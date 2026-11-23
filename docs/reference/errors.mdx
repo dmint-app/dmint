@@ -80,7 +80,7 @@ The table below covers the codes emitted by the current package. A normal fail-c
 |---|---|---|
 | `DMT_MCP_ERROR` | `MCPError` | Base MCP gateway error. |
 | `DMT_MCP_CONFIG_ERROR` | `MCPConfigurationError` | Invalid `mcp_protection.json`, unsupported transport, invalid URL, or unsafe configuration. |
-| `DMT_MCP_PROTOCOL_ERROR` | `MCPProtocolError` | Malformed JSON-RPC, duplicate JSON keys, invalid UTF-8, or protocol violation. |
+| `DMT_MCP_PROTOCOL_ERROR` | `MCPProtocolError` | Malformed JSON-RPC, duplicate JSON keys, invalid UTF-8, oversized request body, or protocol violation. |
 | `DMT_MCP_REQUEST_INVALID` | `MCPMappingError` | Unknown/invalid tool mapping or request shape. |
 | `DMT_MCP_TOOL_NOT_FOUND` | `MCPMappingError` | Requested tool is not registered in any integration. |
 | `DMT_MCP_TOOL_UNKNOWN` | `MCPMappingError` | Downstream tool has no trusted binding. |

@@ -34,9 +34,9 @@ Every tool call passes through a deterministic policy evaluator before it reache
 
 ---
 
-## 3. MONOREPO ARCHITECTURE (v2.0.4)
+## 3. MONOREPO ARCHITECTURE (v2.0.5)
 
-The monorepo lives at `~/dmint` and ships as a **single distribution package** (`dmint v2.0.4`) containing five unified subsystems:
+The monorepo lives at `~/dmint` and ships as a **single distribution package** (`dmint v2.0.5`) containing five unified subsystems:
 
 ```text
 ~/dmint
@@ -104,7 +104,7 @@ mypy src/
 
 - **Always run from `~/dmint`** (the monorepo root).
 - **Always set `PYTHONPATH=src`** so all `dmint.*` imports resolve correctly.
-- **Current baseline:** 1565 tests — 1565 passed, 0 failed, 0 skipped.
+- **Current baseline:** 1578 tests — 1578 passed, 0 failed, 0 skipped.
 - **Any new code must maintain 0 skipped tests.** The `skipTest()` pattern is banned. If a test depends on a file, that file must exist at the exact path (no fallback logic).
 - **PostgreSQL-backed suites must fail, never skip.** They run against `DMINT_TEST_DATABASE_URL` (default `postgresql://postgres:postgres@localhost:5432/dmint_test`) through the shared `tests/postgres_support.py` gate (`require_postgres()`); when the server is unreachable they fail loudly with an actionable error instead of skipping (CI provisions PostgreSQL automatically).
 
@@ -161,7 +161,7 @@ No other states. No probabilistic decisions. No LLM calls in the decision path.
 - Point test subprocess helpers directly to `tests/mcp/mock_server.py` (never via legacy fallback paths).
 - Keep `proxy_entrypoint.py` self-contained with `sys.path` setup so it works as a spawned subprocess.
 - Match the `PYTHONPATH=src` prefix when running any `pytest` or `mypy` invocation.
-- Update `pyproject.toml` as the single source of truth for version (`version = "2.0.4"`).
+- Update `pyproject.toml` as the single source of truth for version (`version = "2.0.5"`).
 
 ---
 
@@ -192,24 +192,24 @@ python3 -m build --no-isolation
 twine check dist/*
 ```
 
-Build artifacts: `dist/dmint-2.0.4-py3-none-any.whl` and `dist/dmint-2.0.4.tar.gz`
+Build artifacts: `dist/dmint-2.0.5-py3-none-any.whl` and `dist/dmint-2.0.5.tar.gz`
 
 ---
 
 ## 9. VERSION & VERSION BUMPING PROTOCOL
 
-**Current Version: `2.0.4`**
+**Current Version: `2.0.5`**
 
-Version is the single source of truth in `pyproject.toml` (`version = "2.0.4"`) and propagated to:
+Version is the single source of truth in `pyproject.toml` (`version = "2.0.5"`) and propagated to:
 - `src/dmint/version.py`
 - `src/dmint/core/__init__.py` (`__version__`)
 - All subsystem `__init__.py` files
 
 ### Version Severity Guidelines (Semantic Versioning)
 When proposing changes, assess severity to recommend the appropriate SemVer bump:
-- **Patch (`2.0.4` → `2.0.5`)**: Bug fixes, documentation improvements, test additions, internal refactoring, non-breaking maintenance (`fix:`, `docs:`, `chore:`, `test:`, `refactor:`).
-- **Minor (`2.0.4` → `2.1.0`)**: Backwards-compatible features, new CLI commands/flags, new integrations, new capabilities (`feat:`).
-- **Major (`2.0.4` → `3.0.0`)**: Incompatible API changes, breaking policy schema modifications, removed public methods (`feat!:`, `fix!:`, `BREAKING CHANGE:`).
+- **Patch (`2.0.5` → `2.0.6`)**: Bug fixes, documentation improvements, test additions, internal refactoring, non-breaking maintenance (`fix:`, `docs:`, `chore:`, `test:`, `refactor:`).
+- **Minor (`2.0.5` → `2.1.0`)**: Backwards-compatible features, new CLI commands/flags, new integrations, new capabilities (`feat:`).
+- **Major (`2.0.5` → `3.0.0`)**: Incompatible API changes, breaking policy schema modifications, removed public methods (`feat!:`, `fix!:`, `BREAKING CHANGE:`).
 
 ### Mandatory User Permission Protocol
 > **CRITICAL RULE**: AI agents must NEVER change or bump version numbers silently.

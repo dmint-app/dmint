@@ -1,10 +1,23 @@
 """Isolated downstream MCP server process for testing Dmint MCP client integration."""
 
 import sys
+from pathlib import Path as _Path
 import anyio
-import mcp.types as types
-from mcp.server import Server
-from mcp.server.stdio import stdio_server
+
+try:
+    import mcp.types as types
+    from mcp.server import Server
+    from mcp.server.stdio import stdio_server
+except ImportError:  # pragma: no cover - stdlib MCP fallback when external mcp package is absent
+    _src = str(_Path(__file__).resolve().parents[2] / "src")
+    if _src not in sys.path:
+        sys.path.insert(0, _src)
+    from dmint.mcp._stdlib_mcp import register_stdlib_mcp_in_sys_modules
+
+    register_stdlib_mcp_in_sys_modules()
+    import mcp.types as types
+    from mcp.server import Server
+    from mcp.server.stdio import stdio_server
 
 server = Server("mock-downstream-mcp-server")
 

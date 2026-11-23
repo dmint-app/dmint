@@ -1,4 +1,4 @@
-# Dmint v2.0.4 — Production Proof & Zero-Trust Security Hardening Guide
+# Dmint v2.0.5 — Production Proof & Zero-Trust Security Hardening Guide
 
 **How to deploy Dmint in production so that no AI agent—even under full prompt injection, jailbreak, or arbitrary code execution inside its workspace—can bypass policies, forge approvals, steal credentials, or tamper with hooks.**
 
@@ -72,7 +72,7 @@ When you run `dmint init-keys` (or `dmint init`), Dmint generates two distinct c
 | Artifact | Cryptographic Primitive | What It Does | Who Needs It | Who Must NEVER Have It | Production Location & Permissions |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **1. Private Signing Key** (`signing.key`) | **Ed25519** Private Seed (RFC 8032, 32 bytes / 64 hex chars) | Cryptographically signs `ApprovalAssertion` tokens when a human runs `dmint approve <id>` or clicks **Approve** in `dmint dashboard`. | **Zone 3 Only** (Human Approver CLI / Approval Dashboard service) | **AI Agent (Zone 1)** and **Enforcement Gate / MCP Proxy (Zone 2)** | `/etc/dmint/authority/signing.key` or Approver laptop `~/.config/dmint/signing.key` (`chown dmint-approver`, `chmod 0400`, parent dir `0700`) |
-| **2. Public Verification Key** (`public_key_hex` / `PEM`) | **Ed25519** Public Key (32 bytes / 64 hex chars) | Verifies that an `APPROVED` assertion was signed by the holder of `signing.key` over the exact `(request_id, argument_hash, policy_digest, capability_id, deployment_epoch, expires_at, nonce)`. | **Zone 2** (Dmint Enforcement Gate, `dmint-mcp`, `dmint hook run`, Python SDK `ApprovalVerifier`) | Safe to be public (cannot be used to sign or forge anything) | Exported via `dmint export-public-key --json` and passed to `trusted_issuers` or stored in `/etc/dmint/gate/public.key` (`0444`) |
+| **2. Public Verification Key** (`public_key_hex` / `PEM`) | **Ed25519** Public Key (32 bytes / 64 hex chars) | Verifies that an `APPROVED` assertion was signed by the holder of `signing.key` over the canonical `dmint/approval-assertion/v2` RFC 8785 envelope (exact request fingerprint, principal, integration, policy provenance, expiry, issuer, audience, nonce, and approver identity). | **Zone 2** (Dmint Enforcement Gate, `dmint-mcp`, `dmint hook run`, Python SDK `ApprovalVerifier`) | Safe to be public (cannot be used to sign or forge anything) | Exported via `dmint export-public-key --json`; loaded from `DMINT_TRUSTED_PUBLIC_KEY_HEX`, `DMINT_TRUSTED_ISSUERS_FILE`, `.dmint/trusted_issuer.json`, or `/etc/dmint/gate/public.key` (`0444`) |
 | **3. Store Integrity Key** (`integrity.key`) | **HMAC-SHA256** Secret Key (32 bytes / 64 hex chars, domain `dmint/approval-record-integrity/v2\x00`) | Computes `row_mac` over every row in SQLite/PostgreSQL (`approvals` table) so nobody can tamper with pending request parameters, timestamps, or state columns in the database. | **Zone 2** (Enforcement Gate) & **Zone 3** (Approval Authority) | **AI Agent (Zone 1)** | `/etc/dmint/shared/integrity.key` (`chmod 0400`, owned by service group) or `DMINT_INTEGRITY_KEY_FILE` |
 | **4. Policy File Digest** (`policy_digest`) | **SHA-256** (domain `dmint/policy-digest/v1\x00` + raw file SHA-256) | Ensures `policy.json` has not been modified on disk since deployment, and invalidates any previously signed approval if the policy changes. | **Zone 2** (`DMINT_EXPECTED_POLICY_DIGEST`) & **Zone 3** | Read-only | Computed via `dmint policy-digest policy.json` and injected as `DMINT_EXPECTED_POLICY_DIGEST` |
 | **5. MCP Tool Schema Hash** (`schema_hash`) | **SHA-256** over RFC 8785 JCS `{"description": ..., "inputSchema": ...}` | Pins the exact tool definition of every downstream MCP tool so a compromised MCP server cannot silently alter tool descriptions or parameters ("rug-pull attack"). | **Zone 2** (`dmint-mcp` Gateway) | Read-only inside `policy.json` | Automatically pinned inside `policy.json` (`tool_schemas`) by `dmint create-mcp-policy` |
@@ -82,23 +82,33 @@ When you run `dmint init-keys` (or `dmint init`), Dmint generates two distinct c
 
 Even if an attacker or a rogue AI agent compromises the SQLite/PostgreSQL database AND steals `integrity.key` to write `state = 'APPROVED'` with a valid `row_mac`:
 - When the agent retries the tool call, `Dmint.consume_approved()` loads the `ApprovalAssertion` and runs **Ed25519 signature verification** using `public_key_hex`.
-- Because `signing.key` is **not on the agent host/container**, the attacker cannot produce a valid 64-byte Ed25519 signature over the canonical payload:
-  ```text
-  b"dmint/approval-assertion/v1\x00" + JCS({
-    "approval_id": "apr_...",
-    "request_fingerprint": "<sha256_of_canonical_tool_action_resource_args>",
-    "argument_hash": "<sha256_of_rfc8785_arguments>",
-    "policy_digest": "<sha256_of_policy>",
-    "capability_id": "postgres.drop_table",
-    "deployment_epoch": "prod-2026",
-    "issuer_id": "dmint-authority",
-    "audience": "dmint-enforcement-gateway",
-    "approver_principal": "secops@company.com",
-    "issued_at": "2026-10-25T19:00:00Z",
-    "expires_at": "2026-10-25T19:15:00Z",
-    "nonce": "<128-bit-random-hex>"
-  })
+- Because `signing.key` is **not on the agent host/container**, the attacker cannot produce a valid 64-byte Ed25519 signature over the RFC 8785 JCS canonical bytes of this unsigned envelope:
+  ```json
+  {
+    "algorithm": "Ed25519",
+    "credential_version": "dmint/approval-assertion/v2",
+    "payload": {
+      "approval_id": "apr_...",
+      "approver_authority_id": "prod-secops-authority",
+      "approver_kind": "human",
+      "approver_subject_id": "secops@company.com",
+      "audience": "dmint/dashboard/v1",
+      "decision": "APPROVE",
+      "expires_at": "2026-10-25T19:15:00Z",
+      "integration_id": "hook-claude-code",
+      "issued_at": "2026-10-25T19:00:00Z",
+      "issuer": "prod-secops-authority",
+      "nonce": "<43-char-base64url-256-bit-random-nonce>",
+      "policy_digest": "<sha256_of_policy>",
+      "policy_evaluated_at": "2026-10-25T18:59:55Z",
+      "policy_version_id": "v1",
+      "principal_id": "claude-code-agent",
+      "request_fingerprint": "<sha256_of_rfc8785_request_binding>",
+      "request_id": "req_..."
+    }
+  }
   ```
+  The serialized assertion adds a base64url `signature` field; that field is excluded from the signing bytes.
 - Verification fails immediately with `DMT_APPROVAL_SIGNATURE_INVALID` and execution is blocked (`DENY`).
 
 ---
@@ -231,7 +241,7 @@ services:
       - dmint_backend_net
 
   dmint-mcp-gateway:
-    image: dmint:2.0.4
+    image: dmint:2.0.5
     command:
       - dmint-mcp
       - run
@@ -276,7 +286,7 @@ services:
       - dmint_backend_net
 
   dmint-dashboard:
-    image: dmint:2.0.4
+    image: dmint:2.0.5
     command:
       - dmint
       - dashboard

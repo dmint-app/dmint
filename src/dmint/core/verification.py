@@ -10,7 +10,9 @@ import base64
 import binascii
 import json
 import re
-from collections.abc import Callable, Mapping
+import os
+from collections.abc import Callable, Mapping, Sequence
+from pathlib import Path
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from types import MappingProxyType
@@ -49,6 +51,7 @@ __all__ = [
     "public_key_pem",
     "public_key_from_hex",
     "public_key_from_pem",
+    "load_trusted_issuers_from_public_sources",
 ]
 
 DEFAULT_APPROVAL_AUDIENCE: str = "dmint/dashboard/v1"
@@ -575,3 +578,133 @@ class ApprovalVerifier:
         ):
             raise ApprovalInvalidError("approval policy provenance mismatch")
         return VerifiedApproval(assertion, record)
+
+
+_DEFAULT_TRUSTED_ISSUER_ALIASES = (
+    "dmint-cli",
+    "dmint-authority",
+    "dmint-dashboard",
+    "local-authority",
+    "prod-secops-authority",
+)
+
+
+def _register_public_key_aliases(
+    target: dict[str, Ed25519PublicKey],
+    pub: Ed25519PublicKey,
+    issuer_id: str | None = None,
+    extra_issuer_ids: Sequence[str] = (),
+) -> None:
+    if issuer_id and issuer_id.strip():
+        target[issuer_id.strip()] = pub
+    for alias in _DEFAULT_TRUSTED_ISSUER_ALIASES:
+        target.setdefault(alias, pub)
+    for extra in extra_issuer_ids:
+        if isinstance(extra, str) and extra.strip():
+            target.setdefault(extra.strip(), pub)
+
+
+def _parse_public_key_file_content(
+    raw_text: str,
+    target: dict[str, Ed25519PublicKey],
+    extra_issuer_ids: Sequence[str] = (),
+) -> None:
+    stripped = raw_text.strip()
+    if not stripped:
+        return
+    if stripped.startswith("{") or stripped.startswith("["):
+        data = json.loads(stripped)
+        if isinstance(data, dict):
+            if "public_key_hex" in data:
+                pub = public_key_from_hex(str(data["public_key_hex"]).strip())
+                _register_public_key_aliases(
+                    target,
+                    pub,
+                    str(data.get("issuer_id") or "dmint-authority"),
+                    extra_issuer_ids,
+                )
+            elif "trusted_issuers" in data and isinstance(data["trusted_issuers"], list):
+                for item in data["trusted_issuers"]:
+                    if isinstance(item, dict) and "public_key_hex" in item:
+                        pub = public_key_from_hex(str(item["public_key_hex"]).strip())
+                        _register_public_key_aliases(
+                            target,
+                            pub,
+                            str(item.get("issuer_id") or "dmint-authority"),
+                            extra_issuer_ids,
+                        )
+            else:
+                for k, v in data.items():
+                    if isinstance(k, str) and isinstance(v, str) and len(v.strip()) == 64:
+                        pub = public_key_from_hex(v.strip())
+                        _register_public_key_aliases(target, pub, k, extra_issuer_ids)
+        elif isinstance(data, list):
+            for item in data:
+                if isinstance(item, dict) and "public_key_hex" in item:
+                    pub = public_key_from_hex(str(item["public_key_hex"]).strip())
+                    _register_public_key_aliases(
+                        target,
+                        pub,
+                        str(item.get("issuer_id") or "dmint-authority"),
+                        extra_issuer_ids,
+                    )
+        return
+    if "BEGIN PUBLIC KEY" in stripped:
+        pub = public_key_from_pem(stripped)
+        _register_public_key_aliases(target, pub, "dmint-authority", extra_issuer_ids)
+        return
+    if len(stripped) == 64:
+        pub = public_key_from_hex(stripped)
+        _register_public_key_aliases(target, pub, "dmint-authority", extra_issuer_ids)
+
+
+def load_trusted_issuers_from_public_sources(
+    workspace_dir: Path | str | None = None,
+    *,
+    extra_issuer_ids: Sequence[str] = (),
+) -> dict[str, Ed25519PublicKey]:
+    """Load trusted Ed25519 public keys from public-key-only environment variables or files.
+
+    Never reads or imports private signing keys.
+    """
+    trusted: dict[str, Ed25519PublicKey] = {}
+    env_issuer = os.environ.get("DMINT_TRUSTED_ISSUER_ID", "dmint-authority").strip() or "dmint-authority"
+
+    for env_var in ("DMINT_TRUSTED_PUBLIC_KEY_HEX", "DMINT_AUTHORITY_PUBLIC_KEY_HEX"):
+        raw_hex = os.environ.get(env_var, "").strip()
+        if raw_hex:
+            try:
+                pub = public_key_from_hex(raw_hex)
+                _register_public_key_aliases(trusted, pub, env_issuer, extra_issuer_ids)
+            except Exception:
+                pass
+
+    candidates: list[Path] = []
+    env_file = os.environ.get("DMINT_TRUSTED_ISSUERS_FILE", "").strip()
+    if env_file:
+        candidates.append(Path(env_file).expanduser())
+
+    if workspace_dir is not None:
+        base = Path(workspace_dir).resolve()
+        candidates.append(base / ".dmint" / "trusted_issuer.json")
+        candidates.append(base / ".dmint" / "public.key")
+    else:
+        candidates.append(Path(".dmint/trusted_issuer.json"))
+        candidates.append(Path(".dmint/public.key"))
+
+    candidates.append(Path("/etc/dmint/shared/trusted_issuer.json"))
+    candidates.append(Path("/etc/dmint/gate/public.key"))
+    candidates.append(Path.home() / ".config" / "dmint" / "trusted_issuer.json")
+
+    for cand in candidates:
+        if cand.is_file():
+            try:
+                _parse_public_key_file_content(
+                    cand.read_text(encoding="utf-8"),
+                    trusted,
+                    extra_issuer_ids=extra_issuer_ids,
+                )
+            except Exception:
+                pass
+
+    return trusted

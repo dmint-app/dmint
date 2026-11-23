@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.5] - 2026-11-23
+
+### Security & Trust-Boundary Hardening
+- **Public-Key-Only Hook & Gateway Verification (`dmint.core.verification`, `dmint.cli.hooks`, `dmint.mcp.gateway`)**:
+  - Added `load_trusted_issuers_from_public_sources()` to load Ed25519 public keys from `DMINT_TRUSTED_PUBLIC_KEY_HEX`, `DMINT_TRUSTED_ISSUERS_FILE`, `.dmint/trusted_issuer.json`, `/etc/dmint/shared/trusted_issuer.json`, or `/etc/dmint/gate/public.key` without reading private key files.
+  - `dmint init` now writes `.dmint/trusted_issuer.json` alongside the local signing key. `dmint hook run` supports `DMINT_STRICT_PUBLIC_KEY_ONLY=1` and does not recreate `.dmint/signing.key` during enforcement, so 3-Zone deployments can remove private keys from the enforcement zone.
+  - Removed the MCP gateway's private-key fallback in favor of public-key-only discovery. Added regression coverage for workspace/environment key formats, malformed key material, and a full 3-Zone hook approval lifecycle without an on-disk signing key.
+- **MCP HTTP Transport Auth Order & Streaming Body Cap (`dmint.mcp.auth`, `dmint.mcp.gateway`)**:
+  - `AgentAuthMiddleware` now enforces Bearer token authentication (`401 Unauthorized`) before buffering any request body, rejects malformed or negative `Content-Length` headers (`400 Bad Request`), and streams POST/PUT/PATCH bodies incrementally with a hard `max_request_body_size` cap (`413 Payload Too Large`), including chunked requests without `Content-Length`.
+  - `parse_gateway_request()` now enforces `max_bytes` directly before JSON parsing, with tests for byte-exact limits, UTF-8 byte length, oversized payloads, and duplicate-key rejection.
+- **Specification & Repository Hygiene**:
+  - Reconciled the documented `ApprovalAssertion` signature schema with the exact `dmint/approval-assertion/v2` RFC 8785 canonical envelope.
+  - Added SQLite WAL/SHM, recovery lock, local audit log, and local trusted-issuer patterns to `.gitignore`.
+
 ## [2.0.4] - 2026-10-26
 
 ### Tier-1 Launch Features: Tamper-Evident Audit Logs, Red-Team Simulator & Shadow Mode (v2.0.4)

@@ -17,6 +17,7 @@ from dmint import ApprovalRequiredError, Dmint, Policy, Rule
 from dmint.cli.approvals import main_approve
 from dmint.cli.hooks import evaluate_hook_request, main_init
 from dmint.cli.ui import DmintHelpFormatter, use_color
+from dmint.version import __version__
 from dmint.core.audit import verify_audit_chain
 from dmint.core.errors import DmintError
 from dmint.core.keys import write_private_key_atomic
@@ -362,7 +363,7 @@ def main_demo(argv: Sequence[str] | None = None) -> int:
 
             console = Console()
             table = Table(
-                title="Dmint v2.0.4 — Live 7-Scenario Red-Team & Cryptographic Enforcement Simulation",
+                title=f"Dmint v{__version__} — Live 7-Scenario Red-Team & Cryptographic Enforcement Simulation",
                 show_header=True,
                 header_style="bold cyan",
             )
@@ -402,7 +403,7 @@ def main_demo(argv: Sequence[str] | None = None) -> int:
         except Exception:
             pass
 
-    print("\n=== Dmint v2.0.4 — Live 7-Scenario Red-Team & Cryptographic Simulation ===", file=out_buf)
+    print(f"\n=== Dmint v{__version__} — Live 7-Scenario Red-Team & Cryptographic Simulation ===", file=out_buf)
     for s in report["scenarios"]:
         badge = "✓ PASS" if s["passed"] else "✗ FAIL"
         print(

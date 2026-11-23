@@ -51,7 +51,12 @@ else:
 from dmint.core.canonicalize import canonicalize_bytes
 
 from dmint.core.approvals import ApprovalRecord, PolicyProvenance
-from dmint.core.verification import ApprovalAssertion, ApprovalVerifier, public_key_from_hex
+from dmint.core.verification import (
+    ApprovalAssertion,
+    ApprovalVerifier,
+    load_trusted_issuers_from_public_sources,
+    public_key_from_hex,
+)
 from dmint.core.errors import (
     ApprovalError,
     ApprovalRequiredError,
@@ -92,15 +97,25 @@ def _reject_duplicate_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     return result
 
 
-def parse_gateway_request(raw: str | bytes) -> dict[str, Any]:
-    """Parse an inbound gateway JSON request strictly rejecting duplicate object keys."""
+def parse_gateway_request(raw: str | bytes, *, max_bytes: int = 4 * 1024 * 1024) -> dict[str, Any]:
+    """Parse an inbound gateway JSON request strictly rejecting duplicate object keys and oversized payloads."""
     if isinstance(raw, bytes):
+        if len(raw) > max_bytes:
+            raise MCPProtocolError(
+                f"gateway request exceeds maximum permitted size of {max_bytes} bytes",
+                code="DMT_MCP_PROTOCOL_ERROR",
+            )
         try:
             raw = raw.decode("utf-8")
         except UnicodeDecodeError as exc:
             raise MCPProtocolError(f"invalid UTF-8 in gateway request: {exc}", code="DMT_MCP_PROTOCOL_ERROR") from exc
     if not isinstance(raw, str):
         raise MCPProtocolError("gateway request payload must be text or bytes", code="DMT_MCP_PROTOCOL_ERROR")
+    if len(raw.encode("utf-8")) > max_bytes:
+        raise MCPProtocolError(
+            f"gateway request exceeds maximum permitted size of {max_bytes} bytes",
+            code="DMT_MCP_PROTOCOL_ERROR",
+        )
     try:
         data = json.loads(raw, object_pairs_hook=_reject_duplicate_pairs)
     except json.JSONDecodeError as exc:
@@ -210,30 +225,15 @@ class MCPGateway:
                 audience=config.approval_audience,
             )
         else:
-            self._approval_verifier = None
-            candidate_keys: list[Path] = []
-            if config.approval_store_path:
-                candidate_keys.append(Path(config.approval_store_path).resolve().parent / "signing.key")
-            candidate_keys.append(Path(".dmint/signing.key"))
-            candidate_keys.append(Path.home() / ".config" / "dmint" / "signing.key")
-            for ck in candidate_keys:
-                if ck.is_file():
-                    try:
-                        from dmint.core.keys import load_private_key_from_file
-
-                        pub = load_private_key_from_file(ck).public_key()
-                        self._approval_verifier = ApprovalVerifier(
-                            trusted_issuers={
-                                "dmint-cli": pub,
-                                "dmint-authority": pub,
-                                "dmint-dashboard": pub,
-                                "local-authority": pub,
-                            },
-                            audience=config.approval_audience,
-                        )
-                        break
-                    except Exception:
-                        pass
+            ws_hint = Path(config.approval_store_path).resolve().parent.parent if config.approval_store_path else None
+            pub_map = load_trusted_issuers_from_public_sources(ws_hint)
+            if pub_map:
+                self._approval_verifier = ApprovalVerifier(
+                    trusted_issuers=pub_map,
+                    audience=config.approval_audience,
+                )
+            else:
+                self._approval_verifier = None
         self._integrations: dict[str, GatewayIntegration] = {}
 
         for integ_cfg in config.integrations:

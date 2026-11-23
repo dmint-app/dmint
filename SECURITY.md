@@ -56,6 +56,8 @@ Dmint adheres to rigorous cryptographic specifications:
 | **MCP Schema Pinning** | SHA-256 over RFC 8785 JCS `{"description": ..., "inputSchema": ...}` | Pins downstream tool definitions in `policy.json` (`tool_schemas` or rule-level `schema_hash`). The MCP gateway fails closed with `DMT_MCP_SCHEMA_MISMATCH` if a server changes its schema. |
 | **Storage State Machine** | SQLite WAL mode + `PRAGMA busy_timeout` / PostgreSQL Row Locks | Enforces atomic, serialized state transitions without approval token replay. |
 
+For 3-Zone deployments, `load_trusted_issuers_from_public_sources()` loads Ed25519 public keys from `DMINT_TRUSTED_PUBLIC_KEY_HEX`, `DMINT_TRUSTED_ISSUERS_FILE`, `.dmint/trusted_issuer.json`, `.dmint/public.key`, `/etc/dmint/shared/trusted_issuer.json`, `/etc/dmint/gate/public.key`, or `~/.config/dmint/trusted_issuer.json`. The MCP gateway uses these public-key sources only; hooks support `DMINT_STRICT_PUBLIC_KEY_ONLY=1` to forbid private-key fallback. This lets the enforcement zone verify approvals without storing `signing.key`.
+
 > Hash chaining is tamper-evident, not tamper-proof: an attacker with write access to both the log and the verification code can recompute the chain. Ship logs to append-only/WORM storage or an external SIEM for an independent anchor.
 
 ### Database Rollback Limitations

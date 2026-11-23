@@ -41,7 +41,7 @@ from dmint.core.models import Decision, NO_RESOURCE, NoResource, ToolRequest, Tr
 from dmint.core.policy import Policy, policy_digest
 from dmint.core.request_binding import request_binding_fingerprint
 from dmint.core.storage.sqlite import SQLiteApprovalStore
-from dmint.core.verification import ApprovalVerifier
+from dmint.core.verification import ApprovalVerifier, load_trusted_issuers_from_public_sources
 from dmint.core.webhooks import WebhookNotifier
 from dmint.templates import (
     AVAILABLE_TEMPLATES,
@@ -246,6 +246,7 @@ def ensure_local_dmint_environment(
     templates: list[str] | None = None,
     harnesses: list[str] | None = None,
     force_policy: bool = False,
+    create_signing_key: bool = True,
 ) -> dict[str, Any]:
     """Ensure .dmint/ keys, approval DB path, starter policy.json, and per-harness policies exist."""
     base = (workspace_dir or Path.cwd()).resolve()
@@ -257,12 +258,45 @@ def ensure_local_dmint_environment(
         pass
 
     signing_key_path = dmint_dir / "signing.key"
+    trusted_issuer_path = dmint_dir / "trusted_issuer.json"
     integrity_key_path = dmint_dir / "integrity.key"
     db_path = dmint_dir / "approvals.sqlite3"
     target_policy_path = (policy_path or (base / "policy.json")).resolve()
 
-    if not signing_key_path.exists():
-        write_private_key_atomic(signing_key_path, Ed25519PrivateKey.generate())
+    has_public_issuer = bool(load_trusted_issuers_from_public_sources(base))
+    if create_signing_key and not has_public_issuer and not signing_key_path.exists():
+        generated_priv = Ed25519PrivateKey.generate()
+        write_private_key_atomic(signing_key_path, generated_priv)
+        try:
+            trusted_issuer_path.write_text(
+                json.dumps(
+                    {
+                        "issuer_id": "dmint-authority",
+                        "public_key_hex": public_key_hex(generated_priv.public_key()),
+                    },
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+        except OSError:
+            pass
+    elif signing_key_path.exists() and not trusted_issuer_path.exists():
+        try:
+            existing_pub = load_private_key_from_file(signing_key_path).public_key()
+            trusted_issuer_path.write_text(
+                json.dumps(
+                    {
+                        "issuer_id": "dmint-authority",
+                        "public_key_hex": public_key_hex(existing_pub),
+                    },
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+        except Exception:
+            pass
 
     if not integrity_key_path.exists():
         write_integrity_key_atomic(integrity_key_path, os.urandom(32))
@@ -827,7 +861,12 @@ def evaluate_hook_request(
     _t0 = _time.perf_counter()
     norm_harness = normalize_harness_name(harness)
     raw_native_tool, unpacked_args, detected_ws = _unpack_harness_envelope(payload)
-    base = (workspace_dir or detected_ws or Path.cwd()).resolve()
+    inferred_ws: Path | None = None
+    if workspace_dir is None and detected_ws is None and db_path is not None:
+        db_p = Path(db_path).resolve()
+        if db_p.parent.name == ".dmint":
+            inferred_ws = db_p.parent.parent
+    base = (workspace_dir or detected_ws or inferred_ws or Path.cwd()).resolve()
 
     p_path = Path(policy_path)
     if not p_path.is_absolute():
@@ -1024,13 +1063,15 @@ def evaluate_hook_request(
         )
 
     # Decision.APPROVAL_REQUIRED: Check or persist in SQLiteApprovalStore
-    env_paths = ensure_local_dmint_environment(base, policy_path=p_path)
+    env_paths = ensure_local_dmint_environment(base, policy_path=p_path, create_signing_key=False)
     target_db = Path(db_path).resolve() if db_path else env_paths["db_path"]
     target_epoch = deployment_epoch or os.environ.get("DMINT_DEPLOYMENT_EPOCH", "default")
 
     integrity_key: bytes | Path | str | None = None
     if not os.environ.get("DMINT_INTEGRITY_KEY") and not os.environ.get("DMINT_INTEGRITY_KEY_FILE"):
-        if env_paths["integrity_key"].exists():
+        if (target_db.parent / "integrity.key").exists():
+            integrity_key = target_db.parent / "integrity.key"
+        elif env_paths["integrity_key"].exists():
             integrity_key = env_paths["integrity_key"]
 
     now = datetime.now(timezone.utc)
@@ -1058,22 +1099,26 @@ def evaluate_hook_request(
         if matched is not None:
             approved_rec, assertion = matched
             signing_key_file = env_paths["signing_key"]
-            trusted_issuers: dict[str, Any] = {}
             issuer_key = assertion.issuer
-            if signing_key_file.exists():
-                priv = load_private_key_from_file(signing_key_file)
-                pub = priv.public_key()
-                trusted_issuers[issuer_key] = pub
-                trusted_issuers["dmint-cli"] = pub
-                trusted_issuers["dmint-authority"] = pub
-                trusted_issuers["dmint-dashboard"] = pub
-            default_key_file = Path.home() / ".config" / "dmint" / "signing.key"
-            if default_key_file.exists() and not signing_key_file.exists():
-                try:
-                    priv_def = load_private_key_from_file(default_key_file)
-                    trusted_issuers[issuer_key] = priv_def.public_key()
-                except Exception:
-                    pass
+            trusted_issuers: dict[str, Any] = dict(
+                load_trusted_issuers_from_public_sources(base, extra_issuer_ids=(issuer_key,))
+            )
+            strict_pub_only = os.environ.get("DMINT_STRICT_PUBLIC_KEY_ONLY", "").lower() in ("1", "true", "yes")
+            if not trusted_issuers and not strict_pub_only:
+                if signing_key_file.exists():
+                    priv = load_private_key_from_file(signing_key_file)
+                    pub = priv.public_key()
+                    trusted_issuers[issuer_key] = pub
+                    trusted_issuers["dmint-cli"] = pub
+                    trusted_issuers["dmint-authority"] = pub
+                    trusted_issuers["dmint-dashboard"] = pub
+                default_key_file = Path.home() / ".config" / "dmint" / "signing.key"
+                if default_key_file.exists() and not signing_key_file.exists():
+                    try:
+                        priv_def = load_private_key_from_file(default_key_file)
+                        trusted_issuers[issuer_key] = priv_def.public_key()
+                    except Exception:
+                        pass
 
             if approved_rec.policy_provenance.policy_digest != prov.policy_digest:
                 try:
@@ -2162,8 +2207,15 @@ def main_init(args: list[str] | None = None) -> int:
         print(f"Error initializing Dmint: {exc}", file=sys.stderr)
         return 1
 
-    priv = load_private_key_from_file(env_paths["signing_key"])
-    pub_hex = public_key_hex(priv.public_key())
+    if env_paths["signing_key"].exists():
+        priv = load_private_key_from_file(env_paths["signing_key"])
+        pub_hex = public_key_hex(priv.public_key())
+        key_summary_line = f"  - Signing key   : {env_paths['signing_key']} (0600, public_key_hex={pub_hex[:16]}...)"
+    else:
+        pub_map = load_trusted_issuers_from_public_sources(ws_dir)
+        first_pub = next(iter(pub_map.values()), None)
+        pub_hex = public_key_hex(first_pub) if first_pub is not None else "external"
+        key_summary_line = f"  - Trusted key   : public-key-only (public_key_hex={pub_hex[:16]}...)"
     policy_obj = Policy.from_file(env_paths["policy_path"])
 
     print("✓ Dmint initialized in current workspace!")
@@ -2171,7 +2223,7 @@ def main_init(args: list[str] | None = None) -> int:
     for h_name, h_pol_path in env_paths.get("harness_policies", {}).items():
         h_pol_obj = Policy.from_file(h_pol_path)
         print(f"  - {h_name:<13} : {h_pol_path} ({len(h_pol_obj.rules)} rules)")
-    print(f"  - Signing key   : {env_paths['signing_key']} (0600, public_key_hex={pub_hex[:16]}...)")
+    print(key_summary_line)
     print(f"  - Integrity key : {env_paths['integrity_key']} (0600)")
     print(f"  - Approval DB   : {env_paths['db_path']}")
     if installed:
