@@ -28,7 +28,7 @@ from .errors import (
 )
 from .hashing import request_fingerprint
 from .models import Decision, NO_RESOURCE, NoResource, ToolRequest, TrustedContext, validate_text
-from .policy import Policy, policy_digest, sync_authoritative_policy
+from .policy import Policy, policy_digest, sync_authoritative_policy, verify_expected_policy_digest
 from .approvals import PolicyProvenance
 from .storage import ApprovalStore
 from .webhooks import WebhookNotifier
@@ -316,9 +316,7 @@ class Dmint:
             if not isinstance(policy, Policy):
                 raise TypeError("policy must be a Policy")
             if expected_digest:
-                digest = getattr(policy, "file_digest", None) or policy_digest(policy)
-                if digest.lower() != expected_digest.strip().lower():
-                    raise PolicyError(f"policy digest mismatch: expected '{expected_digest}', got '{digest}'")
+                verify_expected_policy_digest(policy, expected_digest)
 
         if type(context) is not TrustedContext:
             raise TypeError("context must be TrustedContext")

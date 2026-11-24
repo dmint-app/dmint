@@ -352,7 +352,7 @@ class PolicyTests(unittest.TestCase):
 
     def test_unknown_resource_kind_rejected(self):
         """Unknown resource_kind values must be rejected with PolicyError."""
-        for bad_kind in ("regex", "custom", "glob", "FOO"):
+        for bad_kind in ("regex", "custom", "FOO", "shell"):
             with self.assertRaises(PolicyError):
                 Rule.allow("fs", "read", resource="/var/*", resource_kind=bad_kind)
 
@@ -391,11 +391,12 @@ class PolicyTests(unittest.TestCase):
             with self.assertRaises(PolicyError):
                 Policy.from_dict(bad_json)
 
-        # path and exact must accept case_sensitive=False
-        rule_path = Rule.allow("fs", "read", resource="/test", resource_kind="path", case_sensitive=False)
-        self.assertFalse(rule_path.case_sensitive)
-        rule_exact = Rule.allow("fs", "read", resource="test", resource_kind="exact", case_sensitive=False)
-        self.assertFalse(rule_exact.case_sensitive)
+        # path, exact, literal, glob, and command must accept case_sensitive=False
+        for supported_kind in ("path", "exact", "literal", "glob", "command"):
+            supported_rule = Rule.allow(
+                "fs", "read", resource="/test", resource_kind=supported_kind, case_sensitive=False
+            )
+            self.assertFalse(supported_rule.case_sensitive)
 
     def test_agent_id_candidate_rule_isolation_on_resource_validation(self):
         """Another agent's path-kind rule must not affect this agent's request resource validation."""

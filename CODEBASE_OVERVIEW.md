@@ -1,6 +1,6 @@
 # Dmint: codebase overview
 
-Snapshot: release `v2.0.5`, 2026-11-23, Python `>=3.10`.
+Snapshot: release `v2.0.6`, 2026-11-24, Python `>=3.10`.
 
 ---
 
@@ -252,7 +252,7 @@ Do not hand-edit `docs/public/llms-full.txt`; regenerate it.
 
 ## 10. Versioning and compatibility
 
-- Current package version: `2.0.5` (`pyproject.toml`, `src/dmint/version.py`, subsystem `__init__.py` files).
+- Current package version: `2.0.6` (`pyproject.toml`, `src/dmint/version.py`, subsystem `__init__.py` files).
 - Python support: `>=3.10`.
 - Deprecated top-level shims remain until v3.0.0.
 - Version bumps require explicit user approval and follow SemVer: patch for fixes/docs, minor for backward-compatible features, major for breaking API/schema changes.

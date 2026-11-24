@@ -38,8 +38,8 @@
   {
     "id": "MUT-05",
     "file": "src/dmint/core/policy.py",
-    "find": "            except ResourceMatchingError:\n                return Decision.DENY, \"DMT_RESOURCE_INVALID\"",
-    "replace": "            except ResourceMatchingError:\n                return Decision.ALLOW, \"DMT_RESOURCE_INVALID\"",
+    "find": "        if had_syntax_error:\n            return Decision.DENY, \"DMT_RESOURCE_INVALID\"",
+    "replace": "        if had_syntax_error:\n            return Decision.ALLOW, \"DMT_RESOURCE_INVALID\"",
     "tests": [
       "tests/core/test_policy.py"
     ]
@@ -93,8 +93,8 @@
   {
     "id": "MUT-11",
     "file": "src/dmint/core/resources.py",
-    "find": "if \"\\x00\" in resource:",
-    "replace": "if False:",
+    "find": "    else:\n        if \"\\x00\" in resource:",
+    "replace": "    else:\n        if False:",
     "tests": [
       "tests/core/test_resources.py",
       "tests/core/test_mutation_regressions.py"

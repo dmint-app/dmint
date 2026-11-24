@@ -19,6 +19,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Reconciled the documented `ApprovalAssertion` signature schema with the exact `dmint/approval-assertion/v2` RFC 8785 canonical envelope.
   - Added SQLite WAL/SHM, recovery lock, local audit log, and local trusted-issuer patterns to `.gitignore`.
 
+## [2.0.6] - 2026-11-24
+
+### Decision Engine & Resource Normalization Hardening
+- **Compound-Command Wildcard Guard (`D-01`, `R-01`)**:
+  - Wildcard `exact` / `command` ALLOW rules now always reject requests carrying shell control operators (`&&`, `||`, `;`, `|`, `&`, newlines, backticks, `$(`, process substitution, and redirections) that the rule itself does not contain. The previous leading-`* ` exemption allowed rules such as `"* main"` to authorize `"git push origin main && rm -rf /"`.
+  - DENY and APPROVAL_REQUIRED wildcards deliberately remain unguarded so broad restrictive rules such as `"* *.env*"` still cover compound commands like `"echo $(cat .env)"`.
+- **Explicit Resource Kinds (`D-03`)**:
+  - Added `resource_kind="literal"`, `"glob"`, and `"command"`. `literal` never expands `*`; `glob` expands `*` anywhere without shell semantics; `command` expands `*` while retaining the compound-operator guard. All three support `case_sensitive=False` and round-trip through policy JSON.
+- **Unified Policy Digest Domains (`D-02`, `D-06`)**:
+  - Added `verify_expected_policy_digest()`, accepting the raw policy-file SHA-256, the domain-separated canonical `dmint/policy-digest/v1\x00` digest, or the undomained JCS canonical digest. `Policy.from_file()` and `Dmint(..., expected_policy_digest=...)` now share this verification path.
+  - `dmint policy-digest --json` reports both `file_sha256` and `canonical_policy_digest`; `--canonical` prints the canonical digest. `Policy.to_dict(include_defaults=True)` provides a lossless round-trip representation including `default`, `strict_arguments`, and `tool_schemas`.
+- **Per-Rule Resource Validation (`D-04`)**:
+  - `Policy.evaluate_detailed()` validates the request resource per candidate rule instead of aborting on the first incompatible kind. Structurally impossible cross-kind pairs (for example a host rule receiving a URL) are skipped, while any plausible-kind syntax failure still fails the whole request closed with `DMT_RESOURCE_INVALID`.
+- **Policy Mapping Validation (`D-05`, `D-07`, `D-08`)**:
+  - Documented that `agent_id` is asserted unless bound through `Dmint.bind(principal=...)` or authenticated transport. `Policy.from_mapping()` now accepts an explicit `"default": "deny"` and rejects every other value. Unknown policy/rule keys report the offending key and a `"Did you mean '<nearest>'?"` suggestion via `difflib`.
+- **Resource Normalizer Edge Cases (`R-02`–`R-07`)**:
+  - Host patterns with explicit ports now match non-default URL ports. Added `normalize_platform_path()` for Windows drive paths and opt-in `normalize_filesystem_path(..., resolve_symlinks=True)` with a documented lexical/TOCTOU boundary.
+  - Percent-encoded traversal detection now rejects encoded separators and dot segments without flagging ordinary escapes such as `report%20final.txt`, and distinguishes malformed encoding from root-escaping traversal. `normalize_host()` rejects path suffixes, identifier wildcards require at least one character and accept `:`, and `case_sensitive=False` is supported on the new literal/glob/command kinds.
+
 ## [2.0.4] - 2026-10-26
 
 ### Tier-1 Launch Features: Tamper-Evident Audit Logs, Red-Team Simulator & Shadow Mode (v2.0.4)

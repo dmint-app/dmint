@@ -129,7 +129,7 @@ The `resource` selector is optional.
 
 A global deny or approval rule must use `"resource": "*"`. Writing `Rule.deny("database", "drop")` without a resource does **not** deny resource-bearing calls; it only matches no-resource calls.
 
-Supported `resource_kind` values are `exact`, `path`, `url`, `host`, and `identifier`. The default is derived from the resource value: no-resource for omitted, any for `"*"`, exact for a string. Set `case_sensitive` only where the chosen kind supports it.
+Supported `resource_kind` values are `exact`, `literal`, `glob`, `command`, `path`, `url`, `host`, and `identifier`. Use `literal` for strict equality where `*` is not a wildcard, `glob` for generic `*` matching without shell semantics, and `command` for shell commands whose `allow` rules retain the compound-operator guard. The default is derived from the resource value: no-resource for omitted, any for `"*"`, exact for a string. Set `case_sensitive` only where the chosen kind supports it.
 
 ### `agent_id`
 

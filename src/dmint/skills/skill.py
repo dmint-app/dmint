@@ -13,7 +13,7 @@ Dmint Policy JSON Schema Specification:
       "tool": "<tool_name>",
       "action": "<action_name>",
       "resource": "*" | null | "<resource_string>",
-      "resource_kind": "exact" | "path" | "url" | "host" | "identifier",
+      "resource_kind": "exact" | "literal" | "glob" | "command" | "path" | "url" | "host" | "identifier",
       "case_sensitive": true | false,
       "agent_id": null | "<agent_id_string>",
       "conditions": [

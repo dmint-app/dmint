@@ -68,8 +68,8 @@ Each element in the `rules` array defines an authorization rule for an agent act
 | `tool` | string | **Yes** | Tool identifier or namespace (e.g. `"postgres"`, `"filesystem"`, `"ledger"`). |
 | `action` | string | **Yes** | Specific action or method name (e.g. `"query"`, `"transfer"`, `"read"`). |
 | `resource` | string | No | Targeted resource string or wildcard (`"*"`). Defaults to matching requests with no resource concept if omitted. |
-| `resource_kind` | string | No | Deterministic matching engine kind: `"exact"`, `"path"`, `"url"`, `"host"`, or `"identifier"`. Defaults to `"exact"` if omitted. Unknown values are rejected with `PolicyError`. |
-| `case_sensitive` | boolean | No | Case sensitivity for resource matching (defaults to `true`). Only supported for `"path"` and `"exact"` kinds; rejected on `"host"`, `"url"`, and `"identifier"`. Set to `false` on case-insensitive filesystems (macOS, Windows). |
+| `resource_kind` | string | No | Deterministic matching engine kind: `"exact"`, `"literal"`, `"glob"`, `"command"`, `"path"`, `"url"`, `"host"`, or `"identifier"`. Defaults to `"exact"` if omitted. Unknown values are rejected with `PolicyError`. |
+| `case_sensitive` | boolean | No | Case sensitivity for resource matching (defaults to `true`). Supported for `"path"`, `"exact"`, `"literal"`, `"glob"`, and `"command"` kinds; rejected on `"host"`, `"url"`, and `"identifier"`. Set to `false` on case-insensitive filesystems (macOS, Windows). |
 | `agent_id` | string | No | Optional agent identifier to restrict this rule to a specific agent identity. |
 | `conditions` | array | No | Optional trusted context conditions evaluated against environmental attributes. |
 | `constraints` | object | No | Optional JSON-Schema-like argument constraints for `allow` and `approval_required` rules. Constraints are rejected on `deny` rules. |
@@ -80,14 +80,17 @@ Each element in the `rules` array defines an authorization rule for an agent act
 ## Resource Matching & Kind Semantics
 
 - **Any Resource (`"resource": "*"`)**: Matches any resource specified in the tool request.
-- **Exact & Command Prefix/Suffix Matching (`resource_kind: "exact"` or omitted)**: Matches the exact string (`rule == request.resource`), and also supports bounded command prefix/suffix wildcards (`"docker *"`, `"rm -rf /*"`, `"* | sh"`) for shell rules.
+- **Exact Prefix/Suffix Matching (`resource_kind: "exact"` or omitted)**: Matches the exact string (`rule == request.resource`), and also supports bounded command prefix/suffix wildcards (`"docker *"`, `"rm -rf /*"`, `"* | sh"`) for shell rules. Wildcard `allow` rules reject requests carrying shell compound operators the rule does not itself contain; restrictive `deny` and `approval_required` rules keep matching them.
+- **Literal Matching (`resource_kind: "literal"`)**: Strict string equality; `*` is never a wildcard.
+- **Generic Glob (`resource_kind: "glob"`)**: Expands `*` anywhere without shell semantics or compound-operator checks.
+- **Command Matching (`resource_kind: "command"`)**: Expands `*` anywhere for shell commands while retaining the compound-operator guard on `allow` rules.
 - **Path Globs (`resource_kind: "path"`)**:
   - `*` matches characters within a single path segment (does not cross `/`).
   - `**` matches zero or more complete path segments across slashes (e.g. `/workspace/**/*.py`).
   - Single-character `?` is not supported.
   - Path matching is case-sensitive by default. On case-insensitive filesystems (macOS, Windows), configure `case_sensitive=False`.
 - **Identifier Globs (`resource_kind: "identifier"`)**:
-  - `*` matches alphanumeric and delimiter characters `[A-Za-z0-9_.-]*`.
+  - `*` matches one or more alphanumeric and delimiter characters `[A-Za-z0-9_.:-]+`, so an empty identifier never satisfies a wildcard.
   - Leading and trailing whitespace is rejected.
 - **Fail-Closed Pre-Check**: If an incoming request's resource cannot be legally normalized for any applicable rule kind in the policy (e.g., path root escape `/../`, NUL byte `\x00`, backslash `\`, encoded traversal `%2f`/`%2e%2e`, userinfo in URLs), policy evaluation immediately returns `DENY` with code `DMT_RESOURCE_INVALID` before any rule matching.
 - **Omission**: Omitting `"resource"` means the rule *only* matches requests that have no resource concept at all. It does **not** mean "any resource".

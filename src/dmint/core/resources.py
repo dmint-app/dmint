@@ -3,19 +3,28 @@
 Provides kind-specific normalization and deterministic matching:
 - 'path': POSIX path normalization (resolving '.', '..', duplicate slashes,
   fixing POSIX '//' quirk, normalizing trailing slashes), rejecting root escapes,
-  NUL bytes, backslashes, and percent-encoded traversal tokens (%2f, %2e%2e).
-  Supports NFC Unicode normalization and an explicit case-insensitive option.
-  Deterministic segment-based matcher for '*' (single segment) and '**' (multi-segment)
-  with hard bounds on input/pattern length and zero ReDoS / regex backtracking.
+  NUL bytes, backslashes, malformed percent encoding, and percent-encoded
+  path separators or dot-segment traversal. Supports NFC Unicode normalization
+  and an explicit case-insensitive option. Deterministic segment-based matcher
+  for '*' (single segment) and '**' (multi-segment) with hard bounds on
+  input/pattern length and zero ReDoS / regex backtracking.
   NOTE: String-based path matching cannot inspect the underlying filesystem.
-  Symlink resolution (e.g. via os.path.realpath()) is strictly the tool
-  resolver's responsibility before passing request resources to Dmint.
+  `normalize_filesystem_path(..., resolve_symlinks=True)` performs an explicit,
+  opt-in `os.path.realpath()` resolution; it is lexical and still subject to
+  TOCTOU races, so the executor must re-check or use fd-relative operations.
 - 'url' / 'host': Normalizes scheme (fail-closed: http/https only), lowercase hostname,
   punycode IDN conversion, trailing-dot removal, IPv6 bracketed literals, default port
-  removal, userinfo rejection (@), encoded traversal rejection (%2f, %2e%2e), and path
-  normalization. Supports domain and path wildcards.
+  removal, userinfo rejection (@), encoded traversal rejection, and path
+  normalization. Supports domain and path wildcards, including non-default ports.
 - 'identifier': Rejects leading/trailing whitespace, rejects NUL bytes.
-  Wildcard '*' strictly matches [A-Za-z0-9_.-]*.
+  Wildcard '*' requires at least one character from [A-Za-z0-9_.:-].
+- 'exact': Backwards-compatible literal matching that expands only leading
+  ("* suffix") and trailing ("prefix *" / "prefix/*") wildcards, always with a
+  shell compound-operator guard.
+- 'literal': Strict literal equality; '*' is never a wildcard.
+- 'glob': Generic '*' wildcard matching with no shell semantics.
+- 'command': Shell-command matching where '*' is a wildcard and compound
+  operators in the request must not exceed those explicitly present in the rule.
 - Unknown kind: Strictly exact match (no wildcards or heuristic expansion).
 """
 
@@ -23,6 +32,7 @@ from __future__ import annotations
 
 from enum import Enum
 import functools
+import os
 import re
 import unicodedata
 from urllib.parse import urlsplit, urlunsplit
@@ -42,6 +52,9 @@ class ResourceKind(str, Enum):
     HOST = "host"
     IDENTIFIER = "identifier"
     EXACT = "exact"
+    LITERAL = "literal"
+    GLOB = "glob"
+    COMMAND = "command"
     ANY = "any"
     NONE = "none"
     UNKNOWN = "unknown"
@@ -53,18 +66,79 @@ MAX_INPUT_LENGTH = 65536
 MAX_SEGMENTS = 10000
 MAX_WILDCARDS = 64
 
-_ENCODED_TRAVERSAL_TOKENS = (
-    "%2f",
-    "%2e%2e",
-    "%2e.",
-    ".%2e",
-    "%252f",
-    "%252e%252e",
-    "%252e.",
-    ".%252e",
-    "%252e",
-)
+_PERCENT_ESCAPE = re.compile(r"%([0-9A-Fa-f]{2})")
+_WINDOWS_DRIVE_PREFIX = re.compile(r"^[A-Za-z]:[\\/]")
+_WINDOWS_DRIVE_ANY = re.compile(r"^[A-Za-z]:")
+_SHELL_META_TOKENS = ("&&", "||", ";", "|", "&", "\n", "\r", "`", "$(", ">(", "<(", " >", "\t>")
 _IDENTIFIER_PATTERN_REGEX = re.compile(r"^[A-Za-z0-9_.*:\-]+$")
+
+
+def _is_hex_digit(ch: str) -> bool:
+    return ch in "0123456789abcdefABCDEF"
+
+
+def _decoded_traversal_escapes_root(decoded: str) -> bool:
+    """Return True when the decoded dot segments would pop above the root."""
+    stack: list[str] = []
+    for segment in decoded.split("/"):
+        if segment in ("", "."):
+            continue
+        if segment == "..":
+            if not stack:
+                return True
+            stack.pop()
+        else:
+            stack.append(segment)
+    return False
+
+
+def _reject_encoded_traversal(value: str, *, subject: str = "path") -> None:
+    """Reject malformed percent encoding and encoded path/traversal semantics.
+
+    Blanket substring checks produced false positives for ordinary filenames that
+    happen to contain percent escapes (for example ``report%20final.txt``).  This
+    helper instead validates the escape syntax and decodes up to two levels so
+    only encoded separators (``%2f`` / ``%252f``) and encoded ``.`` / ``..``
+    path segments fail closed.
+    """
+    idx = 0
+    while True:
+        pct = value.find("%", idx)
+        if pct < 0:
+            break
+        if pct + 2 >= len(value) or not _is_hex_digit(value[pct + 1]) or not _is_hex_digit(value[pct + 2]):
+            raise ResourceMatchingError(f"{subject} contains malformed percent encoding")
+        idx = pct + 3
+
+    decoded = value
+    introduced_separator = False
+    for _ in range(2):
+
+        def _decode(match: re.Match[str]) -> str:
+            nonlocal introduced_separator
+            character = chr(int(match.group(1), 16))
+            if character in ("/", "\\"):
+                introduced_separator = True
+            return character
+
+        next_value = _PERCENT_ESCAPE.sub(_decode, decoded)
+        if next_value == decoded:
+            break
+        decoded = next_value
+
+    if decoded == value:
+        return
+
+    if "\x00" in decoded:
+        raise ResourceMatchingError(f"{subject} contains encoded NUL byte")
+
+    if introduced_separator:
+        raise ResourceMatchingError(f"{subject} contains encoded path separator")
+
+    if any(segment in (".", "..") for segment in decoded.split("/")):
+        if _decoded_traversal_escapes_root(decoded):
+            raise ResourceMatchingError(f"{subject} contains encoded traversal that escapes root")
+        raise ResourceMatchingError(f"{subject} contains encoded traversal sequence")
 
 
 def normalize_path(path: str, case_sensitive: bool = True) -> str:
@@ -75,7 +149,7 @@ def normalize_path(path: str, case_sensitive: bool = True) -> str:
     - Enforce MAX_INPUT_LENGTH limit.
     - Reject NUL bytes (\\x00).
     - Reject backslashes (\\) where POSIX path is expected.
-    - Reject percent-encoded traversal tokens (%2f, %2e%2e).
+    - Reject malformed percent encoding and encoded separators/traversal.
     - Unicode normalize to NFC.
     - Optional case folding when case_sensitive=False.
     - Collapse multiple leading slashes (fixes POSIX '//' quirk of posixpath.normpath).
@@ -92,11 +166,7 @@ def normalize_path(path: str, case_sensitive: bool = True) -> str:
     if "\\" in path:
         raise ResourceMatchingError("path contains backslash where POSIX path is expected")
 
-    # Reject encoded path traversal tokens
-    path_lower = path.lower()
-    for token in _ENCODED_TRAVERSAL_TOKENS:
-        if token in path_lower:
-            raise ResourceMatchingError(f"path contains encoded traversal sequence: {token}")
+    _reject_encoded_traversal(path)
 
     # Unicode NFC normalization
     path = unicodedata.normalize("NFC", path)
@@ -137,6 +207,59 @@ def normalize_path(path: str, case_sensitive: bool = True) -> str:
         if not segments:
             return "."
         return "/".join(segments)
+
+
+def normalize_platform_path(raw_path: str) -> str:
+    """Normalize a harness-supplied filesystem path across POSIX and Windows.
+
+    Windows drive paths (``C:\\foo\\bar``) are converted to forward-slash,
+    drive-anchored POSIX-style paths (``C:/foo/bar``) so policies can be written
+    once.  Drive-relative (``C:foo``), UNC (``\\\\server\\share``), and device
+    (``\\\\?\\C:\\...``) paths are rejected because their resolution is
+    host-specific and ambiguous.  All other inputs are delegated to
+    :func:`normalize_path`, which remains strictly POSIX.
+    """
+    if not isinstance(raw_path, str) or not raw_path:
+        raise ResourceMatchingError("path cannot be empty")
+    if len(raw_path) > MAX_INPUT_LENGTH:
+        raise ResourceMatchingError(f"path exceeds maximum length of {MAX_INPUT_LENGTH}")
+    if "\x00" in raw_path:
+        raise ResourceMatchingError("path contains NUL byte")
+    if raw_path.startswith("\\\\?\\") or raw_path.startswith("\\\\.\\"):
+        raise ResourceMatchingError("Windows device paths are not supported")
+    if raw_path.startswith("\\\\"):
+        raise ResourceMatchingError("UNC paths are not supported; pass a drive-anchored path")
+    if _WINDOWS_DRIVE_PREFIX.match(raw_path):
+        drive = raw_path[0].upper()
+        remainder = raw_path[2:].replace("\\", "/")
+        if not remainder.startswith("/"):
+            remainder = "/" + remainder
+        return f"{drive}:{normalize_path(remainder)}"
+    if _WINDOWS_DRIVE_ANY.match(raw_path):
+        raise ResourceMatchingError("drive-relative Windows paths are not supported")
+    return normalize_path(raw_path)
+
+
+def normalize_filesystem_path(raw_path: str, *, resolve_symlinks: bool = False) -> str:
+    """Normalize a filesystem path, optionally resolving symlinks.
+
+    Symlink resolution is opt-in because it is inherently TOCTOU-prone: the
+    filesystem can change between resolution and execution.  When
+    ``resolve_symlinks=True`` the path is resolved with ``os.path.realpath``
+    before lexical normalization.  Callers that need a strong guarantee must
+    re-check the final path at execution time or operate on an already-open
+    file descriptor.
+    """
+    if type(resolve_symlinks) is not bool:
+        raise ResourceMatchingError("resolve_symlinks must be a boolean")
+    if not isinstance(raw_path, str) or not raw_path:
+        raise ResourceMatchingError("path cannot be empty")
+    if "\x00" in raw_path:
+        raise ResourceMatchingError("path contains NUL byte")
+    if resolve_symlinks:
+        resolved = os.path.realpath(raw_path)
+        return normalize_platform_path(resolved)
+    return normalize_platform_path(raw_path)
 
 
 def _split_path_segments(p: str) -> tuple[bool, list[str]]:
@@ -188,10 +311,7 @@ def _parse_pattern_segments(pattern: str, case_sensitive: bool = True) -> tuple[
     if "?" in pattern:
         raise ResourceMatchingError("wildcard '?' is not supported; use '*' or '**'")
 
-    pat_lower = pattern.lower()
-    for token in _ENCODED_TRAVERSAL_TOKENS:
-        if token in pat_lower:
-            raise ResourceMatchingError(f"pattern contains encoded traversal sequence: {token}")
+    _reject_encoded_traversal(pattern, subject="pattern")
 
     if pattern.count("*") > MAX_WILDCARDS:
         raise ResourceMatchingError(f"pattern exceeds maximum wildcards limit of {MAX_WILDCARDS}")
@@ -344,9 +464,14 @@ def normalize_host(host_str: str) -> str:
     clean = host_str
     if "://" in clean:
         try:
-            clean = urlsplit(clean).netloc
+            parsed = urlsplit(clean)
         except Exception as exc:
             raise ResourceMatchingError(f"invalid host format: {exc}") from exc
+        if parsed.path not in ("", "/") or parsed.query or parsed.fragment:
+            raise ResourceMatchingError("host must not contain a path")
+        clean = parsed.netloc
+    if "/" in clean or "?" in clean or "#" in clean:
+        raise ResourceMatchingError("host must not contain a path")
 
     # Separate port if present
     port = ""
@@ -531,7 +656,9 @@ def normalize_identifier(id_str: str) -> str:
 def compile_identifier_pattern(pattern: str) -> re.Pattern[str]:
     """Compile an identifier pattern into an anchored regex.
 
-    Wildcard '*' strictly matches [A-Za-z0-9_.-]*.
+    Wildcard '*' requires at least one character from ``[A-Za-z0-9_.:-]`` so an
+    empty identifier can never satisfy a wildcard.  Colons are allowed for
+    namespaced identifiers such as ``service:api``.
     """
     if pattern != pattern.strip():
         raise ResourceMatchingError("pattern must not contain leading or trailing whitespace")
@@ -541,7 +668,7 @@ def compile_identifier_pattern(pattern: str) -> re.Pattern[str]:
     res = ["^"]
     for c in pattern:
         if c == "*":
-            res.append(r"[A-Za-z0-9_.\-]*")
+            res.append(r"[A-Za-z0-9_.\-:]+")
         else:
             res.append(re.escape(c))
     res.append("$")
@@ -550,14 +677,19 @@ def compile_identifier_pattern(pattern: str) -> re.Pattern[str]:
 
 @functools.lru_cache(maxsize=1024)
 def compile_host_pattern(pattern: str) -> re.Pattern[str]:
-    """Compile a host pattern into an anchored regex."""
+    """Compile a host pattern into an anchored regex.
+
+    When the pattern carries an explicit ``:port`` suffix, wildcards are allowed
+    to consume the colon as well so ``*`` can match ``api.example.com:8080``.
+    """
     clean = pattern.strip().lower()
     if clean.endswith(".") and not clean.startswith("["):
         clean = clean[:-1]
+    wildcard_class = r"[A-Za-z0-9_.\-:]*" if ":" in clean else r"[A-Za-z0-9_.\-]*"
     res = ["^"]
     for c in clean:
         if c == "*":
-            res.append(r"[A-Za-z0-9_.\-]*")
+            res.append(wildcard_class)
         else:
             res.append(re.escape(c))
     res.append("$")
@@ -627,6 +759,58 @@ def match_url(rule: str, input_url: str) -> bool:
         return False
 
 
+def _has_unapproved_shell_metachars(rule: str, resource: str) -> bool:
+    """Return True when the request carries shell operators the rule does not.
+
+    A wildcard ALLOW rule such as ``"* main"`` must not authorize
+    ``"git push origin main && rm -rf /"``.  Operators are counted rather than
+    merely checked for presence so a rule that intentionally contains ``"| sh"``
+    can still match exactly that pipeline while rejecting additional ``&&``,
+    ``;`` or extra pipes.
+
+    The guard is applied only to rules that grant access (``Decision.ALLOW``).
+    DENY and APPROVAL_REQUIRED rules are restrictive, so their wildcards must
+    keep matching compound commands; otherwise a broad deny such as
+    ``"* *.env*"`` would stop matching ``"echo $(cat .env)"`` and could let a
+    more specific allow rule through.
+    """
+    for token in _SHELL_META_TOKENS:
+        occurrences = resource.count(token)
+        if occurrences == 0:
+            continue
+        if occurrences > rule.count(token):
+            return True
+    return False
+
+
+def _validate_plain_resource(resource: str) -> None:
+    if "\x00" in resource:
+        raise ResourceMatchingError("resource contains NUL byte")
+    if len(resource) > MAX_INPUT_LENGTH:
+        raise ResourceMatchingError(f"resource exceeds maximum length of {MAX_INPUT_LENGTH}")
+    if resource.count("*") > MAX_WILDCARDS:
+        raise ResourceMatchingError(f"resource exceeds maximum wildcards limit of {MAX_WILDCARDS}")
+
+
+def kind_is_structurally_impossible(resource: str, kind: str) -> bool:
+    """Return True when a resource cannot possibly match a rule of ``kind``.
+
+    This is deliberately narrow.  A host rule can never match a URL-shaped or
+    path-shaped resource, and a URL rule can never match a resource without a
+    scheme.  Skipping those rules avoids a cross-kind outage without weakening
+    fail-closed handling for resources that are merely malformed under an
+    otherwise plausible kind.
+    """
+    kind_lower = (kind or "exact").lower()
+    if kind_lower == "host":
+        return "://" in resource or "/" in resource or "?" in resource or "#" in resource
+    if kind_lower == "url":
+        return "://" not in resource
+    if kind_lower == "path":
+        return "://" in resource
+    return False
+
+
 def validate_resource_syntax(resource: str, kind: str) -> None:
     """Validate resource syntax according to kind; raises ResourceMatchingError if invalid."""
     kind_lower = (kind or "exact").lower()
@@ -638,6 +822,8 @@ def validate_resource_syntax(resource: str, kind: str) -> None:
         normalize_host(resource)
     elif kind_lower == "identifier":
         normalize_identifier(resource)
+    elif kind_lower in ("literal", "glob", "command"):
+        _validate_plain_resource(resource)
     elif kind_lower in ("any", "none"):
         return
     else:
@@ -647,7 +833,13 @@ def validate_resource_syntax(resource: str, kind: str) -> None:
             raise ResourceMatchingError(f"resource exceeds maximum length of {MAX_INPUT_LENGTH}")
 
 
-def _match_resource_unchecked(rule: str, norm_resource: str, kind: str = "exact", case_sensitive: bool = True) -> bool:
+def _match_resource_unchecked(
+    rule: str,
+    norm_resource: str,
+    kind: str = "exact",
+    case_sensitive: bool = True,
+    enforce_meta_guard: bool = True,
+) -> bool:
     """Low-level resource matcher. Assumes norm_resource has already been validated."""
     kind_lower = (kind or "exact").lower()
     if kind_lower == "path":
@@ -662,27 +854,56 @@ def _match_resource_unchecked(rule: str, norm_resource: str, kind: str = "exact"
         return True
     elif kind_lower == "none":
         return False
-    elif kind_lower == "exact":
-        if "*" in rule and (rule.startswith("* ") or rule.endswith(" *") or rule.endswith("/*")):
-            if len(rule) <= MAX_PATTERN_LENGTH and rule.count("*") <= MAX_WILDCARDS and "\x00" not in rule:
-                if not rule.startswith("* "):
-                    for meta_tok in ("&&", "||", ";", "|", "&", "\n", "\r", "`", "$(", ">(", "<(", " >", "\t>"):
-                        if meta_tok in norm_resource and meta_tok not in rule:
-                            return False
-                pat = rule if case_sensitive else rule.lower()
-                cand = norm_resource if case_sensitive else norm_resource.lower()
-                return bool(_compile_single_segment_pattern(pat).fullmatch(cand))
+    elif kind_lower == "literal":
         if not case_sensitive:
             return rule.lower() == norm_resource.lower()
         return rule == norm_resource
+    elif kind_lower in ("exact", "glob", "command"):
+        if "\x00" in rule or len(rule) > MAX_PATTERN_LENGTH or rule.count("*") > MAX_WILDCARDS:
+            return False
+
+        if kind_lower == "exact":
+            # Backwards-compatible: only leading "* suffix" and trailing
+            # "prefix *" / "prefix/*" forms expand '*' as a wildcard.
+            wildcard_form = rule.startswith("* ") or rule.endswith(" *") or rule.endswith("/*")
+            if not wildcard_form or "*" not in rule:
+                if not case_sensitive:
+                    return rule.lower() == norm_resource.lower()
+                return rule == norm_resource
+        elif "*" not in rule:
+            if not case_sensitive:
+                return rule.lower() == norm_resource.lower()
+            return rule == norm_resource
+
+        if (
+            kind_lower in ("exact", "command")
+            and enforce_meta_guard
+            and _has_unapproved_shell_metachars(rule, norm_resource)
+        ):
+            return False
+
+        pat = rule if case_sensitive else rule.lower()
+        cand = norm_resource if case_sensitive else norm_resource.lower()
+        return bool(_compile_single_segment_pattern(pat).fullmatch(cand))
     else:
         if not case_sensitive:
             return rule.lower() == norm_resource.lower()
         return rule == norm_resource
 
 
-def match_resource(rule: str, input_resource: str, kind: str = "exact", case_sensitive: bool = True) -> bool:
-    """Safe public resource matcher: validates syntax first then delegates to unchecked matcher."""
+def match_resource(
+    rule: str,
+    input_resource: str,
+    kind: str = "exact",
+    case_sensitive: bool = True,
+    enforce_meta_guard: bool = True,
+) -> bool:
+    """Safe public resource matcher: validates syntax first then delegates to unchecked matcher.
+
+    ``enforce_meta_guard`` defaults to ``True`` because a public wildcard match is
+    normally used to grant access.  Restrictive rules (DENY / APPROVAL_REQUIRED)
+    pass ``False`` so their wildcards keep covering compound commands.
+    """
     try:
         validate_resource_syntax(input_resource, kind=kind)
     except ResourceMatchingError:
@@ -696,4 +917,10 @@ def match_resource(rule: str, input_resource: str, kind: str = "exact", case_sen
             return False
         return _match_path_unchecked(rule, norm_in, case_sensitive=case_sensitive)
 
-    return _match_resource_unchecked(rule, input_resource, kind=kind, case_sensitive=case_sensitive)
+    return _match_resource_unchecked(
+        rule,
+        input_resource,
+        kind=kind,
+        case_sensitive=case_sensitive,
+        enforce_meta_guard=enforce_meta_guard,
+    )

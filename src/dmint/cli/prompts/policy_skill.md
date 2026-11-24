@@ -19,7 +19,7 @@ A rule is:
   "action": "<string, required>",
   "agent_id": "<string, optional — omit to apply to every agent>",
   "resource": "<string>" | "*",
-  "resource_kind": "exact" | "path" | "url" | "host" | "identifier",
+  "resource_kind": "exact" | "literal" | "glob" | "command" | "path" | "url" | "host" | "identifier",
   "case_sensitive": true | false,
   "conditions": [ {"field": "<string>", "operator": "equals"|"notEquals"|"in"|"contains"|"startsWith"|"endsWith", "value": <json>} ],
   "constraints": {

@@ -71,7 +71,14 @@ class TrustedContext:
 
 @dataclass(frozen=True)
 class ToolRequest:
-    """The immutable security-relevant request evaluated by Dmint."""
+    """The immutable security-relevant request evaluated by Dmint.
+
+    Trust boundary: ``agent_id`` is an asserted identifier supplied by the caller.
+    Code that can construct a ``ToolRequest`` can choose any value. Bind identity to
+    an authenticated principal with ``Dmint.bind(principal=...)`` or derive it from
+    authenticated transport state; never accept an agent-supplied header or tool
+    argument as the principal.
+    """
 
     request_id: str
     agent_id: str

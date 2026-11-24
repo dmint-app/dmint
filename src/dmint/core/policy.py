@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
+import difflib
 import hashlib
 from pathlib import Path
 from types import MappingProxyType
@@ -20,7 +21,13 @@ from .models import (
     ToolRequest,
     validate_text,
 )
-from .resources import ResourceKind, ResourceMatchingError, match_resource, validate_resource_syntax
+from .resources import (
+    ResourceKind,
+    ResourceMatchingError,
+    kind_is_structurally_impossible,
+    match_resource,
+    validate_resource_syntax,
+)
 from .constraints import evaluate_constraints, validate_constraints_schema
 
 ConditionOperator = Literal["equals", "notEquals", "in", "contains", "startsWith", "endsWith"]
@@ -28,9 +35,13 @@ _OPERATORS: set[str] = {"equals", "notEquals", "in", "contains", "startsWith", "
 
 
 def _strict_keys(value: Mapping[str, Any], expected: set[str], name: str) -> None:
-    unknown = set(value) - expected
-    if unknown:
-        raise PolicyError(f"unknown {name} field")
+    unknown = sorted(set(value) - expected)
+    if not unknown:
+        return
+    bad_key = unknown[0]
+    suggestion = difflib.get_close_matches(bad_key, sorted(expected), n=1, cutoff=0.6)
+    hint = f". Did you mean '{suggestion[0]}'?" if suggestion else ""
+    raise PolicyError(f"unknown {name} field '{bad_key}'{hint}")
 
 
 def _same_json(left: Any, right: Any) -> bool:
@@ -92,7 +103,8 @@ class Condition:
         return False
 
 
-_VALID_RESOURCE_KINDS: set[str] = {"exact", "path", "url", "host", "identifier"}
+_VALID_RESOURCE_KINDS: set[str] = {"exact", "path", "url", "host", "identifier", "literal", "glob", "command"}
+_CASE_SENSITIVE_RESOURCE_KINDS: set[str] = {"path", "exact", "literal", "glob", "command"}
 
 
 @dataclass(frozen=True)
@@ -102,6 +114,11 @@ class Rule:
     Rules evaluate against incoming `ToolRequest` objects. When a request matches all rule
     criteria (tool, action, optional agent_id, optional resource, and conditions), the rule's
     `effect` is triggered.
+
+    Trust boundary: ``agent_id`` is an asserted identifier. A caller that can construct a
+    ``ToolRequest`` can choose it. Bind identity to an authenticated principal with
+    ``Dmint.bind(principal=...)`` or derive it from authenticated transport state; never
+    trust an agent-supplied header or tool argument as the principal.
 
     Factory methods:
         - `Rule.allow("db", "query")`: Unconditionally allow matching requests.
@@ -163,7 +180,7 @@ class Rule:
 
         if type(self.case_sensitive) is not bool:
             raise PolicyError("case_sensitive must be a boolean")
-        if not self.case_sensitive and self.resource_kind not in ("path", "exact"):
+        if not self.case_sensitive and self.resource_kind not in _CASE_SENSITIVE_RESOURCE_KINDS:
             raise PolicyError(f"case_sensitive is not supported for resource_kind '{self.resource_kind}'")
 
         if not isinstance(self.conditions, Sequence) or isinstance(self.conditions, (str, bytes)):
@@ -290,6 +307,10 @@ class Rule:
                     request.resource,
                     kind=self.resource_kind or "exact",
                     case_sensitive=self.case_sensitive,
+                    # Only access-granting wildcards need the compound-operator
+                    # guard; restrictive rules must keep matching malicious
+                    # compound commands so they can deny or escalate them.
+                    enforce_meta_guard=self.effect is Decision.ALLOW,
                 ):
                     return False
         return all(condition.matches(request) for condition in self.conditions)
@@ -376,7 +397,7 @@ class Policy:
     def from_mapping(cls, value: Mapping[str, Any]) -> "Policy":
         if not isinstance(value, Mapping):
             raise PolicyError("policy must be a mapping")
-        _strict_keys(value, {"rules", "strict_arguments", "tool_schemas"}, "policy")
+        _strict_keys(value, {"rules", "strict_arguments", "tool_schemas", "default"}, "policy")
         rules = value.get("rules")
         if not isinstance(rules, Sequence) or isinstance(rules, (str, bytes)):
             raise PolicyError("policy rules must be an array")
@@ -386,10 +407,14 @@ class Policy:
         tool_schemas = value.get("tool_schemas", {})
         if tool_schemas is None:
             tool_schemas = {}
+        default = value.get("default", "deny")
+        if not isinstance(default, str) or default.lower() != "deny":
+            raise PolicyError("Dmint policies are strictly default-deny (default must be 'deny')")
         return cls(
             tuple(cls._rule_from_mapping(item) for item in rules),
             strict_arguments=strict_args,
             tool_schemas=tool_schemas,
+            default="deny",
         )
 
     @staticmethod
@@ -464,7 +489,7 @@ class Policy:
             if type(case_val) is not bool:
                 raise PolicyError("case_sensitive must be a boolean")
             effective_kind = resource_kind or ("exact" if "resource" in value and value["resource"] != "*" else "exact")
-            if not case_val and effective_kind not in ("path", "exact"):
+            if not case_val and effective_kind not in _CASE_SENSITIVE_RESOURCE_KINDS:
                 raise PolicyError(f"case_sensitive is not supported for resource_kind '{effective_kind}'")
             case_sensitive = case_val
         else:
@@ -495,8 +520,14 @@ class Policy:
             schema_hash=schema_hash,
         )
 
-    def to_dict(self) -> dict[str, Any]:
-        """Return canonical mapping representation of policy for JCS serialization."""
+    def to_dict(self, include_defaults: bool = False) -> dict[str, Any]:
+        """Return canonical mapping representation of policy for JCS serialization.
+
+        The default form omits values that are already implied by the fail-closed
+        policy model, preserving existing canonical digests.  Pass
+        ``include_defaults=True`` for a lossless round-trip representation that
+        explicitly carries ``default``, ``strict_arguments``, and ``tool_schemas``.
+        """
         rules_list = []
         for r in self.rules:
             rule_dict: dict[str, Any] = {
@@ -531,10 +562,15 @@ class Policy:
                 rule_dict["schema_hash"] = r.schema_hash
             rules_list.append(rule_dict)
         res: dict[str, Any] = {"rules": rules_list}
-        if self.strict_arguments:
-            res["strict_arguments"] = True
-        if self.tool_schemas:
+        if include_defaults:
+            res["default"] = "deny"
+            res["strict_arguments"] = self.strict_arguments
             res["tool_schemas"] = dict(self.tool_schemas)
+        else:
+            if self.strict_arguments:
+                res["strict_arguments"] = True
+            if self.tool_schemas:
+                res["tool_schemas"] = dict(self.tool_schemas)
         return res
 
     @classmethod
@@ -584,7 +620,10 @@ class Policy:
             raise PolicyError(f"policy file '{p}' not found")
         data = p.read_bytes()
         digest = expected_policy_digest or os.environ.get("DMINT_EXPECTED_POLICY_DIGEST")
-        return cls.from_json(data, expected_policy_digest=digest)
+        policy = cls.from_json(data)
+        if digest:
+            verify_expected_policy_digest(policy, digest)
+        return policy
 
     @classmethod
     def from_url(
@@ -687,24 +726,39 @@ class Policy:
             if rule.matches_tool_action(request) and (rule.agent_id is None or rule.agent_id == request.agent_id)
         ]
 
-        # 2. Validate request resource against the explicit kind of EVERY candidate rule
-        # Non-string resource for kind other than any/none => fail closed with DMT_RESOURCE_INVALID
-        # ANY failure => immediately fail closed with DMT_RESOURCE_INVALID
+        # 2. Validate the request resource against each candidate rule's kind.
+        # Validation is per-rule so one incompatible kind does not abort the loop.
+        # A rule whose kind is structurally impossible for this resource (for
+        # example a host rule for a URL) is skipped safely.  Any other syntax
+        # failure fails the whole evaluation closed: otherwise an attacker could
+        # bypass a strict DENY rule by crafting a resource that is invalid for
+        # that rule's kind yet valid for a permissive rule.
+        had_syntax_error = False
+        validated_rules: list[Rule] = []
         for rule in candidate_rules:
             kind = (rule.resource_kind or "exact").lower()
             if kind in ("any", "none"):
+                validated_rules.append(rule)
                 continue
             if not isinstance(request.resource, str):
-                return Decision.DENY, "DMT_RESOURCE_INVALID"
+                had_syntax_error = True
+                continue
             try:
                 validate_resource_syntax(request.resource, kind=kind)
             except ResourceMatchingError:
-                return Decision.DENY, "DMT_RESOURCE_INVALID"
+                if kind_is_structurally_impossible(request.resource, kind):
+                    continue
+                had_syntax_error = True
+                continue
+            validated_rules.append(rule)
+
+        if had_syntax_error:
+            return Decision.DENY, "DMT_RESOURCE_INVALID"
 
         # 3. Evaluate argument constraints for candidate rules matching resource & conditions
         # Any constraint error => DENY DMT_CONSTRAINT_VIOLATION before matching effects
         matching_rules: list[Rule] = []
-        for rule in candidate_rules:
+        for rule in validated_rules:
             if not rule.matches(request):
                 continue
             if rule.constraints is not None:
@@ -743,6 +797,40 @@ def policy_digest(policy: Policy | Mapping[str, Any]) -> str:
     except (TypeError, ValueError, OverflowError, CanonicalizationError) as exc:
         raise PolicyError("policy content cannot be canonicalized") from exc
     return hashlib.sha256(_POLICY_DIGEST_DOMAIN + canonical).hexdigest()
+
+
+def verify_expected_policy_digest(policy: Policy, expected_digest: str) -> None:
+    """Verify ``DMINT_EXPECTED_POLICY_DIGEST`` against either digest domain.
+
+    Operators may pin the raw file bytes (``dmint policy-digest`` output, which is
+    verified before parsing for remote sources) or the canonical policy digest
+    (``dmint policy-digest --canonical`` / ``policy_digest()``).  Accepting both
+    avoids a silent mismatch when a deployment rotates its pinning method while
+    keeping the same policy content.
+    """
+    if not isinstance(policy, Policy):
+        raise PolicyError("expected policy digest verification requires a Policy")
+    if not isinstance(expected_digest, str) or not expected_digest.strip():
+        raise PolicyError("expected policy digest must be a non-empty string")
+
+    expected = expected_digest.strip().lower()
+    canonical = policy_digest(policy)
+    try:
+        undomained = hashlib.sha256(canonicalize_bytes(policy.to_dict())).hexdigest()
+    except (TypeError, ValueError, OverflowError, CanonicalizationError) as exc:
+        raise PolicyError("policy content cannot be canonicalized") from exc
+
+    file_digest = policy.file_digest
+    candidates = {canonical, undomained}
+    if file_digest:
+        candidates.add(file_digest.lower())
+    if expected in candidates:
+        return
+
+    detail = f"policy digest mismatch: expected '{expected_digest}', canonical digest '{canonical}'"
+    if file_digest:
+        detail += f", file digest '{file_digest}'"
+    raise PolicyError(detail)
 
 
 def sync_authoritative_policy(store: Any, policy: "Policy", provenance: Any) -> None:
