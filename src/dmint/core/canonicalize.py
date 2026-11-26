@@ -9,6 +9,7 @@ from types import MappingProxyType
 from typing import Any
 
 from .errors import CanonicalizationError
+from .redaction import DEFAULT_SENSITIVE_KEY_NAMES, key_is_sensitive, redact_secret_shapes
 
 
 MAX_SAFE_INTEGER: int = 2**53 - 1
@@ -72,7 +73,10 @@ def _serialize_number(val: int | float) -> str:
     """
     if type(val) is int:
         if val < MIN_SAFE_INTEGER or val > MAX_SAFE_INTEGER:
-            raise CanonicalizationError(f"integer {val} exceeds safe integer domain [-2^53+1, 2^53-1]")
+            raise CanonicalizationError(
+                f"integer {val} exceeds the RFC 8785 safe integer domain "
+                f"[-2^53+1, 2^53-1]; serialize 64-bit identifiers as JSON strings"
+            )
         return str(val)
 
     f = float(val)
@@ -301,37 +305,32 @@ def canonicalize_request(request: Any) -> str:
     )
 
 
-DEFAULT_SENSITIVE_KEYS: frozenset[str] = frozenset(
-    {
-        "password",
-        "passwd",
-        "secret",
-        "token",
-        "api_key",
-        "apikey",
-        "auth",
-        "authorization",
-        "credential",
-        "private_key",
-        "ssn",
-    }
-)
+DEFAULT_SENSITIVE_KEYS: frozenset[str] = DEFAULT_SENSITIVE_KEY_NAMES
 
 
 def redact_sensitive_data(
     value: Any,
     redact_keys: Collection[str] = DEFAULT_SENSITIVE_KEYS,
 ) -> Any:
-    """Return a copy of data with sensitive keys recursively replaced by '[REDACTED]'."""
+    """Return a copy of data with sensitive keys and secret-shaped values redacted.
+
+    Key matching is token-boundary aware (``api_key``, ``apiKey``,
+    ``client_secret``, ``privateKey``) rather than substring-based, so
+    ``author``, ``monkey``, and ``keyboard`` survive.  String values are scanned
+    for high-confidence credential shapes such as bearer tokens, JWTs, URL
+    credentials, ``sk-`` keys, GitHub tokens, and AWS access key IDs.
+    """
 
     if isinstance(value, (Mapping, MappingProxyType)):
         redacted = {}
         for k, v in value.items():
-            if isinstance(k, str) and any(sk in k.lower() for sk in redact_keys):
+            if key_is_sensitive(k, redact_keys):
                 redacted[k] = "[REDACTED]"
             else:
                 redacted[k] = redact_sensitive_data(v, redact_keys)
         return redacted
     if isinstance(value, (list, tuple)):
         return [redact_sensitive_data(item, redact_keys) for item in value]
+    if isinstance(value, str):
+        return redact_secret_shapes(value)
     return value

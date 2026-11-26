@@ -31,7 +31,7 @@ except ImportError:  # pragma: no cover
     fcntl = None  # type: ignore[assignment]
 
 from .canonicalize import canonicalize_bytes
-from .redaction import SENSITIVE_PARAM_NAMES, redact_database_url
+from .redaction import SENSITIVE_PARAM_NAMES, key_is_sensitive, redact_secret_shapes
 
 AUDIT_DOMAIN_PREFIX = b"dmint/audit-log/v1\x00"
 GENESIS_PREV_HASH = "0" * 64
@@ -113,7 +113,8 @@ def redact_audit_value(value: Any, *, _depth: int = 0) -> Any:
     if value is None or isinstance(value, (bool, int, float)):
         return value
     if isinstance(value, str):
-        scrubbed = redact_database_url(value)
+        scrubbed = redact_secret_shapes(value)
+        # Preserve case-insensitive coverage for legacy lower-case key shapes.
         scrubbed = _SECRET_VALUE_RE.sub("[REDACTED_SECRET]", scrubbed)
         if len(scrubbed) > 2048:
             return scrubbed[:2048] + "...[truncated]"
@@ -122,9 +123,7 @@ def redact_audit_value(value: Any, *, _depth: int = 0) -> Any:
         out: dict[str, Any] = {}
         for k, v in value.items():
             k_str = str(k)
-            if k_str.lower() in SENSITIVE_PARAM_NAMES or any(
-                s in k_str.lower() for s in ("secret", "password", "token", "api_key", "private_key")
-            ):
+            if key_is_sensitive(k_str, SENSITIVE_PARAM_NAMES):
                 out[k_str] = "[REDACTED]"
             else:
                 out[k_str] = redact_audit_value(v, _depth=_depth + 1)

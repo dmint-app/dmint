@@ -17,7 +17,17 @@ from dmint import (
     canonicalize_request,
     request_fingerprint,
 )
-from dmint.core.canonicalize import utf16_sort_key
+from dmint.core.canonicalize import (
+    redact_sensitive_data,
+    utf16_sort_key,
+)
+from dmint.core.audit import redact_audit_value
+from dmint.core.redaction import (
+    DEFAULT_SENSITIVE_KEY_NAMES,
+    SENSITIVE_PARAM_NAMES,
+    key_is_sensitive,
+    redact_secret_shapes,
+)
 from dmint.authority import ApprovalAssertion
 from dmint.errors import (
     ApprovalVersionUnsupportedError,
@@ -585,3 +595,116 @@ rl.on("close", () => {
                             f"200k doubles fuzz test failed with fixed seed {seed} at index {idx} "
                             f"for {x} (repr={repr(x)}): py={py_act} != node={node_exp}"
                         )
+
+    def test_rfc8785_fixed_number_vectors(self):
+        """Fixed JCS number vectors pin ECMAScript ToString formatting at the edges."""
+        vectors: list[tuple[Any, str]] = [
+            (1e21, "1e+21"),
+            (1e-7, "1e-7"),
+            (0.1 + 0.2, "0.30000000000000004"),
+            (-0.0, "0"),
+            (5e-324, "5e-324"),
+            (1.7976931348623157e308, "1.7976931348623157e+308"),
+            (2**53 - 1, "9007199254740991"),
+            (-(2**53 - 1), "-9007199254740991"),
+        ]
+        import rfc8785
+
+        for value, expected in vectors:
+            self.assertEqual(canonicalize(value), expected, repr(value))
+            self.assertEqual(rfc8785.dumps(value).decode("utf-8"), expected, repr(value))
+
+        for unsafe in (2**53, -(2**53), 2**53 + 1, -(2**53 + 1)):
+            with self.assertRaises(CanonicalizationError) as ctx:
+                canonicalize(unsafe)
+            message = str(ctx.exception)
+            self.assertIn("safe integer domain", message)
+            self.assertIn("serialize 64-bit identifiers as JSON strings", message)
+
+    def test_token_boundary_key_redaction(self):
+        """Sensitive keys match whole tokens, not substrings, across separators and camelCase."""
+        sensitive_keys = [
+            "password",
+            "passwd",
+            "pwd",
+            "secret",
+            "token",
+            "api_key",
+            "apiKey",
+            "APIKey",
+            "apikey",
+            "auth",
+            "authorization",
+            "credential",
+            "credentials",
+            "privateKey",
+            "private_key",
+            "privatekey",
+            "ssn",
+            "bearer",
+            "jwt",
+            "cookie",
+            "session",
+            "dsn",
+            "connectionString",
+            "connection_string",
+            "client_secret",
+            "clientSecret",
+            "accessKeyId",
+            "access_key",
+            "secretKey",
+            "secret_key",
+            "DB_PASSWORD",
+            "OPENAI_API_KEY",
+            "AUTH_TOKEN",
+            "X-Api-Key",
+        ]
+        for key in sensitive_keys:
+            self.assertTrue(key_is_sensitive(key, DEFAULT_SENSITIVE_KEY_NAMES), key)
+            self.assertEqual(redact_sensitive_data({key: "visible"}), {key: "[REDACTED]"}, key)
+            self.assertEqual(redact_audit_value({key: "visible"}), {key: "[REDACTED]"}, key)
+
+        non_sensitive_keys = ["author", "monkey", "keyboard", "key", "author_name", "monkey_business"]
+        for key in non_sensitive_keys:
+            self.assertFalse(key_is_sensitive(key, DEFAULT_SENSITIVE_KEY_NAMES), key)
+            self.assertEqual(redact_sensitive_data({key: "visible"}), {key: "visible"}, key)
+
+        for key in ("author", "monkey", "keyboard", "author_name", "monkey_business"):
+            self.assertEqual(redact_audit_value({key: "visible"}), {key: "visible"}, key)
+
+        # Audit logging keeps the historical query/TLS credential vocabulary.
+        for key in ("key", "sslkey", "sslpassword"):
+            self.assertEqual(redact_audit_value({key: "visible"}), {key: "[REDACTED]"}, key)
+
+        self.assertTrue(key_is_sensitive("key", SENSITIVE_PARAM_NAMES))
+        self.assertTrue(key_is_sensitive("sslkey", SENSITIVE_PARAM_NAMES))
+
+    def test_nested_key_redaction_and_secret_shaped_values(self):
+        """Redaction recurses through containers and scrubs high-confidence value shapes."""
+        secret_shapes: dict[str, str] = {
+            "Bearer abcdefghijklmnop": "[REDACTED]",
+            "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0In0.c2lnbmF0dXJl": "[REDACTED]",
+            "sk-abcdef1234567890": "[REDACTED]",
+            "ghp_0123456789abcdefghij": "[REDACTED]",
+            "AKIAIOSFODNN7EXAMPLE": "[REDACTED]",
+            "postgresql://user:pass@host/db": "postgresql://user:[REDACTED]@host/db",
+        }
+        for raw, expected in secret_shapes.items():
+            self.assertEqual(redact_secret_shapes(raw), expected, raw)
+            self.assertEqual(redact_sensitive_data({"note": raw}), {"note": expected}, raw)
+            self.assertEqual(redact_audit_value({"note": raw}), {"note": expected}, raw)
+
+        payload = {
+            "outer": [{"apiKey": "secret"}, {"safe": "value"}],
+            "clientSecret": {"nested": "secret"},
+            "author": "Ada",
+            "note": "Bearer abcdefghijklmnop",
+        }
+        expected_payload = {
+            "outer": [{"apiKey": "[REDACTED]"}, {"safe": "value"}],
+            "clientSecret": "[REDACTED]",
+            "author": "Ada",
+            "note": "[REDACTED]",
+        }
+        self.assertEqual(redact_sensitive_data(payload), expected_payload)
+        self.assertEqual(redact_audit_value(payload), expected_payload)

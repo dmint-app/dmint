@@ -425,7 +425,7 @@ class TestWebhookNotifierDispatch:
         assert isinstance(req, urllib.request.Request)
         assert req.full_url == slack_url
         assert req.headers["Content-type"] == "application/json"
-        assert req.headers["User-agent"] == "dmint-webhook/2.0.6"
+        assert req.headers["User-agent"] == "dmint-webhook/2.0.7"
 
         body = json.loads(req.data.decode("utf-8"))
         assert "🛡️ Dmint Approval Required" in body["text"]

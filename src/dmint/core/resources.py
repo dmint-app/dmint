@@ -458,6 +458,8 @@ def normalize_host(host_str: str) -> str:
         raise ResourceMatchingError("host contains userinfo '@', which is forbidden")
     if "\\" in host_str:
         raise ResourceMatchingError("host contains backslash")
+    if any(ch.isspace() or unicodedata.category(ch) == "Cc" for ch in host_str):
+        raise ResourceMatchingError("host contains whitespace or control characters")
     if host_str != host_str.strip():
         raise ResourceMatchingError("host contains leading or trailing whitespace")
 

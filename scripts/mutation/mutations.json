@@ -451,7 +451,7 @@
   {
     "id": "MUT-49",
     "file": "src/dmint/core/redaction.py",
-    "find": "\"[REDACTED]\" if k.lower() in SENSITIVE_PARAM_NAMES else v",
+    "find": "\"[REDACTED]\" if key_is_sensitive(k, SENSITIVE_PARAM_NAMES) else v",
     "replace": "v",
     "tests": [
       "tests/core/test_postgres_subsystems.py",

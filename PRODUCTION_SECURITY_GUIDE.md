@@ -1,4 +1,4 @@
-# Dmint v2.0.6 — Production Proof & Zero-Trust Security Hardening Guide
+# Dmint v2.0.7 — Production Proof & Zero-Trust Security Hardening Guide
 
 **How to deploy Dmint in production so that no AI agent—even under full prompt injection, jailbreak, or arbitrary code execution inside its workspace—can bypass policies, forge approvals, steal credentials, or tamper with hooks.**
 
@@ -241,7 +241,7 @@ services:
       - dmint_backend_net
 
   dmint-mcp-gateway:
-    image: dmint:2.0.6
+    image: dmint:2.0.7
     command:
       - dmint-mcp
       - run
@@ -286,7 +286,7 @@ services:
       - dmint_backend_net
 
   dmint-dashboard:
-    image: dmint:2.0.6
+    image: dmint:2.0.7
     command:
       - dmint
       - dashboard

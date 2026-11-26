@@ -4,22 +4,103 @@ from __future__ import annotations
 
 import re
 import urllib.parse
+from collections.abc import Collection
 from typing import Any
 
-SENSITIVE_PARAM_NAMES: frozenset[str] = frozenset(
+# Canonical token vocabulary for sensitive key names.  Keys are tokenized on
+# separators and camelCase boundaries so ``api_key``, ``apiKey``, and
+# ``API-KEY`` all match without falsely redacting ``author`` or ``monkey``.
+DEFAULT_SENSITIVE_KEY_NAMES: frozenset[str] = frozenset(
     {
         "password",
         "passwd",
+        "pwd",
         "secret",
         "token",
-        "key",
-        "sslpassword",
-        "sslkey",
         "api_key",
         "apikey",
         "auth",
         "authorization",
+        "credential",
+        "credentials",
+        "private_key",
+        "privatekey",
+        "ssn",
+        "bearer",
+        "jwt",
+        "cookie",
+        "session",
+        "dsn",
+        "connection_string",
+        "client_secret",
+        "access_key",
+        "secret_key",
     }
+)
+
+_KEY_SEPARATOR_RE = re.compile(r"[_\-.\\/\s]+")
+_KEY_TOKEN_RE = re.compile(r"[A-Z]?[a-z]+|[A-Z]+(?=[A-Z]|$)|[0-9]+")
+
+
+def _split_key_tokens(key: str) -> list[str]:
+    """Split a key name into lowercase tokens across separators and camelCase."""
+    tokens: list[str] = []
+    for part in _KEY_SEPARATOR_RE.split(key):
+        if not part:
+            continue
+        tokens.extend(token.lower() for token in _KEY_TOKEN_RE.findall(part))
+    return tokens
+
+
+def key_is_sensitive(
+    key: Any,
+    sensitive_keys: Collection[str] = DEFAULT_SENSITIVE_KEY_NAMES,
+) -> bool:
+    """Return whether ``key`` names a secret using token-boundary matching.
+
+    Individual tokens and adjacent joined pairs are compared against the
+    normalized sensitive vocabulary.  This makes ``api_key``, ``apiKey``,
+    ``client_secret``, ``privateKey``, and ``connectionString`` match while
+    leaving ``author``, ``monkey``, and ``keyboard`` untouched.
+    """
+    if not isinstance(key, str):
+        key = str(key)
+
+    tokens = _split_key_tokens(key)
+    if not tokens:
+        return False
+
+    candidates: set[str] = set(tokens)
+    for idx in range(len(tokens) - 1):
+        candidates.add(f"{tokens[idx]}_{tokens[idx + 1]}")
+        candidates.add(f"{tokens[idx]}{tokens[idx + 1]}")
+
+    normalized: set[str] = set()
+    for configured in sensitive_keys:
+        configured_lower = str(configured).lower()
+        normalized.add(configured_lower)
+        configured_tokens = _split_key_tokens(configured_lower)
+        if len(configured_tokens) == 1:
+            normalized.add(configured_tokens[0])
+        else:
+            for idx in range(len(configured_tokens) - 1):
+                normalized.add(f"{configured_tokens[idx]}_{configured_tokens[idx + 1]}")
+                normalized.add(f"{configured_tokens[idx]}{configured_tokens[idx + 1]}")
+
+    return bool(candidates & normalized)
+
+
+# Query strings additionally treat the bare ``key`` parameter and libpq TLS
+# credential names as sensitive.  Key matching is token-aware for camelCase and
+# multi-word parameter names.
+SENSITIVE_PARAM_NAMES: frozenset[str] = DEFAULT_SENSITIVE_KEY_NAMES | frozenset({"key", "sslpassword", "sslkey"})
+
+_SECRET_SHAPE_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]{10,}"),
+    re.compile(r"eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+"),
+    re.compile(r"(?<![A-Za-z0-9])sk-[A-Za-z0-9_-]{12,}"),
+    re.compile(r"(?<![A-Za-z0-9])ghp_[A-Za-z0-9]{16,}"),
+    re.compile(r"(?<![A-Za-z0-9])AKIA[A-Z0-9]{12,}"),
 )
 
 _LIBPQ_KV_PATTERN = re.compile(
@@ -38,9 +119,9 @@ def _redact_query_params(url_part: str) -> str:
         return url_part
     base, query = url_part.split("?", 1)
     query_pairs = urllib.parse.parse_qsl(query, keep_blank_values=True)
-    if not any(k.lower() in SENSITIVE_PARAM_NAMES for k, _ in query_pairs):
+    if not any(key_is_sensitive(k, SENSITIVE_PARAM_NAMES) for k, _ in query_pairs):
         return url_part
-    redacted_pairs = [(k, "[REDACTED]" if k.lower() in SENSITIVE_PARAM_NAMES else v) for k, v in query_pairs]
+    redacted_pairs = [(k, "[REDACTED]" if key_is_sensitive(k, SENSITIVE_PARAM_NAMES) else v) for k, v in query_pairs]
     return f"{base}?{urllib.parse.urlencode(redacted_pairs)}"
 
 
@@ -67,7 +148,7 @@ def _redact_single_uri(raw_uri: str) -> str:
         has_query_creds = False
         if parsed.query:
             query_pairs = urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)
-            has_query_creds = any(k.lower() in SENSITIVE_PARAM_NAMES for k, _ in query_pairs)
+            has_query_creds = any(key_is_sensitive(k, SENSITIVE_PARAM_NAMES) for k, _ in query_pairs)
 
         if not has_userinfo_creds and not has_query_creds:
             return raw_uri + trailing
@@ -96,7 +177,7 @@ def _redact_single_uri(raw_uri: str) -> str:
             query_pairs = urllib.parse.parse_qsl(query, keep_blank_values=True)
             redacted_pairs = []
             for k, v in query_pairs:
-                if k.lower() in SENSITIVE_PARAM_NAMES:
+                if key_is_sensitive(k, SENSITIVE_PARAM_NAMES):
                     redacted_pairs.append((k, "[REDACTED]"))
                 else:
                     redacted_pairs.append((k, v))
@@ -134,4 +215,20 @@ def redact_database_url(url: Any) -> str:
     if "://" in result:
         result = _URI_PATTERN.sub(lambda m: _redact_single_uri(m.group(0)), result)
 
+    return result
+
+
+def redact_secret_shapes(text: str) -> str:
+    """Redact high-confidence secret shapes embedded in a free-text value.
+
+    Handles URL credentials, ``Bearer <token>`` headers, JWTs, OpenAI-style
+    ``sk-`` keys, GitHub ``ghp_`` tokens, and AWS ``AKIA`` access key IDs.  The
+    shapes are intentionally high-confidence so ordinary prose is not mangled.
+    """
+    if not isinstance(text, str) or not text:
+        return text
+
+    result = redact_database_url(text)
+    for pattern in _SECRET_SHAPE_PATTERNS:
+        result = pattern.sub("[REDACTED]", result)
     return result

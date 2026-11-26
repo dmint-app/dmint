@@ -5,19 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.0.5] - 2026-11-23
+## [2.0.7] - 2026-11-26
 
-### Security & Trust-Boundary Hardening
-- **Public-Key-Only Hook & Gateway Verification (`dmint.core.verification`, `dmint.cli.hooks`, `dmint.mcp.gateway`)**:
-  - Added `load_trusted_issuers_from_public_sources()` to load Ed25519 public keys from `DMINT_TRUSTED_PUBLIC_KEY_HEX`, `DMINT_TRUSTED_ISSUERS_FILE`, `.dmint/trusted_issuer.json`, `/etc/dmint/shared/trusted_issuer.json`, or `/etc/dmint/gate/public.key` without reading private key files.
-  - `dmint init` now writes `.dmint/trusted_issuer.json` alongside the local signing key. `dmint hook run` supports `DMINT_STRICT_PUBLIC_KEY_ONLY=1` and does not recreate `.dmint/signing.key` during enforcement, so 3-Zone deployments can remove private keys from the enforcement zone.
-  - Removed the MCP gateway's private-key fallback in favor of public-key-only discovery. Added regression coverage for workspace/environment key formats, malformed key material, and a full 3-Zone hook approval lifecycle without an on-disk signing key.
-- **MCP HTTP Transport Auth Order & Streaming Body Cap (`dmint.mcp.auth`, `dmint.mcp.gateway`)**:
-  - `AgentAuthMiddleware` now enforces Bearer token authentication (`401 Unauthorized`) before buffering any request body, rejects malformed or negative `Content-Length` headers (`400 Bad Request`), and streams POST/PUT/PATCH bodies incrementally with a hard `max_request_body_size` cap (`413 Payload Too Large`), including chunked requests without `Content-Length`.
-  - `parse_gateway_request()` now enforces `max_bytes` directly before JSON parsing, with tests for byte-exact limits, UTF-8 byte length, oversized payloads, and duplicate-key rejection.
-- **Specification & Repository Hygiene**:
-  - Reconciled the documented `ApprovalAssertion` signature schema with the exact `dmint/approval-assertion/v2` RFC 8785 canonical envelope.
-  - Added SQLite WAL/SHM, recovery lock, local audit log, and local trusted-issuer patterns to `.gitignore`.
+### Canonicalization, Redaction & Property-Test Hardening
+- **Fixed RFC 8785 Number Vectors (`C-01`, `C-02`)**:
+  - Pinned ECMAScript `Number::toString` output for `1e21`, `1e-7`, `0.1 + 0.2`, `-0.0`, `5e-324`, `1.7976931348623157e308`, and both `±(2**53 - 1)` safe-integer boundaries against the `rfc8785` reference implementation.
+  - Integers outside the IEEE 754 safe-integer domain now raise a `CanonicalizationError` that explicitly recommends serializing 64-bit identifiers as JSON strings.
+- **Token-Boundary Credential Redaction (`C-03`, `G-05`)**:
+  - Key matching now tokenizes on `_`, `-`, `.`, `/`, whitespace, and camelCase transitions and checks individual tokens plus adjacent joined pairs. Multi-word names such as `apiKey`, `client_secret`, `privateKey`, `accessKeyId`, and `connectionString` are redacted while `author`, `monkey`, and `keyboard` survive.
+  - `redact_sensitive_data()` and `redact_audit_value()` now also scrub high-confidence secret shapes embedded in string values: `Bearer` tokens, JWTs, URL credentials, `sk-` keys, `ghp_` GitHub tokens, and `AKIA` AWS access key IDs.
+- **Generative Canonicalization & Normalizer Tests (`C-04`, `T-01`, `T-02`)**:
+  - Added a deterministic 600-structure nested-JSON corpus plus UTF-16 surrogate-pair, equal-prefix key, lone-surrogate, depth, size, and cycle properties, with byte-for-byte differential parity against `rfc8785`.
+  - Added seeded mutation corpora for `normalize_path()`, `normalize_url()`, `normalize_host()`, and `normalize_identifier()` asserting idempotence and that invalid inputs raise only `ResourceMatchingError`. Host normalization now rejects whitespace and control characters anywhere, including characters that would otherwise surface after trailing-dot removal.
+- Updated the `MUT-49` mutation target to the token-aware query-parameter redaction branch so mutation coverage remains applicable.
 
 ## [2.0.6] - 2026-11-24
 
@@ -37,6 +37,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Resource Normalizer Edge Cases (`R-02`–`R-07`)**:
   - Host patterns with explicit ports now match non-default URL ports. Added `normalize_platform_path()` for Windows drive paths and opt-in `normalize_filesystem_path(..., resolve_symlinks=True)` with a documented lexical/TOCTOU boundary.
   - Percent-encoded traversal detection now rejects encoded separators and dot segments without flagging ordinary escapes such as `report%20final.txt`, and distinguishes malformed encoding from root-escaping traversal. `normalize_host()` rejects path suffixes, identifier wildcards require at least one character and accept `:`, and `case_sensitive=False` is supported on the new literal/glob/command kinds.
+
+## [2.0.5] - 2026-11-23
+
+### Security & Trust-Boundary Hardening
+- **Public-Key-Only Hook & Gateway Verification (`dmint.core.verification`, `dmint.cli.hooks`, `dmint.mcp.gateway`)**:
+  - Added `load_trusted_issuers_from_public_sources()` to load Ed25519 public keys from `DMINT_TRUSTED_PUBLIC_KEY_HEX`, `DMINT_TRUSTED_ISSUERS_FILE`, `.dmint/trusted_issuer.json`, `/etc/dmint/shared/trusted_issuer.json`, or `/etc/dmint/gate/public.key` without reading private key files.
+  - `dmint init` now writes `.dmint/trusted_issuer.json` alongside the local signing key. `dmint hook run` supports `DMINT_STRICT_PUBLIC_KEY_ONLY=1` and does not recreate `.dmint/signing.key` during enforcement, so 3-Zone deployments can remove private keys from the enforcement zone.
+  - Removed the MCP gateway's private-key fallback in favor of public-key-only discovery. Added regression coverage for workspace/environment key formats, malformed key material, and a full 3-Zone hook approval lifecycle without an on-disk signing key.
+- **MCP HTTP Transport Auth Order & Streaming Body Cap (`dmint.mcp.auth`, `dmint.mcp.gateway`)**:
+  - `AgentAuthMiddleware` now enforces Bearer token authentication (`401 Unauthorized`) before buffering any request body, rejects malformed or negative `Content-Length` headers (`400 Bad Request`), and streams POST/PUT/PATCH bodies incrementally with a hard `max_request_body_size` cap (`413 Payload Too Large`), including chunked requests without `Content-Length`.
+  - `parse_gateway_request()` now enforces `max_bytes` directly before JSON parsing, with tests for byte-exact limits, UTF-8 byte length, oversized payloads, and duplicate-key rejection.
+- **Specification & Repository Hygiene**:
+  - Reconciled the documented `ApprovalAssertion` signature schema with the exact `dmint/approval-assertion/v2` RFC 8785 canonical envelope.
+  - Added SQLite WAL/SHM, recovery lock, local audit log, and local trusted-issuer patterns to `.gitignore`.
 
 ## [2.0.4] - 2026-10-26
 
