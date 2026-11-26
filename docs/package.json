@@ -10,7 +10,7 @@
     "deploy": "npm run build && npx wrangler deploy"
   },
   "dependencies": {
-    "@holocron.so/vite": "^0.35.2",
+    "@holocron.so/vite": "^0.39.2",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
