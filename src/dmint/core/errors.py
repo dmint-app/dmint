@@ -95,6 +95,12 @@ class ApprovalStoreConfigurationError(ApprovalStoreError):
     code = "DMT_APPROVAL_STORE_CONFIG_ERROR"
 
 
+class ApprovalBacklogError(ApprovalStoreError):
+    """The pending-approval backlog for a principal exceeded its configured quota."""
+
+    code = "DMT_APPROVAL_BACKLOG"
+
+
 class ApprovalNotFoundError(ApprovalStoreError):
     """No approval record exists for the requested identity."""
 

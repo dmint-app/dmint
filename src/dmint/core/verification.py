@@ -496,7 +496,7 @@ class ApprovalVerifier:
 
     __slots__ = ("_trusted_issuers", "_audience", "_clock", "_sealed")
 
-    _trusted_issuers: MappingProxyType[str, Ed25519PublicKey]
+    _trusted_issuers: MappingProxyType[str, tuple[Ed25519PublicKey, ...]]
     _audience: str
     _clock: Callable[[], datetime]
     _sealed: bool
@@ -504,19 +504,23 @@ class ApprovalVerifier:
     def __init__(
         self,
         *,
-        trusted_issuers: Mapping[str, Ed25519PublicKey],
+        trusted_issuers: Mapping[str, Ed25519PublicKey | Sequence[Ed25519PublicKey]],
         audience: str,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
         _text(audience, "audience")
         if not isinstance(trusted_issuers, Mapping) or not trusted_issuers:
             raise ValueError("trusted_issuers must be a non-empty mapping")
-        trusted: dict[str, Ed25519PublicKey] = {}
-        for issuer, key in trusted_issuers.items():
+        trusted: dict[str, tuple[Ed25519PublicKey, ...]] = {}
+        for issuer, key_or_keys in trusted_issuers.items():
             _text(issuer, "issuer_id")
-            if not isinstance(key, Ed25519PublicKey):
-                raise TypeError("trusted issuer keys must be Ed25519 public keys")
-            trusted[issuer] = key
+            keys = key_or_keys if isinstance(key_or_keys, (list, tuple)) else (key_or_keys,)
+            if not keys:
+                raise ValueError("trusted issuer key lists must be non-empty")
+            for key in keys:
+                if not isinstance(key, Ed25519PublicKey):
+                    raise TypeError("trusted issuer keys must be Ed25519 public keys")
+            trusted[issuer] = tuple(keys)
         object.__setattr__(self, "_trusted_issuers", MappingProxyType(trusted))
         object.__setattr__(self, "_audience", audience)
         object.__setattr__(
@@ -552,10 +556,14 @@ class ApprovalVerifier:
         key = self._trusted_issuers.get(assertion.issuer)
         if key is None:
             raise ApprovalIssuerInvalidError("approval issuer is not trusted")
-        try:
-            key.verify(assertion.signature, assertion.signing_bytes())
-        except InvalidSignature as exc:
-            raise ApprovalSignatureInvalidError("approval signature is invalid") from exc
+        for candidate in key:
+            try:
+                candidate.verify(assertion.signature, assertion.signing_bytes())
+                break
+            except InvalidSignature:
+                continue
+        else:
+            raise ApprovalSignatureInvalidError("approval signature is invalid")
         now = _timestamp(now or self._clock(), "verification time")
         if now < assertion.issued_at:
             raise ApprovalInvalidError("approval is not yet valid")
@@ -589,24 +597,83 @@ _DEFAULT_TRUSTED_ISSUER_ALIASES = (
 )
 
 
+TrustedIssuerValue = Ed25519PublicKey | tuple[Ed25519PublicKey, ...]
+
+
+def _merge_trusted_key(
+    target: dict[str, TrustedIssuerValue],
+    issuer: str,
+    pub: Ed25519PublicKey,
+) -> None:
+    existing = target.get(issuer)
+    if existing is None:
+        target[issuer] = pub
+        return
+    keys = existing if isinstance(existing, tuple) else (existing,)
+    pub_hex = public_key_hex(pub)
+    if any(public_key_hex(candidate) == pub_hex for candidate in keys):
+        return
+    target[issuer] = (*keys, pub)
+
+
 def _register_public_key_aliases(
-    target: dict[str, Ed25519PublicKey],
+    target: dict[str, TrustedIssuerValue],
     pub: Ed25519PublicKey,
     issuer_id: str | None = None,
     extra_issuer_ids: Sequence[str] = (),
 ) -> None:
+    names: list[str] = []
     if issuer_id and issuer_id.strip():
-        target[issuer_id.strip()] = pub
-    for alias in _DEFAULT_TRUSTED_ISSUER_ALIASES:
-        target.setdefault(alias, pub)
-    for extra in extra_issuer_ids:
-        if isinstance(extra, str) and extra.strip():
-            target.setdefault(extra.strip(), pub)
+        names.append(issuer_id.strip())
+    names.extend(_DEFAULT_TRUSTED_ISSUER_ALIASES)
+    names.extend(extra.strip() for extra in extra_issuer_ids if isinstance(extra, str) and extra.strip())
+    for name in dict.fromkeys(names):
+        _merge_trusted_key(target, name, pub)
+
+
+def _public_key_from_payload(value: Any) -> Ed25519PublicKey:
+    if isinstance(value, str):
+        candidate = value.strip()
+        if "BEGIN PUBLIC KEY" in candidate:
+            return public_key_from_pem(candidate)
+        return public_key_from_hex(candidate)
+    if isinstance(value, dict):
+        if "public_key_hex" in value:
+            return public_key_from_hex(str(value["public_key_hex"]).strip())
+        if "public_key_pem" in value:
+            return public_key_from_pem(str(value["public_key_pem"]).strip())
+    raise ValueError("public key entry must contain a hex or PEM public key")
+
+
+def _register_key_entry(
+    target: dict[str, TrustedIssuerValue],
+    entry: Any,
+    *,
+    default_issuer: str,
+    extra_issuer_ids: Sequence[str],
+) -> None:
+    """Register one key entry, including rotation ``keys`` arrays."""
+    if isinstance(entry, dict):
+        issuer = str(entry.get("issuer_id") or default_issuer)
+        if "keys" in entry and isinstance(entry["keys"], list):
+            for item in entry["keys"]:
+                _register_key_entry(
+                    target,
+                    item,
+                    default_issuer=issuer,
+                    extra_issuer_ids=extra_issuer_ids,
+                )
+            return
+        pub = _public_key_from_payload(entry)
+        _register_public_key_aliases(target, pub, issuer, extra_issuer_ids)
+        return
+    pub = _public_key_from_payload(entry)
+    _register_public_key_aliases(target, pub, default_issuer, extra_issuer_ids)
 
 
 def _parse_public_key_file_content(
     raw_text: str,
-    target: dict[str, Ed25519PublicKey],
+    target: dict[str, TrustedIssuerValue],
     extra_issuer_ids: Sequence[str] = (),
 ) -> None:
     stripped = raw_text.strip()
@@ -615,66 +682,84 @@ def _parse_public_key_file_content(
     if stripped.startswith("{") or stripped.startswith("["):
         data = json.loads(stripped)
         if isinstance(data, dict):
-            if "public_key_hex" in data:
-                pub = public_key_from_hex(str(data["public_key_hex"]).strip())
-                _register_public_key_aliases(
+            if "public_key_hex" in data or "public_key_pem" in data or "keys" in data:
+                _register_key_entry(
                     target,
-                    pub,
-                    str(data.get("issuer_id") or "dmint-authority"),
-                    extra_issuer_ids,
+                    data,
+                    default_issuer=str(data.get("issuer_id") or "dmint-authority"),
+                    extra_issuer_ids=extra_issuer_ids,
                 )
             elif "trusted_issuers" in data and isinstance(data["trusted_issuers"], list):
                 for item in data["trusted_issuers"]:
-                    if isinstance(item, dict) and "public_key_hex" in item:
-                        pub = public_key_from_hex(str(item["public_key_hex"]).strip())
-                        _register_public_key_aliases(
-                            target,
-                            pub,
-                            str(item.get("issuer_id") or "dmint-authority"),
-                            extra_issuer_ids,
-                        )
+                    _register_key_entry(
+                        target,
+                        item,
+                        default_issuer="dmint-authority",
+                        extra_issuer_ids=extra_issuer_ids,
+                    )
             else:
                 for k, v in data.items():
-                    if isinstance(k, str) and isinstance(v, str) and len(v.strip()) == 64:
-                        pub = public_key_from_hex(v.strip())
-                        _register_public_key_aliases(target, pub, k, extra_issuer_ids)
+                    if not isinstance(k, str):
+                        continue
+                    if isinstance(v, (str, dict)):
+                        _register_key_entry(
+                            target,
+                            v,
+                            default_issuer=k,
+                            extra_issuer_ids=extra_issuer_ids,
+                        )
+                    elif isinstance(v, list):
+                        for item in v:
+                            _register_key_entry(
+                                target,
+                                item,
+                                default_issuer=k,
+                                extra_issuer_ids=extra_issuer_ids,
+                            )
         elif isinstance(data, list):
             for item in data:
-                if isinstance(item, dict) and "public_key_hex" in item:
-                    pub = public_key_from_hex(str(item["public_key_hex"]).strip())
-                    _register_public_key_aliases(
-                        target,
-                        pub,
-                        str(item.get("issuer_id") or "dmint-authority"),
-                        extra_issuer_ids,
-                    )
+                _register_key_entry(
+                    target,
+                    item,
+                    default_issuer="dmint-authority",
+                    extra_issuer_ids=extra_issuer_ids,
+                )
         return
     if "BEGIN PUBLIC KEY" in stripped:
         pub = public_key_from_pem(stripped)
         _register_public_key_aliases(target, pub, "dmint-authority", extra_issuer_ids)
         return
-    if len(stripped) == 64:
-        pub = public_key_from_hex(stripped)
-        _register_public_key_aliases(target, pub, "dmint-authority", extra_issuer_ids)
+    for candidate in stripped.split(","):
+        value = candidate.strip()
+        if value:
+            pub = _public_key_from_payload(value)
+            _register_public_key_aliases(target, pub, "dmint-authority", extra_issuer_ids)
 
 
 def load_trusted_issuers_from_public_sources(
     workspace_dir: Path | str | None = None,
     *,
     extra_issuer_ids: Sequence[str] = (),
-) -> dict[str, Ed25519PublicKey]:
+) -> dict[str, TrustedIssuerValue]:
     """Load trusted Ed25519 public keys from public-key-only environment variables or files.
 
-    Never reads or imports private signing keys.
+    Never reads or imports private signing keys. Multiple comma-separated keys
+    and rotation ``keys`` arrays are supported; a value is a tuple when more
+    than one key is trusted under the same issuer ID.
     """
-    trusted: dict[str, Ed25519PublicKey] = {}
+    trusted: dict[str, TrustedIssuerValue] = {}
     env_issuer = os.environ.get("DMINT_TRUSTED_ISSUER_ID", "dmint-authority").strip() or "dmint-authority"
 
     for env_var in ("DMINT_TRUSTED_PUBLIC_KEY_HEX", "DMINT_AUTHORITY_PUBLIC_KEY_HEX"):
         raw_hex = os.environ.get(env_var, "").strip()
-        if raw_hex:
+        if not raw_hex:
+            continue
+        for candidate in raw_hex.split(","):
+            value = candidate.strip()
+            if not value:
+                continue
             try:
-                pub = public_key_from_hex(raw_hex)
+                pub = public_key_from_hex(value)
                 _register_public_key_aliases(trusted, pub, env_issuer, extra_issuer_ids)
             except Exception:
                 pass

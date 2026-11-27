@@ -17,6 +17,7 @@ from .approvals import ApprovalRecord, new_request_id
 from .verification import ApprovalAssertion, ApprovalVerifier
 from .canonicalize import freeze_json, thaw_json
 from .errors import (
+    ApprovalConsumedError,
     ApprovalPolicyInvalidError,
     ApprovalCredentialInvalidError,
     ApprovalRequiredError,
@@ -40,6 +41,56 @@ ResourceResolver = Callable[[Mapping[str, Any]], str]
 ResourceSpec = NoResource | ResourceResolver
 
 _AUTHORIZATION_TOKEN = object()
+
+_TRUSTED_ISSUER_ALIASES = (
+    "dmint-cli",
+    "dmint-authority",
+    "dmint-dashboard",
+    "local-authority",
+)
+
+
+def _add_trusted_key(mapping: dict[str, Any], issuer: str, key: Any) -> None:
+    """Register a public key, preserving every key trusted under the same issuer."""
+    from .verification import public_key_hex
+
+    existing = mapping.get(issuer)
+    if existing is None:
+        mapping[issuer] = key
+        return
+    existing_keys = existing if isinstance(existing, tuple) else (existing,)
+    new_keys = key if isinstance(key, tuple) else (key,)
+    merged = list(existing_keys)
+    known = {public_key_hex(candidate) for candidate in merged}
+    for candidate in new_keys:
+        candidate_hex = public_key_hex(candidate)
+        if candidate_hex not in known:
+            merged.append(candidate)
+            known.add(candidate_hex)
+    mapping[issuer] = merged[0] if len(merged) == 1 else tuple(merged)
+
+
+def _write_trusted_issuer_file(path: Path, public_key: Any) -> None:
+    """Write the public half of an auto-generated local signing key for 3-Zone discovery."""
+    import json
+    import os
+
+    from .verification import public_key_hex
+
+    payload = json.dumps(
+        {"issuer_id": "dmint-authority", "public_key_hex": public_key_hex(public_key)},
+        indent=2,
+    )
+    tmp_path = path.with_name(path.name + ".tmp")
+    try:
+        fd = os.open(str(tmp_path), os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
+        try:
+            os.write(fd, (payload + "\n").encode("utf-8"))
+        finally:
+            os.close(fd)
+        tmp_path.replace(path)
+    except OSError:
+        tmp_path.unlink(missing_ok=True)
 
 
 def _weak_callable_ref(function: Callable[..., Any]) -> weakref.ReferenceType[Any] | None:
@@ -324,6 +375,8 @@ class Dmint:
             raise TypeError("integration_id must be a non-empty string")
         if approval_store is not None and not isinstance(approval_store, ApprovalStore):
             raise TypeError("approval_store must be an instance of ApprovalStore")
+        if approval_store is not None and approval_ttl is None:
+            approval_ttl = timedelta(minutes=10)
         if approval_verifier is not None and type(approval_verifier) is not ApprovalVerifier:
             raise TypeError("approval_verifier must be ApprovalVerifier")
         if policy_provenance is not None and type(policy_provenance) is not PolicyProvenance:
@@ -386,12 +439,14 @@ class Dmint:
             policy = policy_path
         if storage is not None and db_path is None:
             db_path = storage
+        resolved_policy_file: str | Path | None = None
         if isinstance(policy, Policy):
             resolved_policy = policy
         else:
             p_str = str(policy).strip()
             if Path(p_str).is_file():
                 resolved_policy = Policy.from_file(p_str)
+                resolved_policy_file = p_str
             else:
                 from dmint.templates import AVAILABLE_TEMPLATES, get_template_policy
 
@@ -399,6 +454,7 @@ class Dmint:
                     resolved_policy = get_template_policy(p_str.lower())
                 else:
                     resolved_policy = Policy.from_file(p_str)
+                    resolved_policy_file = p_str
 
         if isinstance(context, TrustedContext):
             resolved_ctx = context
@@ -417,46 +473,77 @@ class Dmint:
             dmint_dir = Path(".dmint")
             db_p = dmint_dir / "approvals.sqlite3"
         dmint_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
-        try:
-            os.chmod(str(dmint_dir), 0o700)
-        except OSError:
-            pass
+        if os.name == "posix":
+            try:
+                os.chmod(str(dmint_dir), 0o700)
+            except OSError as exc:
+                warnings.warn(
+                    f"could not restrict Dmint state directory permissions ({exc.__class__.__name__}); "
+                    "approval records and key material may be accessible to other local users",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
+            else:
+                try:
+                    import stat
+
+                    dir_mode = stat.S_IMODE(os.stat(dmint_dir).st_mode)
+                except OSError:
+                    dir_mode = None
+                if dir_mode is not None and dir_mode & 0o077:
+                    warnings.warn(
+                        f"Dmint state directory {dmint_dir} has group/other permissions {oct(dir_mode)}; expected 0700",
+                        RuntimeWarning,
+                        stacklevel=2,
+                    )
+
+        from .verification import load_trusted_issuers_from_public_sources
+
+        effective_epoch = os.environ.get("DMINT_DEPLOYMENT_EPOCH") or deployment_epoch
+        trusted_public = load_trusted_issuers_from_public_sources(dmint_dir.parent)
 
         skey_path = dmint_dir / "signing.key"
         ikey_path = dmint_dir / "integrity.key"
-        if not skey_path.exists():
-            write_private_key_atomic(skey_path, Ed25519PrivateKey.generate())
-        if not ikey_path.exists():
-            write_integrity_key_atomic(ikey_path, os.urandom(32))
+        trusted_map: dict[str, Any] = {}
+        for issuer, key in trusted_public.items():
+            _add_trusted_key(trusted_map, issuer, key)
 
+        if not skey_path.exists() and trusted_public:
+            # 3-Zone isolation: the enforcement zone holds public keys only and must
+            # never regenerate a private signing key that an operator removed.
+            pass
+        elif not skey_path.exists():
+            generated_priv = Ed25519PrivateKey.generate()
+            write_private_key_atomic(skey_path, generated_priv)
+            _write_trusted_issuer_file(dmint_dir / "trusted_issuer.json", generated_priv.public_key())
+            pub = generated_priv.public_key()
+            for alias in _TRUSTED_ISSUER_ALIASES:
+                _add_trusted_key(trusted_map, alias, pub)
+        else:
+            pub = load_private_key_from_file(skey_path).public_key()
+            for alias in _TRUSTED_ISSUER_ALIASES:
+                _add_trusted_key(trusted_map, alias, pub)
+
+        has_env_integrity_key = bool(
+            os.environ.get("DMINT_INTEGRITY_KEY", "").strip() or os.environ.get("DMINT_INTEGRITY_KEY_FILE", "").strip()
+        )
         ikey_source: Path | None = None
-        if not os.environ.get("DMINT_INTEGRITY_KEY") and not os.environ.get("DMINT_INTEGRITY_KEY_FILE"):
+        if not has_env_integrity_key:
+            if not ikey_path.exists():
+                write_integrity_key_atomic(ikey_path, os.urandom(32))
             ikey_source = ikey_path
 
         now_fn = clock or (lambda: datetime.now(timezone.utc))
         store = SQLiteApprovalStore(
             db_p,
-            deployment_epoch=deployment_epoch,
+            deployment_epoch=effective_epoch,
             integrity_key=ikey_source,
             clock=now_fn,
         )
-        prov = PolicyProvenance("v1", policy_digest(resolved_policy), now_fn())
+        resolved_digest = policy_digest(resolved_policy)
+        version_id = f"{effective_epoch}-{resolved_digest[:8]}" if effective_epoch != "default" else "v1"
+        prov = PolicyProvenance(version_id, resolved_digest, now_fn())
         store.set_authoritative_policy(resolved_policy, prov)
-
-        priv = load_private_key_from_file(skey_path)
-        pub = priv.public_key()
-        trusted_map: dict[str, Any] = {
-            "dmint-cli": pub,
-            "dmint-authority": pub,
-            "dmint-dashboard": pub,
-            "local-authority": pub,
-        }
-        default_skey = Path.home() / ".config" / "dmint" / "signing.key"
-        if default_skey.exists() and not skey_path.exists():
-            try:
-                trusted_map["dmint-cli"] = load_private_key_from_file(default_skey).public_key()
-            except Exception:
-                pass
 
         aud = os.environ.get("DMINT_AUTHORITY_AUDIENCE", DEFAULT_APPROVAL_AUDIENCE)
         verifier = ApprovalVerifier(trusted_issuers=trusted_map, audience=aud, clock=now_fn)
@@ -471,6 +558,7 @@ class Dmint:
             approval_ttl=approval_ttl,
             integration_id=integration_id,
             clock=now_fn,
+            policy_file=resolved_policy_file,
         )
 
     def reload_policy(self) -> None:
@@ -491,9 +579,11 @@ class Dmint:
 
         object.__setattr__(self, "_policy", new_policy)
         if self._approval_store is not None and self._policy_provenance is not None:
+            new_digest = policy_digest(new_policy)
+            epoch = os.environ.get("DMINT_DEPLOYMENT_EPOCH") or "default"
             new_provenance = PolicyProvenance(
-                self._policy_provenance.version_id,
-                policy_digest(new_policy),
+                f"{epoch}-{new_digest[:8]}",
+                new_digest,
                 datetime.now(timezone.utc),
             )
             object.__setattr__(self, "_policy_provenance", new_provenance)
@@ -811,6 +901,12 @@ class Dmint:
                     and p.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
                 ]
                 if len(args) == len(sig_params) + 1:
+                    warnings.warn(
+                        "passing None positionally to Dmint.retry() is deprecated; "
+                        "pass approval_credential=... as a keyword argument",
+                        DeprecationWarning,
+                        stacklevel=2,
+                    )
                     args = args[1:]
         bound_self = getattr(protected_callable, "__self__", None)
         call_args = (
@@ -818,7 +914,6 @@ class Dmint:
         )
         if approval_credential is None and hasattr(self._approval_store, "get_approved_assertion_for_request"):
             from .request_binding import request_binding_fingerprint
-            from .errors import ApprovalConsumedError
 
             _, _, probe_req = self._prepare_call(
                 binding.function,
@@ -840,18 +935,13 @@ class Dmint:
             if matched is not None:
                 _, approval_credential = matched
             else:
-                raw_conn = getattr(self._approval_store, "_connection", None)
-                if raw_conn is not None:
-                    row = raw_conn.execute(
-                        """
-                        SELECT state FROM approval_records
-                        WHERE request_fingerprint = ? AND principal_id = ? AND integration_id = ?
-                        ORDER BY decision_at DESC, created_at DESC LIMIT 1
-                        """,
-                        (probe_fp, self._agent_id, self._integration_id),
-                    ).fetchone()
-                    if row is not None and row["state"] == "CONSUMED":
-                        raise ApprovalConsumedError("approval was already consumed")
+                existing_record = self._approval_store.find_by_fingerprint(
+                    request_fingerprint=probe_fp,
+                    principal_id=self._agent_id,
+                    integration_id=self._integration_id,
+                )
+                if existing_record is not None and existing_record.state.value == "CONSUMED":
+                    raise ApprovalConsumedError("approval was already consumed")
         if type(approval_credential) is bytes:
             try:
                 approval_credential = ApprovalAssertion.from_bytes(approval_credential)

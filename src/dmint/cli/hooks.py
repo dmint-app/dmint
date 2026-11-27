@@ -2214,6 +2214,8 @@ def main_init(args: list[str] | None = None) -> int:
     else:
         pub_map = load_trusted_issuers_from_public_sources(ws_dir)
         first_pub = next(iter(pub_map.values()), None)
+        if isinstance(first_pub, tuple):
+            first_pub = first_pub[0] if first_pub else None
         pub_hex = public_key_hex(first_pub) if first_pub is not None else "external"
         key_summary_line = f"  - Trusted key   : public-key-only (public_key_hex={pub_hex[:16]}...)"
     policy_obj = Policy.from_file(env_paths["policy_path"])

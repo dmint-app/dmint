@@ -3,7 +3,7 @@
 from typing import TYPE_CHECKING, Any
 
 from .base import ApprovalStore
-from .factory import create_approval_store
+from .factory import create_approval_store, resolve_database_url
 from .sqlite import SQLiteApprovalStore
 from .thread_safe import ThreadSafeApprovalStore
 
@@ -16,6 +16,7 @@ __all__ = [
     "SQLiteApprovalStore",
     "ThreadSafeApprovalStore",
     "create_approval_store",
+    "resolve_database_url",
 ]
 
 

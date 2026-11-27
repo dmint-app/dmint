@@ -23,6 +23,27 @@ _VALID_SCHEMES = {
 }
 
 
+def resolve_database_url(database_url: str | None = None) -> str | None:
+    """Resolve a database URL from an explicit value, ``DMINT_DATABASE_URL``, or its ``_FILE`` variant."""
+    raw_url = database_url if database_url is not None else os.environ.get("DMINT_DATABASE_URL")
+    if raw_url is not None and raw_url.strip():
+        return raw_url.strip()
+
+    file_value = os.environ.get("DMINT_DATABASE_URL_FILE", "").strip()
+    if not file_value:
+        return raw_url
+    path = Path(file_value).expanduser()
+    try:
+        content = path.read_text(encoding="utf-8").strip()
+    except OSError:
+        raise ApprovalStoreConfigurationError(f"cannot read DMINT_DATABASE_URL_FILE at '{path}'") from None
+    if not content:
+        raise ApprovalStoreConfigurationError(f"DMINT_DATABASE_URL_FILE at '{path}' is empty")
+    if len(content) > 16384:
+        raise ApprovalStoreConfigurationError(f"DMINT_DATABASE_URL_FILE at '{path}' is too large")
+    return content
+
+
 def create_approval_store(
     database_url: str | None = None,
     *,
@@ -48,7 +69,7 @@ def create_approval_store(
        raises ApprovalStoreConfigurationError and refuses to start.
        Never falls back to SQLite silently.
     """
-    raw_url = database_url if database_url is not None else os.environ.get("DMINT_DATABASE_URL")
+    raw_url = resolve_database_url(database_url)
 
     # 1. Unset -> local SQLite default (OSS/dev path)
     if raw_url is None or not raw_url.strip():

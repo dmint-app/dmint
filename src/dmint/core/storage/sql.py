@@ -31,6 +31,7 @@ from sqlalchemy import (
     Text,
     create_engine,
     delete,
+    desc,
     func,
     insert,
     or_,
@@ -59,6 +60,7 @@ from ..approvals import (
 )
 from ..verification import ApprovalAssertion, ApprovalVerifier
 from ..errors import (
+    ApprovalBacklogError,
     ApprovalConcurrentConsumeError,
     ApprovalConsumedError,
     ApprovalDeploymentInvalidError,
@@ -531,7 +533,7 @@ class SQLAlchemyApprovalStore(ApprovalStore):
                 )
 
                 if count >= self._max_pending_per_principal:
-                    raise ApprovalStoreError("quota exceeded: maximum pending approvals reached for principal")
+                    raise ApprovalBacklogError("quota exceeded: maximum pending approvals reached for principal")
 
                 values = self._serialize(record)
                 payload = dict(zip((*_STORED_COLUMNS, "record_checksum"), values))
@@ -649,6 +651,39 @@ class SQLAlchemyApprovalStore(ApprovalStore):
         if row is None:
             return None
         return self._deserialize(row)
+
+    def find_by_fingerprint(
+        self,
+        *,
+        request_fingerprint: str,
+        principal_id: str,
+        integration_id: str,
+    ) -> ApprovalRecord | None:
+        """Return the newest record for an exact request binding, regardless of state."""
+        try:
+            with self._engine.begin() as conn:
+                self._sync_recovery_counter_with_conn(conn, increment=False)
+                row = conn.execute(
+                    select(self._records_table.c.approval_id)
+                    .where(
+                        self._records_table.c.request_fingerprint == request_fingerprint,
+                        self._records_table.c.principal_id == principal_id,
+                        self._records_table.c.integration_id == integration_id,
+                        self._records_table.c.deployment_epoch == self._deployment_epoch,
+                    )
+                    .order_by(
+                        desc(self._records_table.c.decision_at),
+                        desc(self._records_table.c.created_at),
+                    )
+                    .limit(1)
+                ).fetchone()
+                if row is None:
+                    return None
+                return self._get_with_conn(conn, row[0])
+        except ApprovalStoreError:
+            raise
+        except SQLAlchemyError as exc:
+            raise ApprovalStoreError("could not find approval record") from exc
 
     def require_pending(self, approval_id: str) -> ApprovalRecord:
         record = self.get_pending(approval_id)

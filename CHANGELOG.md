@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.8] - 2026-11-27
+
+### Approvals, Store ABC, Key Separation & Secret Loading
+- **Store-Level Fingerprint Lookup (`A-01`, `DMT_APPROVAL_BACKLOG`)**:
+  - Added `find_by_fingerprint()` to the `ApprovalStore` ABC and implemented it in the SQLite, SQLAlchemy, and thread-safe stores. `Dmint.retry()` no longer reaches into the SQLite-only `_connection` internals, so consumed-approval detection works on every backend and remains scoped to the deployment epoch.
+  - Added `ApprovalBacklogError` (`DMT_APPROVAL_BACKLOG`), raised when `max_pending_per_principal` is exceeded after expired approvals have been cleaned up.
+- **Approval Defaults & Key Separation (`A-02`–`A-07`)**:
+  - `Dmint(approval_store=...)` now defaults `approval_ttl` to 10 minutes. Passing `None` positionally to `Dmint.retry()` emits a `DeprecationWarning` in favor of `approval_credential=...`.
+  - `Dmint.local()` trusts `DMINT_TRUSTED_PUBLIC_KEY_HEX` and `.dmint/trusted_issuer.json` before generating a signing key, so a 3-Zone enforcement host never recreates a private key that an operator removed. Auto-generated keys now also write `.dmint/trusted_issuer.json`.
+  - `DMINT_TRUSTED_PUBLIC_KEY_HEX` accepts comma-separated keys and `trusted_issuer.json` accepts a `keys` array; `ApprovalVerifier` tries every trusted key for an issuer, enabling zero-downtime key rotation.
+  - Policy provenance version IDs now include the deployment epoch and a policy digest prefix on reload, and `Dmint.local()` warns when the state directory cannot be restricted to `0700`.
+- **Policy File & Secret Hardening (`K-02`–`K-04`)**:
+  - `Policy.from_file()` rejects non-regular files, enforces a 10 MiB default size cap, and rejects symlinks via `allow_symlinks=False` or `DMINT_REJECT_POLICY_SYMLINKS=1`, using `O_NOFOLLOW` plus post-open `fstat()` validation.
+  - `DMINT_DATABASE_URL_FILE` is honored everywhere database URLs are resolved, and `DMINT_DASHBOARD_TOKEN_FILE` is honored by the dashboard. `Dmint.local()` no longer creates `.dmint/integrity.key` when `DMINT_INTEGRITY_KEY` or `DMINT_INTEGRITY_KEY_FILE` supplies the key.
+
 ## [2.0.7] - 2026-11-26
 
 ### Canonicalization, Redaction & Property-Test Hardening

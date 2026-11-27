@@ -55,6 +55,7 @@ from .audit import (
 from .errors import (
     ApprovalAlgorithmUnsupportedError,
     ApprovalAudienceInvalidError,
+    ApprovalBacklogError,
     ApprovalConcurrentConsumeError,
     ApprovalCredentialInvalidError,
     ApprovalConsumedError,
@@ -145,6 +146,7 @@ __all__ = [
     "APPROVAL_CREDENTIAL_VERSION",
     "ApprovalAlgorithmUnsupportedError",
     "ApprovalAudienceInvalidError",
+    "ApprovalBacklogError",
     "ApprovalConcurrentConsumeError",
     "ApprovalCredentialInvalidError",
     "ApprovalConsumedError",

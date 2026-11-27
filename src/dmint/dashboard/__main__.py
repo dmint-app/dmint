@@ -106,7 +106,7 @@ def main(argv: list[str] | None = None, prog: str | None = None) -> None:
 
     from pathlib import Path
 
-    if not args.db_path and not args.database_url:
+    if not args.db_path and not args.database_url and not os.environ.get("DMINT_DATABASE_URL_FILE"):
         if Path(".dmint/approvals.sqlite3").is_file():
             args.db_path = ".dmint/approvals.sqlite3"
         elif Path("approvals.sqlite3").is_file():

@@ -35,7 +35,7 @@ from dmint.errors import (
 )
 from dmint.models import Decision
 from dmint.policy import Policy
-from dmint.storage import ApprovalStore, create_approval_store
+from dmint.storage import ApprovalStore, create_approval_store, resolve_database_url
 
 
 def _format_age(created_at: datetime, now: datetime | None = None) -> str:
@@ -67,7 +67,7 @@ def _get_store(
     clock: Callable[[], datetime] | None = None,
 ) -> ApprovalStore:
     """Instantiate the active ApprovalStore (SQLite or Postgres)."""
-    target_url = database_url or os.environ.get("DMINT_DATABASE_URL")
+    target_url = resolve_database_url(database_url)
     target_epoch = deployment_epoch or os.environ.get("DMINT_DEPLOYMENT_EPOCH", "default")
     target_sqlite = db_path or os.environ.get("DMINT_DB_PATH")
 

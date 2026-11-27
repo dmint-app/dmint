@@ -236,7 +236,7 @@
   {
     "id": "MUT-26",
     "file": "src/dmint/core/verification.py",
-    "find": "key.verify(assertion.signature, assertion.signing_bytes())",
+    "find": "candidate.verify(assertion.signature, assertion.signing_bytes())",
     "replace": "pass",
     "tests": [
       "tests/core/test_authority.py",

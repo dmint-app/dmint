@@ -1,6 +1,6 @@
 # `dmint.cli`
 
-Developer CLI, agent harness hook manager, and policy authoring toolkit for Dmint (`v2.0.7`).
+Developer CLI, agent harness hook manager, and policy authoring toolkit for Dmint (`v2.0.8`).
 
 `dmint.cli` provides a fast, unified command-line interface for bootstrapping project security (`dmint init`), running end-to-end security diagnostics (`dmint doctor`), managing pre-tool hooks across 6 AI coding harnesses (`dmint hook`), authoring policies via 4 offline or AI-assisted modes (`dmint create-policy` and `dmint create-mcp-policy`), managing human approvals (`dmint pending`, `dmint approve`, `dmint reject`), and managing Ed25519/HMAC keys (`dmint init-keys`, `dmint export-public-key`).
 
@@ -11,7 +11,7 @@ Developer CLI, agent harness hook manager, and policy authoring toolkit for Dmin
 ```bash
 pip install dmint
 dmint --version
-# Output: dmint 2.0.7
+# Output: dmint 2.0.8
 ```
 
 ---

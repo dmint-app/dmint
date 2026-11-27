@@ -193,7 +193,11 @@ class MCPGateway:
                     self._approval_store = approval_store
             else:
                 self._approval_store = approval_store
-        elif config.approval_store_path or os.environ.get("DMINT_DATABASE_URL"):
+        elif (
+            config.approval_store_path
+            or os.environ.get("DMINT_DATABASE_URL")
+            or os.environ.get("DMINT_DATABASE_URL_FILE")
+        ):
             effective_epoch = getattr(config, "deployment_epoch", None) or os.environ.get(
                 "DMINT_DEPLOYMENT_EPOCH", "default"
             )

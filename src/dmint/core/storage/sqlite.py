@@ -45,6 +45,7 @@ from ..approvals import (
 )
 from ..verification import ApprovalAssertion, ApprovalVerifier
 from ..errors import (
+    ApprovalBacklogError,
     ApprovalConcurrentConsumeError,
     ApprovalConsumedError,
     ApprovalDeploymentInvalidError,
@@ -653,7 +654,7 @@ class SQLiteApprovalStore(ApprovalStore):
 
         pending_count = count_row["count"] if count_row else 0
         if pending_count >= self._max_pending_per_principal:
-            raise ApprovalStoreError("quota exceeded: maximum pending approvals reached for principal")
+            raise ApprovalBacklogError("quota exceeded: maximum pending approvals reached for principal")
 
         self._save(record)
         return record
@@ -763,6 +764,35 @@ class SQLiteApprovalStore(ApprovalStore):
         if row is None:
             return None
         return self._deserialize(row)
+
+    @_synchronized
+    def find_by_fingerprint(
+        self,
+        *,
+        request_fingerprint: str,
+        principal_id: str,
+        integration_id: str,
+    ) -> ApprovalRecord | None:
+        """Return the newest record for an exact request binding, regardless of state."""
+        self._sync_recovery_counter(increment=False)
+        try:
+            row = self._connection.execute(
+                """
+                SELECT approval_id FROM approval_records
+                WHERE request_fingerprint = ?
+                AND principal_id = ?
+                AND integration_id = ?
+                AND deployment_epoch = ?
+                ORDER BY decision_at DESC, created_at DESC
+                LIMIT 1
+                """,
+                (request_fingerprint, principal_id, integration_id, self._deployment_epoch),
+            ).fetchone()
+        except sqlite3.Error as exc:
+            raise ApprovalStoreError("could not find approval record") from exc
+        if row is None:
+            return None
+        return self.get(row["approval_id"])
 
     @_synchronized
     def _fetch_row(self, approval_id: str) -> sqlite3.Row | None:

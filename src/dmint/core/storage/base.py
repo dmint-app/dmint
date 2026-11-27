@@ -77,6 +77,17 @@ class ApprovalStore(abc.ABC):
         raise NotImplementedError
 
     @abc.abstractmethod
+    def find_by_fingerprint(
+        self,
+        *,
+        request_fingerprint: str,
+        principal_id: str,
+        integration_id: str,
+    ) -> ApprovalRecord | None:
+        """Return the newest record matching an exact request binding, regardless of state."""
+        raise NotImplementedError
+
+    @abc.abstractmethod
     def require_pending(self, approval_id: str) -> ApprovalRecord:
         """Retrieve a PENDING record or raise ApprovalNotFoundError."""
         raise NotImplementedError

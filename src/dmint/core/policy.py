@@ -610,15 +610,75 @@ class Policy:
         return policy
 
     @classmethod
-    def from_file(cls, path: str | Path, *, expected_policy_digest: str | None = None) -> "Policy":
-        """Load, verify digest, and parse a policy from a local filesystem path."""
-        import os
-        from pathlib import Path
+    def from_file(
+        cls,
+        path: str | Path,
+        *,
+        expected_policy_digest: str | None = None,
+        max_bytes: int = 10 * 1024 * 1024,
+        allow_symlinks: bool = True,
+    ) -> "Policy":
+        """Load, verify digest, and parse a policy from a local filesystem path.
 
-        p = Path(path).resolve()
-        if not p.is_file():
-            raise PolicyError(f"policy file '{p}' not found")
-        data = p.read_bytes()
+        The path must resolve to a regular file no larger than ``max_bytes``.
+        Symlinks are accepted by default but rejected when ``allow_symlinks``
+        is false or ``DMINT_REJECT_POLICY_SYMLINKS=1``.
+        """
+        import os
+        import stat
+
+        if type(max_bytes) is not int or max_bytes <= 0:
+            raise ValueError("max_bytes must be a positive integer")
+        raw_path = Path(path)
+        reject_symlinks = not allow_symlinks or os.environ.get("DMINT_REJECT_POLICY_SYMLINKS", "").lower() in (
+            "1",
+            "true",
+            "yes",
+        )
+        try:
+            file_stat = os.stat(raw_path, follow_symlinks=not reject_symlinks)
+        except FileNotFoundError:
+            raise PolicyError(f"policy file '{raw_path}' not found") from None
+        except OSError as exc:
+            raise PolicyError(f"cannot stat policy file '{raw_path}'") from exc
+        if reject_symlinks and stat.S_ISLNK(file_stat.st_mode):
+            raise PolicyError(f"policy file '{raw_path}' must not be a symlink")
+        if not stat.S_ISREG(file_stat.st_mode):
+            raise PolicyError(f"policy file '{raw_path}' is not a regular file")
+        if file_stat.st_size > max_bytes:
+            raise PolicyError(f"policy file exceeds maximum size limit of {max_bytes} bytes")
+
+        flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NONBLOCK", 0)
+        if reject_symlinks:
+            flags |= getattr(os, "O_NOFOLLOW", 0)
+        try:
+            fd = os.open(str(raw_path), flags)
+        except FileNotFoundError:
+            raise PolicyError(f"policy file '{raw_path}' not found") from None
+        except OSError as exc:
+            if reject_symlinks and os.path.islink(raw_path):
+                raise PolicyError(f"policy file '{raw_path}' must not be a symlink") from None
+            raise PolicyError(f"cannot open policy file '{raw_path}'") from exc
+        try:
+            opened_stat = os.fstat(fd)
+            if not stat.S_ISREG(opened_stat.st_mode):
+                raise PolicyError(f"policy file '{raw_path}' is not a regular file")
+            if opened_stat.st_size > max_bytes:
+                raise PolicyError(f"policy file exceeds maximum size limit of {max_bytes} bytes")
+            chunks: list[bytes] = []
+            remaining = max_bytes + 1
+            while remaining > 0:
+                chunk = os.read(fd, min(65536, remaining))
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                remaining -= len(chunk)
+            data = b"".join(chunks)
+        finally:
+            os.close(fd)
+        if len(data) > max_bytes:
+            raise PolicyError(f"policy file exceeds maximum size limit of {max_bytes} bytes")
+
         digest = expected_policy_digest or os.environ.get("DMINT_EXPECTED_POLICY_DIGEST")
         policy = cls.from_json(data)
         if digest:

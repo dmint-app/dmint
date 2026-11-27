@@ -140,6 +140,19 @@ class ThreadSafeApprovalStore(ApprovalStore):
     def get(self, approval_id: str) -> ApprovalRecord | None:
         return self._get_current_store().get(approval_id)
 
+    def find_by_fingerprint(
+        self,
+        *,
+        request_fingerprint: str,
+        principal_id: str,
+        integration_id: str,
+    ) -> ApprovalRecord | None:
+        return self._get_current_store().find_by_fingerprint(
+            request_fingerprint=request_fingerprint,
+            principal_id=principal_id,
+            integration_id=integration_id,
+        )
+
     def get_pending(self, approval_id: str) -> ApprovalRecord | None:
         return self._get_current_store().get_pending(approval_id)
 
